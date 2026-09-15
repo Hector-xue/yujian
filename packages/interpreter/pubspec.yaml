@@ -1,0 +1,17 @@
+name: interpreter
+description: 余见 Interpreter：自然语言 → 草稿。规则优先，LLM 兜底，可插拔。
+version: 0.1.0
+publish_to: none
+resolution: workspace
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ledger_core:
+    path: ../ledger_core
+  providers:
+    path: ../providers
+  query_dsl:
+    path: ../query_dsl
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

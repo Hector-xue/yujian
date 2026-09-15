@@ -15,9 +15,9 @@
 
 ```
 packages/ledger_core   账本核心：账户 / 交易 + posting 轻复式 / 草稿收件箱 / 审计 / 完整性校验
-packages/interpreter   自然语言 → 草稿（规则优先，LLM 兜底）        [Sprint 2]
-packages/query_dsl     查询 DSL（模型只出 JSON，引擎执行）          [Sprint 2]
-packages/providers     模型 Provider 抽象与能力探测                 [Sprint 2]
+packages/interpreter   自然语言 → 草稿 / 查询 / 修改意图（规则优先，LLM 兜底，可插拔）
+packages/query_dsl     查询 DSL（模型只出 JSON，引擎在账本上执行并给依据）
+packages/providers     模型 Provider 抽象、OpenAI-compatible 实现、能力实测
 apps/yujian            Flutter App                                  [Phase 1]
 server/                可选 Python 服务端                            [Phase 3]
 corpus/                解析语料
@@ -31,8 +31,30 @@ personas/              人格包
 ```bash
 dart pub get
 dart analyze
-dart test packages/ledger_core
+dart test packages/ledger_core packages/providers packages/query_dsl
+(cd packages/interpreter && dart test)
+
+# 语料回归（rule 不需要模型；llm / hybrid 需要 OpenAI-compatible 端点）
+dart run packages/interpreter/bin/corpus_eval.dart --mode rule
+YUJIAN_LLM_BASE_URL=https://api.deepseek.com/v1 YUJIAN_LLM_API_KEY=sk-... YUJIAN_LLM_MODEL=deepseek-chat \
+  dart run packages/interpreter/bin/corpus_eval.dart --mode hybrid
+
+# Phase 0 验收命令行：一句话 → 草稿 → y 确认 → 查询
+dart run packages/interpreter/bin/yujian_cli.dart --db yujian.db
 ```
+
+## 解析管线
+
+```
+文本 → RuleInterpreter（金额/日期/类型/分类/账户，<10ms）
+        ├─ 完整且置信 ≥ 0.8 → 草稿
+        └─ 否则 → LLMInterpreter（结构化 JSON，只能用给定的账户/分类 id）
+                   ├─ 金额与文本数字交叉核对，不一致降置信
+                   └─ 模型不可用 → 退回规则结果，标 degraded
+草稿 → ledger_core 校验 → 收件箱 → 用户确认 → 落账
+```
+
+查询不依赖 tool calling：模型只输出 Query DSL JSON，`query_dsl` 校验后在账本上执行，返回行 + 依据交易 id。
 
 ## 账本核心速览
 

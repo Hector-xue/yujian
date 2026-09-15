@@ -15,3 +15,7 @@ jobs:
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test packages/ledger_core
+      - run: dart test packages/providers
+      - run: dart test packages/query_dsl
+      - run: cd packages/interpreter && dart test
+      - run: dart run packages/interpreter/bin/corpus_eval.dart --mode rule

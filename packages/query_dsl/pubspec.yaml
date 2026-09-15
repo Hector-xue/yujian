@@ -1,0 +1,13 @@
+name: query_dsl
+description: 余见 Query DSL：模型只出 JSON，引擎在账本上执行。
+version: 0.1.0
+publish_to: none
+resolution: workspace
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ledger_core:
+    path: ../ledger_core
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

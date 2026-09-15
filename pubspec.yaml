@@ -5,3 +5,6 @@ environment:
   sdk: ^3.6.0
 workspace:
   - packages/ledger_core
+  - packages/providers
+  - packages/interpreter
+  - packages/query_dsl
