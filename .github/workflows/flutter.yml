@@ -30,7 +30,7 @@ jobs:
         run: |
           ver=$(grep -A0 '^  sqlite3:' pubspec.lock -A3 | grep version | tr -d ' "' | cut -d: -f2)
           echo "sqlite3 $ver"
-          curl -sSfL -o web/sqlite3.wasm "https://github.com/simonbinder/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
+          curl -sSfL -o web/sqlite3.wasm "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
       - run: flutter build web --release --base-href /
       - uses: actions/upload-artifact@v4
         with:

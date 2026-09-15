@@ -60,5 +60,5 @@ class LedgerDatabase {
   ResultSet select(String sql, [List<Object?> params = const []]) => db.select(sql, params);
   void execute(String sql, [List<Object?> params = const []]) => db.execute(sql, params);
 
-  void close() => db.dispose();
+  void close() => db.close();
 }
