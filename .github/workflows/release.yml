@@ -21,14 +21,20 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libsqlite3-dev libsecret-1-dev
       - run: flutter pub get
       - run: flutter build linux --release
+      - name: mcp server bundle
+        working-directory: packages/mcp_server
+        run: dart pub get && dart build cli --target bin/yujian_mcp.dart -o build/mcp
       - name: package
         run: |
           ver=${GITHUB_REF_NAME#v}
           (cd build/linux/x64/release/bundle && tar czf "../../../../../yujian-${ver}-linux-x64.tar.gz" .)
+          (cd ../../packages/mcp_server/build/mcp/bundle && tar czf "$GITHUB_WORKSPACE/apps/yujian/yujian-mcp-${ver}-linux-x64.tar.gz" .)
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: apps/yujian/yujian-*-linux-x64.tar.gz
+          files: |
+            apps/yujian/yujian-*-linux-x64.tar.gz
+            apps/yujian/yujian-mcp-*-linux-x64.tar.gz
 
   desktop-windows:
     runs-on: windows-latest
@@ -46,15 +52,21 @@ jobs:
       - run: flutter create --platforms=windows --project-name yujian --org com.ivyea .
       - run: flutter pub get
       - run: flutter build windows --release
+      - name: mcp server bundle
+        working-directory: packages/mcp_server
+        run: dart pub get && dart build cli --target bin/yujian_mcp.dart -o build/mcp
       - name: package
         shell: pwsh
         run: |
           $ver = $env:GITHUB_REF_NAME -replace '^v',''
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "yujian-$ver-windows-x64.zip"
+          Compress-Archive -Path ..\..\packages\mcp_server\build\mcp\bundle\* -DestinationPath "yujian-mcp-$ver-windows-x64.zip"
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: apps/yujian/yujian-*-windows-x64.zip
+          files: |
+            apps/yujian/yujian-*-windows-x64.zip
+            apps/yujian/yujian-mcp-*-windows-x64.zip
 
   build:
     runs-on: ubuntu-latest

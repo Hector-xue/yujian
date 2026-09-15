@@ -85,9 +85,14 @@ ledger.auditFor(tx.id);         // propose → commit → create 全链
 
 ## MCP
 
+Release 里有 `yujian-mcp-<版本>-<平台>` 包（`bin/yujian_mcp` + `lib/libsqlite3`），或自己构建：
+
 ```bash
-cd packages/mcp_server && dart run bin/yujian_mcp.dart --db ~/.local/share/com.ivyea.yujian/yujian.db
+cd packages/mcp_server && dart build cli --target bin/yujian_mcp.dart -o build/mcp
+build/mcp/bundle/bin/yujian_mcp --db <余见的 yujian.db 路径>   # 路径在 App「更多」页底部
 ```
+
+注意别用 `dart run` 起 MCP server：它会往 stdout 打 "Running build hooks..."，破坏 JSON-RPC。
 
 Claude Desktop / ivyea-agent 等把它配成 stdio server 即可。工具只有查询和 `propose_*`：agent 提议的交易进收件箱，用户在 App 里确认后才入账。
 

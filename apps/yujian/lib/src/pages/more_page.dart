@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../db/open_db.dart';
 import 'accounts_page.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
@@ -48,7 +49,7 @@ class MorePage extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-            child: Text('余见 0.1.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 0.2.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

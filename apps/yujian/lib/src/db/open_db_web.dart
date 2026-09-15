@@ -1,6 +1,8 @@
 import 'package:ledger_core/ledger_core.dart';
 import 'package:sqlite3/wasm.dart';
 
+String? lastOpenedPath = '浏览器 IndexedDB（yujian）';
+
 Future<LedgerDatabase> open({bool inMemory = false}) async {
   final sqlite = await WasmSqlite3.loadFromUrl(Uri.parse('sqlite3.wasm'));
   if (inMemory) {
