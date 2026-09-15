@@ -1,0 +1,12 @@
+name: notification_templates
+description: 余见通知模板库：支付类通知文案 → 金额/方向/商户/账户线索。内置模板 + 用户模板，纯规则可测。
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ledger_core:
+    path: ../ledger_core
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

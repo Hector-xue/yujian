@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import 'accounts_page.dart';
+import 'automation_page.dart';
 import 'budgets_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
@@ -31,6 +32,7 @@ class MorePage extends StatelessWidget {
           item(Icons.bar_chart_outlined, '月度统计', const StatsPage()),
           item(Icons.savings_outlined, '预算', const BudgetsPage()),
           item(Icons.event_repeat_outlined, '周期账单', const RecurringPage()),
+          item(Icons.notifications_active_outlined, '自动记账', const AutomationPage()),
           item(Icons.account_balance_wallet_outlined, '账户', const AccountsPage()),
           item(Icons.label_outline, '分类', const CategoriesPage()),
           item(Icons.history, '审计日志', const _AuditPage()),

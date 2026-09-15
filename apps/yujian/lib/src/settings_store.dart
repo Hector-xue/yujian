@@ -3,12 +3,17 @@ import 'package:providers/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 用户设置。API Key 只进系统安全存储（Keystore / Keychain / 钥匙串 / Web Crypto），其余进普通偏好。
+/// 自动记账模式（§11.4）。
+enum AutomationMode { confirm, smart, silent }
+
 class Settings {
   final String? baseUrl;
   final String? model;
   final String? apiKey;
   final String personaId;
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist'});
+  final AutomationMode automationMode;
+  final bool notificationsWanted; // 用户在余见里打开了开关（系统授权另查）
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false});
 
   ProviderConfig? get providerConfig {
     if (baseUrl == null || baseUrl!.isEmpty || model == null || model!.isEmpty) return null;
@@ -16,8 +21,14 @@ class Settings {
     return ProviderConfig(name: 'user', type: ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId}) =>
-      Settings(baseUrl: baseUrl ?? this.baseUrl, model: model ?? this.model, apiKey: apiKey ?? this.apiKey, personaId: personaId ?? this.personaId);
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted}) => Settings(
+        baseUrl: baseUrl ?? this.baseUrl,
+        model: model ?? this.model,
+        apiKey: apiKey ?? this.apiKey,
+        personaId: personaId ?? this.personaId,
+        automationMode: automationMode ?? this.automationMode,
+        notificationsWanted: notificationsWanted ?? this.notificationsWanted,
+      );
 }
 
 abstract class SettingsStore {
@@ -37,7 +48,14 @@ class PlatformSettingsStore implements SettingsStore {
     } catch (_) {
       key = null; // 安全存储不可用（如无 keyring 的桌面）：当作没配
     }
-    return Settings(baseUrl: p.getString('llm_base_url'), model: p.getString('llm_model'), apiKey: key, personaId: p.getString('persona_id') ?? 'minimalist');
+    return Settings(
+      baseUrl: p.getString('llm_base_url'),
+      model: p.getString('llm_model'),
+      apiKey: key,
+      personaId: p.getString('persona_id') ?? 'minimalist',
+      automationMode: AutomationMode.values.asNameMap()[p.getString('automation_mode') ?? ''] ?? AutomationMode.confirm,
+      notificationsWanted: p.getBool('notifications_wanted') ?? false,
+    );
   }
 
   @override
@@ -46,6 +64,8 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('llm_base_url', s.baseUrl ?? '');
     await p.setString('llm_model', s.model ?? '');
     await p.setString('persona_id', s.personaId);
+    await p.setString('automation_mode', s.automationMode.name);
+    await p.setBool('notifications_wanted', s.notificationsWanted);
     try {
       if (s.apiKey == null || s.apiKey!.isEmpty) {
         await _secure.delete(key: 'llm_api_key');

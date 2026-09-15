@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
+import 'package:notification_templates/notification_templates.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
 
+import 'notifications/notification_source.dart';
 import 'settings_store.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
@@ -12,14 +16,18 @@ class AppState extends ChangeNotifier {
   final Ledger ledger;
   final QueryEngine engine;
   final SettingsStore settingsStore;
+  final NotificationSource notifications;
+  final TemplateMatcher matcher = TemplateMatcher();
+  StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
   Settings settings = const Settings();
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
 
-  AppState(this.ledger, {SettingsStore? settingsStore})
+  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications})
       : engine = QueryEngine(ledger),
-        settingsStore = settingsStore ?? MemorySettingsStore();
+        settingsStore = settingsStore ?? MemorySettingsStore(),
+        notifications = notifications ?? FakeNotificationSource();
 
   /// 读设置并按它装配解析器与人格。启动时和保存设置后各调一次。
   Future<void> loadSettings() async {
@@ -66,6 +74,76 @@ class AppState extends ChangeNotifier {
   static String _today() {
     final n = DateTime.now();
     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  // ------------------------------------------------------------ 自动记账
+
+  /// 启动：把 App 关着时攒下的通知吃掉，再订阅实时流。
+  Future<int> startNotifications() async {
+    if (!settings.notificationsWanted) return 0;
+    final n = ingestNotifications(await notifications.drain());
+    _liveSub ??= notifications.live.listen((e) => ingestNotifications([e]));
+    return n;
+  }
+
+  /// 通知 → 模板抽取 → 草稿；按模式决定是否自动落账。返回新草稿/入账数。
+  int ingestNotifications(List<NotificationEvent> events) {
+    if (events.isEmpty) return 0;
+    final ctx = context();
+    final rule = interpreter.rule;
+    var n = 0;
+    for (final e in events) {
+      final x = matcher.extract(e);
+      if (x.ignored) continue;
+      final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
+      final type = x.direction == 'income' ? 'income' : (x.direction == 'transfer' ? 'transfer' : 'expense');
+      final kind = type == 'income' ? 'income' : 'expense';
+      final categoryId = type == 'transfer' ? null : rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind);
+      final payload = <String, Object?>{
+        'type': type,
+        'amount_minor': x.amountMinor,
+        'currency': x.currency,
+        'account_id': accountId,
+        if (type != 'transfer') 'category_id': categoryId,
+        'merchant': x.merchant,
+        'description': x.merchant ?? (e.title ?? e.packageName),
+        'occurred_at': OccurredAt(DateTime.fromMillisecondsSinceEpoch(e.postedAtMs), DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
+        'metadata': {'notification': {'package': e.packageName, 'title': e.title, 'text': e.text, 'template': x.templateId}},
+      };
+      final drafts = ledger.propose(
+        [DraftInput(payload: payload, confidence: x.confidence, eventFingerprint: x.fingerprint, fingerprintIsExact: x.fingerprintIsExact)],
+        source: Source.notification,
+        actor: Actor.automation,
+        interpreter: 'notification:${x.templateId}',
+      );
+      if (drafts.isEmpty) continue; // 精确指纹重复
+      n++;
+      final d = drafts.single;
+      final auto = switch (settings.automationMode) {
+        AutomationMode.confirm => false,
+        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && categoryId != null && x.accountHint != null,
+        AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
+      };
+      if (auto) {
+        try {
+          ledger.commit(d.id);
+        } on LedgerException {
+          // 留在收件箱
+        }
+      }
+    }
+    if (n > 0) notifyListeners();
+    return n;
+  }
+
+  /// 用户粘贴一段通知文案试模板（也是贡献模板的入口）。
+  Extraction tryTemplate(String packageName, String? title, String text) =>
+      matcher.extract(NotificationEvent(packageName: packageName, title: title, text: text, postedAtMs: DateTime.now().millisecondsSinceEpoch));
+
+  @override
+  void dispose() {
+    _liveSub?.cancel();
+    super.dispose();
   }
 
   List<BudgetStatus> budgetAlerts() => ledger.budgets.statuses(today: _today()).where((s) => s.overAlert).toList();

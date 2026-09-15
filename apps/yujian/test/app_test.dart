@@ -4,7 +4,9 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
+import 'package:yujian/src/notifications/notification_source.dart';
 import 'package:yujian/src/settings_store.dart';
+import 'package:notification_templates/notification_templates.dart';
 
 void main() {
   late AppState state;
@@ -107,5 +109,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('吃饭'), findsOneWidget);
     expect(find.textContaining('还剩 ¥10.00'), findsOneWidget);
+  });
+
+  group('notifications', () {
+    NotificationEvent wechat(String text, {String? key}) => NotificationEvent(packageName: 'com.tencent.mm', title: '微信支付', text: text, postedAtMs: DateTime.now().millisecondsSinceEpoch, key: key);
+
+    test('confirm mode: drafts only; exact key dedupes; ignored skipped', () async {
+      final src = FakeNotificationSource(enabled: true);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(notificationsWanted: true));
+      src.queue.addAll([wechat('已支付¥19.90，商户：瑞幸咖啡', key: 'k1'), wechat('已支付¥19.90，商户：瑞幸咖啡', key: 'k1'), wechat('您有一张优惠券即将过期，立即领取')]);
+      expect(await st.startNotifications(), 1);
+      final d = st.inbox.single;
+      expect(d.source, Source.notification);
+      expect(d.payload['amount_minor'], 1990);
+      expect(d.payload['category_id'], 'food');
+      expect(d.payload['account_id'], 'wechat');
+      expect(d.payload['merchant'], '瑞幸咖啡');
+      expect(st.ledger.listTransactions(), isEmpty);
+      // 实时流
+      src.emit(wechat('已支付¥8.00，商户：地铁', key: 'k2'));
+      await Future<void>.delayed(Duration.zero);
+      expect(st.inbox.length, 2);
+    });
+
+    test('smart mode auto-commits confident ones, keeps unclear in inbox', () async {
+      final src = FakeNotificationSource(enabled: true);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(notificationsWanted: true, automationMode: AutomationMode.smart));
+      src.queue.addAll([wechat('已支付¥19.90，商户：瑞幸咖啡', key: 'a'), wechat('已支付¥66.00', key: 'b')]);
+      await st.startNotifications();
+      expect(st.ledger.listTransactions().single.amountMinor, 1990);
+      expect(st.inbox.single.payload['amount_minor'], 6600); // 没商户没分类 → 收件箱
+    });
+
+    test('silent mode commits anything complete; unusable text lands in inbox with raw text', () async {
+      final src = FakeNotificationSource(enabled: true);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(notificationsWanted: true, automationMode: AutomationMode.silent));
+      src.queue.addAll([wechat('已支付¥66.00', key: 'b'), NotificationEvent(packageName: 'com.eg.android.AlipayGphone', title: '支付宝', text: '你有一笔新的交易，点击查看', postedAtMs: 1, key: 'c')]);
+      await st.startNotifications();
+      expect(st.ledger.listTransactions().length, 0); // 66 没分类 → 缺字段 → 不能自动
+      expect(st.inbox.length, 2);
+      expect(st.inbox.every((d) => d.missingFields.isNotEmpty), isTrue);
+      expect((st.inbox.last.payload['metadata'] as Map)['notification'], isNotNull);
+    });
+
+    test('notifications off → nothing ingested', () async {
+      final src = FakeNotificationSource(enabled: true)..queue.add(wechat('已支付¥1.00', key: 'z'));
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      expect(await st.startNotifications(), 0);
+      expect(st.inbox, isEmpty);
+    });
   });
 }
