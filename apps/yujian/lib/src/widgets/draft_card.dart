@@ -45,8 +45,7 @@ class DraftGroupCard extends StatelessWidget {
                         ? null
                         : () {
                             try {
-                              final n = app.commitGroup(drafts.first.groupId).length;
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已记 $n 笔')));
+                              app.commitGroup(drafts.first.groupId); // 卡片自己会变成"已记账 N 笔"，不再弹条挡住输入框
                             } on LedgerException catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
                             }

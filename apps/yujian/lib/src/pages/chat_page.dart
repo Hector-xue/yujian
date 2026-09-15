@@ -54,7 +54,14 @@ class _ChatPageState extends State<ChatPage> {
     });
     final r = await app.say(text);
     if (!mounted) return;
-    final meta = '${r.result.interpreter}${r.result.modelUsed != null ? ' · ${r.result.modelUsed}' : ''}${r.result.degraded ? ' · 模型不可用，规则结果' : ''}';
+    final noModel = r.result.notes.any((n) => n.contains('no model configured'));
+    final meta = r.result.modelUsed != null
+        ? '规则 + ${r.result.modelUsed}'
+        : noModel
+            ? '规则解析 · 未配置模型'
+            : r.result.degraded
+                ? '规则解析 · 模型暂时不可用'
+                : '规则解析';
     setState(() {
       _busy = false;
       if (r.error != null) {
