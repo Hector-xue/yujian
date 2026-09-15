@@ -5,6 +5,57 @@ on:
     tags: ['v*']
   workflow_dispatch:
 jobs:
+  desktop-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/yujian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libsqlite3-dev libsecret-1-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: package
+        run: |
+          ver=${GITHUB_REF_NAME#v}
+          (cd build/linux/x64/release/bundle && tar czf "../../../../../yujian-${ver}-linux-x64.tar.gz" .)
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: apps/yujian/yujian-*-linux-x64.tar.gz
+
+  desktop-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/yujian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter create --platforms=windows --project-name yujian --org com.ivyea .
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: package
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF_NAME -replace '^v',''
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "yujian-$ver-windows-x64.zip"
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: apps/yujian/yujian-*-windows-x64.zip
+
   build:
     runs-on: ubuntu-latest
     permissions:

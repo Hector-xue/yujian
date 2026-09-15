@@ -170,6 +170,17 @@ class AppState extends ChangeNotifier {
 
   /// 一句话 → 解析 → 草稿进收件箱（不落账）。返回解析结果与建立的草稿。
   Future<({InterpretResult result, List<Draft> drafts, QueryResult? query, String? error})> say(String text) async {
+    // 周期账单 / 预算 的问法不进 Query DSL（它们不是交易聚合），直接答
+    if (RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
+      final items = ledger.recurring.list();
+      final lines = items.map((r) => '${r.name} ${Money(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${r.nextDue}').join('；');
+      return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: items.isEmpty ? '还没有设置周期账单（更多 → 周期账单）' : '固定账单 ${items.length} 项：$lines');
+    }
+    if (RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
+      final st = ledger.budgets.statuses(today: _today());
+      final lines = st.map((s) => '${s.budget.name} 已用 ${Money(s.spentMinor, s.budget.currency)} / ${Money(s.budget.amountMinor, s.budget.currency)}${s.exceeded ? '（已超）' : ''}').join('；');
+      return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: st.isEmpty ? '还没有设置预算（更多 → 预算）' : lines);
+    }
     final r = await interpreter.interpret(text, context());
     switch (r.intent) {
       case Intent.query:
