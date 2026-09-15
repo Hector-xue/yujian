@@ -21,17 +21,21 @@ class Settings {
   final String? backupPassphrase;
   final List<Map<String, Object?>> userTemplates; // 用户通知模板（notification_templates JSON）
   final Map<String, Object?>? customPersona; // 自定义人格包 JSON
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona});
+  final String providerType; // openai | anthropic
+  final bool localOnly; // 仅本地模型：端点不在本机/内网就不调
+  final bool redact; // 发送前脱敏
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true});
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
   ProviderConfig? get providerConfig {
     if (baseUrl == null || baseUrl!.isEmpty || model == null || model!.isEmpty) return null;
     final extra = <String, Object?>{if (baseUrl!.contains('openrouter.ai')) 'reasoning': {'enabled': false}};
-    return ProviderConfig(name: 'user', type: ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
+    if (localOnly && !isLocalEndpoint(baseUrl!)) return null; // 开了"仅本地"但端点在云上：当作没配
+    return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -44,6 +48,9 @@ class Settings {
         backupPassphrase: backupPassphrase ?? this.backupPassphrase,
         userTemplates: userTemplates ?? this.userTemplates,
         customPersona: clearCustomPersona ? null : (customPersona ?? this.customPersona),
+        providerType: providerType ?? this.providerType,
+        localOnly: localOnly ?? this.localOnly,
+        redact: redact ?? this.redact,
       );
 }
 
@@ -81,6 +88,9 @@ class PlatformSettingsStore implements SettingsStore {
       backupPassphrase: passphrase,
       userTemplates: _jsonList(p.getString('user_templates')),
       customPersona: _jsonMap(p.getString('custom_persona')),
+      providerType: p.getString('provider_type') ?? 'openai',
+      localOnly: p.getBool('local_only') ?? false,
+      redact: p.getBool('redact') ?? true,
     );
   }
 
@@ -96,6 +106,9 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('sync_url', s.syncUrl ?? '');
     await p.setString('user_templates', jsonEncode(s.userTemplates));
     await p.setString('custom_persona', s.customPersona == null ? '' : jsonEncode(s.customPersona));
+    await p.setString('provider_type', s.providerType);
+    await p.setBool('local_only', s.localOnly);
+    await p.setBool('redact', s.redact);
     try {
       for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
         if (e.value == null || e.value!.isEmpty) {

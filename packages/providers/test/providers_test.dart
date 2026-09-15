@@ -133,4 +133,50 @@ void main() {
     expect((((content[0] as Map)['image_url']) as Map)['url'], startsWith('data:image/png;base64,'));
     expect((content[1] as Map)['text'], 'u');
   });
+
+  test('anthropic provider speaks the messages API and maps usage', () async {
+    var seen = <String, Object?>{};
+    s.handler = (body) {
+      seen = body;
+      return {'model': 'claude-x', 'content': [{'type': 'text', 'text': '{"amount": 28}'}], 'usage': {'input_tokens': 5, 'output_tokens': 3}};
+    };
+    final c = ProviderConfig(name: 'a', type: ProviderType.anthropic, baseUrl: s.baseUrl, apiKey: 'k', model: 'claude-x');
+    final r = await AnthropicProvider(c).complete(system: 'sys', user: 'u', jsonMode: true);
+    expect(r.text, '{"amount": 28}');
+    expect(r.usage?.promptTokens, 5);
+    expect(s.requests.single['path'], '/v1/messages');
+    expect(seen['system'], contains('只输出一个 JSON'));
+    expect(seen['max_tokens'], 2048);
+    final probe = await CapabilityProbe.run(AnthropicProvider(c));
+    expect(probe.jsonOutput, isTrue);
+  });
+
+  test('vision probe passes only when the model names the color', () async {
+    s.handler = (body) {
+      final content = ((body['messages'] as List)[1] as Map)['content'];
+      if (content is List) return chatReply('这是一张红色的图');
+      final user = ((body['messages'] as List)[1] as Map)['content'] as String;
+      return chatReply(user == 'ping' ? 'OK' : '{"amount": 28}');
+    };
+    final c = await CapabilityProbe.run(OpenAICompatProvider(cfg()), testVision: true);
+    expect(c.vision, isTrue);
+    s.handler = (body) {
+      final content = ((body['messages'] as List)[1] as Map)['content'];
+      if (content is List) return chatReply('我看不到图片');
+      return chatReply('OK');
+    };
+    expect((await CapabilityProbe.run(OpenAICompatProvider(cfg()), testVision: true)).vision, isFalse);
+  });
+
+  test('redaction keeps amounts, hides ids/phones/cards/emails; local endpoint detection', () {
+    expect(redactForModel('午饭花了 28.5 元，订单号 2026091512345678，卡尾号 6222 0212 3456 7890'), '午饭花了 28.5 元，订单号 [编号]，卡尾号 [卡号]');
+    expect(redactForModel('给 13812345678 转了 500'), '给 [手机号] 转了 500');
+    expect(redactForModel('身份证 11010119900307123X 报销 300'), '身份证 [身份证] 报销 300');
+    expect(redactForModel('发票寄 a.b@x.com'), '发票寄 [邮箱]');
+    expect(isLocalEndpoint('http://localhost:11434/v1'), isTrue);
+    expect(isLocalEndpoint('http://192.168.1.10:1234/v1'), isTrue);
+    expect(isLocalEndpoint('http://10.0.0.5/v1'), isTrue);
+    expect(isLocalEndpoint('https://api.openai.com/v1'), isFalse);
+    expect(isLocalEndpoint('https://openrouter.ai/api/v1'), isFalse);
+  });
 }

@@ -6,20 +6,39 @@ import 'provider.dart';
 class Capabilities {
   final bool chat;
   final bool jsonOutput;
+  final bool? vision; // null = 没测
   final Duration? latency;
   final String? error;
-  const Capabilities({required this.chat, required this.jsonOutput, this.latency, this.error});
+  const Capabilities({required this.chat, required this.jsonOutput, this.vision, this.latency, this.error});
 
   Map<String, Object?> toJson() =>
-      {'chat': chat, 'json_output': jsonOutput, 'latency_ms': latency?.inMilliseconds, 'error': error};
+      {'chat': chat, 'json_output': jsonOutput, 'vision': vision, 'latency_ms': latency?.inMilliseconds, 'error': error};
 }
+
+/// 8×8 纯红 PNG（看图探测用：问模型主色是什么）。
+const probeImagePngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFklEQVR4nGP4z8DwHwyBFIzNQBYDAJxvD/GDwQZpAAAAAElFTkSuQmCC';
 
 class CapabilityProbe {
   /// 两次真实请求：普通对话；要求 JSON 的抽取（能否解析出指定字段）。
-  static Future<Capabilities> run(ChatProvider p, {Duration timeout = const Duration(seconds: 30)}) async {
+  static Future<Capabilities> run(ChatProvider p, {Duration timeout = const Duration(seconds: 30), bool testVision = false}) async {
     try {
       final r1 = await p.complete(system: 'Reply with exactly: OK', user: 'ping', timeout: timeout);
       final chat = r1.text.trim().isNotEmpty;
+      bool? vision;
+      if (testVision) {
+        try {
+          final rv = await p.completeWithImages(
+            system: '只回答一个颜色词。',
+            user: '这张图主要是什么颜色？',
+            images: [ImageInput(base64Decode(probeImagePngBase64), 'image/png')],
+            timeout: timeout,
+          );
+          vision = RegExp('红|red', caseSensitive: false).hasMatch(rv.text);
+        } catch (_) {
+          vision = false;
+        }
+      }
       var jsonOk = false;
       try {
         final r2 = await p.complete(
@@ -33,7 +52,7 @@ class CapabilityProbe {
       } catch (_) {
         jsonOk = false;
       }
-      return Capabilities(chat: chat, jsonOutput: jsonOk, latency: r1.latency);
+      return Capabilities(chat: chat, jsonOutput: jsonOk, vision: vision, latency: r1.latency);
     } on ProviderException catch (e) {
       return Capabilities(chat: false, jsonOutput: false, error: e.toString());
     }

@@ -50,7 +50,7 @@ class CategoriesPage extends StatelessWidget {
           actions: [
             if (existing != null && !existing.isDefault) TextButton(style: TextButton.styleFrom(foregroundColor: const Color(0xFFB4562E)), onPressed: () => Navigator.pop(d, 'delete'), child: const Text('删除')),
             TextButton(onPressed: () => Navigator.pop(d, null), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: const Text(existing == null ? '添加' : '保存')),
+            FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: Text(existing == null ? '添加' : '保存')),
           ],
         ),
       ),

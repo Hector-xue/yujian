@@ -20,6 +20,9 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController model;
   late final TextEditingController visionModel;
   late String personaId;
+  late String providerType;
+  late bool localOnly;
+  late bool redact;
   String? probeResult;
   var probing = false;
   var showKey = false;
@@ -33,27 +36,31 @@ class _SettingsPageState extends State<SettingsPage> {
     model = TextEditingController(text: s.model ?? '');
     visionModel = TextEditingController(text: s.visionModel ?? '');
     personaId = s.personaId;
+    providerType = s.providerType;
+    localOnly = s.localOnly;
+    redact = s.redact;
   }
 
-  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim());
+  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
 
   Future<void> _probe() async {
     final cfg = _draft().providerConfig;
     if (cfg == null) {
-      setState(() => probeResult = '先填 Base URL 和模型名');
+      setState(() => probeResult = localOnly && baseUrl.text.trim().isNotEmpty && !isLocalEndpoint(baseUrl.text.trim()) ? '开了"仅本地模型"，这个地址不在本机/内网，不会调用' : '先填 Base URL 和模型名');
       return;
     }
     setState(() {
       probing = true;
       probeResult = null;
     });
-    final c = await CapabilityProbe.run(OpenAICompatProvider(cfg));
+    final ChatProvider p = cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg);
+    final c = await CapabilityProbe.run(p, testVision: true);
     if (!mounted) return;
     setState(() {
       probing = false;
       probeResult = c.error != null
           ? '连不上：${c.error}'
-          : '对话 ${c.chat ? '✓' : '✗'} · JSON 输出 ${c.jsonOutput ? '✓' : '✗（解析会退回规则）'} · ${c.latency?.inMilliseconds ?? '-'} ms';
+          : '对话 ${c.chat ? '✓' : '✗'} · JSON ${c.jsonOutput ? '✓' : '✗（解析会退回规则）'} · 看图 ${c.vision == true ? '✓' : '✗'} · ${c.latency?.inMilliseconds ?? '-'} ms';
     });
   }
 
@@ -99,7 +106,13 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 4),
           Text('OpenAI 兼容接口：OpenAI、DeepSeek、OpenRouter、Ollama（http://主机:11434/v1）、LM Studio 都行。不填就只用规则解析，一样能记账。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
-          TextField(controller: baseUrl, decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://api.deepseek.com/v1'), keyboardType: TextInputType.url),
+          SegmentedButton<String>(
+            segments: const [ButtonSegment(value: 'openai', label: Text('OpenAI 兼容')), ButtonSegment(value: 'anthropic', label: Text('Anthropic'))],
+            selected: {providerType},
+            onSelectionChanged: (v) => setState(() => providerType = v.first),
+          ),
+          const SizedBox(height: 12),
+          TextField(controller: baseUrl, decoration: InputDecoration(labelText: 'Base URL', hintText: providerType == 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.deepseek.com/v1'), keyboardType: TextInputType.url),
           const SizedBox(height: 12),
           TextField(
             controller: apiKey,
@@ -122,7 +135,22 @@ class _SettingsPageState extends State<SettingsPage> {
               if (probeResult != null) Expanded(child: Text(probeResult!, style: theme.textTheme.bodySmall)),
             ],
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 20),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('仅本地模型'),
+            subtitle: Text('端点不在本机/内网（localhost、192.168.x、10.x、.local）时一律不调用，只用规则解析', style: theme.textTheme.bodySmall),
+            value: localOnly,
+            onChanged: (v) => setState(() => localOnly = v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('发送前脱敏'),
+            subtitle: Text('卡号、手机号、身份证、订单号、邮箱替换成占位符再发给模型；金额不动', style: theme.textTheme.bodySmall),
+            value: redact,
+            onChanged: (v) => setState(() => redact = v),
+          ),
+          const SizedBox(height: 20),
           Text('人格', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('只改语气。金额、时间、余额、确认流程它碰不到。', style: theme.textTheme.bodySmall),

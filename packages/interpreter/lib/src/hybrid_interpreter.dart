@@ -20,14 +20,14 @@ class HybridInterpreter implements Interpreter {
   String get name => 'hybrid';
 
   @override
-  Future<InterpretResult> interpret(String text, InterpretContext ctx) async {
+  Future<InterpretResult> interpret(String text, InterpretContext ctx, {String Function(String)? redactForModel}) async {
     final r = rule.interpretSync(text, ctx);
     if (llm == null) return _asHybrid(r, degraded: true, note: 'no model configured');
     if (_ruleIsEnough(r)) return _asHybrid(r);
 
     final InterpretResult l;
     try {
-      l = await llm!.interpret(text, ctx);
+      l = await llm!.interpret(redactForModel == null ? text : redactForModel(text), ctx);
     } on ProviderException catch (e) {
       return _asHybrid(r, degraded: true, note: 'model unavailable: ${e.message}');
     } catch (e) {

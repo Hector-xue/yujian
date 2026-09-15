@@ -214,4 +214,14 @@ void main() {
     expect(f.query, isNotNull);
     expect(f.query!.rows.map((x) => x.key), contains('projected'));
   });
+
+  test('local-only switch blocks cloud endpoints; anthropic type builds; redact flag persists', () async {
+    await state.saveSettings(const Settings(baseUrl: 'https://api.openai.com/v1', model: 'gpt', apiKey: 'k', localOnly: true));
+    expect(state.hasModel, isFalse);
+    await state.saveSettings(const Settings(baseUrl: 'http://192.168.1.2:11434/v1', model: 'qwen', localOnly: true));
+    expect(state.hasModel, isTrue);
+    await state.saveSettings(const Settings(baseUrl: 'https://api.anthropic.com/v1', model: 'claude', apiKey: 'k', providerType: 'anthropic'));
+    expect(state.hasModel, isTrue);
+    expect(state.settings.redact, isTrue);
+  });
 }

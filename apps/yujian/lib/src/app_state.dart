@@ -51,7 +51,7 @@ class AppState extends ChangeNotifier {
 
   void _apply() {
     final cfg = settings.providerConfig;
-    final p = cfg == null ? null : OpenAICompatProvider(cfg);
+    final ChatProvider? p = cfg == null ? null : (cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg));
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
     vision = p == null ? null : VisionInterpreter(p);
     final custom = settings.customPersona;
@@ -261,7 +261,8 @@ class AppState extends ChangeNotifier {
       final lines = st.map((s) => '${s.budget.name} 已用 ${Money(s.spentMinor, s.budget.currency)} / ${Money(s.budget.amountMinor, s.budget.currency)}${s.exceeded ? '（已超）' : ''}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: st.isEmpty ? '还没有设置预算（更多 → 预算）' : lines);
     }
-    final r = await interpreter.interpret(text, context());
+    // 脱敏只影响发给模型的那份；规则解析仍看原文（规则不出网）
+    final r = await interpreter.interpret(text, context(), redactForModel: settings.redact ? redactForModel : null);
     switch (r.intent) {
       case Intent.query:
         try {
