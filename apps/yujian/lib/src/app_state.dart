@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart' hide Category;
+import 'package:flutter/widgets.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
 import 'package:query_dsl/query_dsl.dart';
