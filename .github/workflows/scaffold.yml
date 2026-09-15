@@ -1,0 +1,24 @@
+name: scaffold-flutter-app
+# 一次性：在 CI 上生成 Flutter 工程骨架（本机不装 Flutter），产物下载后提交进仓库。
+on:
+  workflow_dispatch:
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: |
+          mkdir -p apps
+          cd apps
+          flutter create --org com.ivyea --project-name yujian --platforms android,web,linux --empty yujian
+          cd yujian && rm -rf build .dart_tool
+          tar czf ../yujian-scaffold.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yujian-scaffold
+          path: apps/yujian-scaffold.tgz

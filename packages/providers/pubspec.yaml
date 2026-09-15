@@ -2,7 +2,6 @@ name: providers
 description: 余见模型 Provider 抽象、OpenAI-compatible 实现与能力实测。
 version: 0.1.0
 publish_to: none
-resolution: workspace
 environment:
   sdk: ^3.6.0
 dev_dependencies:

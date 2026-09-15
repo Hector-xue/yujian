@@ -23,8 +23,9 @@ Future<void> main(List<String> args) async {
         only = args[++i].split(',').toSet();
     }
   }
+  if (!File(path).existsSync() && File('../../$path').existsSync()) path = '../../$path'; // 从包目录运行
   if (!File(path).existsSync()) {
-    stderr.writeln('corpus not found: $path (run from repo root)');
+    stderr.writeln('corpus not found: $path (run from repo root or packages/interpreter)');
     exit(2);
   }
   final corpus = Corpus.load(path);

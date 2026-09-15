@@ -29,19 +29,19 @@ personas/              人格包
 需要 Dart SDK ≥ 3.6（Phase 0 不需要 Flutter）。
 
 ```bash
-dart pub get
-dart analyze
-dart test packages/ledger_core packages/providers packages/query_dsl
-(cd packages/interpreter && dart test)
+scripts/check.sh          # 分析 + 全部纯 Dart 测试 + 语料回归（rule），CI 跑的就是它
 
 # 语料回归（rule 不需要模型；llm / hybrid 需要 OpenAI-compatible 端点）
-dart run packages/interpreter/bin/corpus_eval.dart --mode rule
+cd packages/interpreter
+dart run bin/corpus_eval.dart --mode rule
 YUJIAN_LLM_BASE_URL=https://api.deepseek.com/v1 YUJIAN_LLM_API_KEY=sk-... YUJIAN_LLM_MODEL=deepseek-chat \
-  dart run packages/interpreter/bin/corpus_eval.dart --mode hybrid
+  dart run bin/corpus_eval.dart --mode hybrid
 
 # Phase 0 验收命令行：一句话 → 草稿 → y 确认 → 查询
-dart run packages/interpreter/bin/yujian_cli.dart --db yujian.db
+dart run bin/yujian_cli.dart --db yujian.db
 ```
+
+Flutter App（`apps/yujian`）不在本机构建：GitHub Actions 负责 analyze / test / build，产物在 Actions 页面下载。
 
 ## 解析管线
 
