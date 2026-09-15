@@ -80,6 +80,12 @@ ledger.auditFor(tx.id);         // propose → commit → create 全链
 
 金额一律最小货币单位整数；时间带偏移存储；交易由 type 决定 posting 结构（expense 一负、income 一正、transfer 一负一正和为零、refund 挂原交易且不超余额、adjustment 必填原因）。
 
+## 发布
+
+`git tag v0.1.0 && git push --tags` → `release` 工作流构建签名 apk 与 web 包并挂到 GitHub Release。签名 keystore 不在仓库里，CI 从 Secret 还原；缺 Secret 直接失败。
+
+文档：[更新日志](CHANGELOG.md) · [路线图](docs/ROADMAP.md) · [隐私说明](docs/PRIVACY.md)
+
 ## 许可证
 
 MIT
