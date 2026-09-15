@@ -36,6 +36,7 @@ ThemeData buildTheme() {
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: scheme.outlineVariant)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     ),
+    listTileTheme: const ListTileThemeData(selectedTileColor: Colors.transparent, selectedColor: ink),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: Colors.white,
       indicatorColor: accent.withValues(alpha: 0.12),
