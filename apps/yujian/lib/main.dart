@@ -16,6 +16,7 @@ Future<void> main() async {
   final db = await openAppDatabase();
   final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore())..bootstrap();
   await state.loadSettings();
+  state.generateRecurring();
   runApp(YujianApp(state: state));
 }
 

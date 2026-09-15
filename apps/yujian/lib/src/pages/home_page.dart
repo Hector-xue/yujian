@@ -4,6 +4,7 @@ import 'package:query_dsl/query_dsl.dart';
 
 import '../app_state.dart';
 import '../widgets/fmt.dart';
+import 'budgets_page.dart';
 import 'transactions_page.dart';
 
 /// 首页：本月支出/收入、账户合计、最近几笔。
@@ -23,6 +24,8 @@ class HomePage extends StatelessWidget {
     final income = app.engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to)));
     final balances = app.ledger.balances();
     final recent = app.ledger.listTransactions(limit: 5);
+    final alerts = app.budgetAlerts();
+    final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
     final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
 
@@ -44,6 +47,21 @@ class HomePage extends StatelessWidget {
           const SizedBox(height: 20),
           FilledButton.tonalIcon(onPressed: onGoChat, icon: const Icon(Icons.edit_outlined), label: const Text('说一句话记一笔')),
           const SizedBox(height: 24),
+          if (alerts.isNotEmpty) ...[
+            Text('预算', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 8),
+            for (final a in alerts) BudgetBar(status: a),
+          ],
+          if (upcoming.isNotEmpty) ...[
+            Text('近期到期', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            for (final r in upcoming)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [Expanded(child: Text(r.name)), Text('${r.nextDue.substring(5).replaceFirst('-', '/')} · ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}', style: theme.textTheme.bodySmall)]),
+              ),
+            const SizedBox(height: 16),
+          ],
           if (recent.isNotEmpty) ...[
             Text('最近', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),

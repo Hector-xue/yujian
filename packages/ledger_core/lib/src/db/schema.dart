@@ -122,4 +122,35 @@ CREATE TABLE memory_map (
   updated_at INTEGER NOT NULL
 );
 ''',
+  3: '''
+CREATE TABLE recurring (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  template TEXT NOT NULL,
+  frequency TEXT NOT NULL,
+  interval INTEGER NOT NULL DEFAULT 1,
+  next_due TEXT NOT NULL,
+  reminder_days_before INTEGER NOT NULL DEFAULT 0,
+  auto_create INTEGER NOT NULL DEFAULT 1,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  last_generated TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE budgets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category_id TEXT REFERENCES categories(id),
+  amount_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  period TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  alert_threshold REAL NOT NULL DEFAULT 0.8,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''',
 };

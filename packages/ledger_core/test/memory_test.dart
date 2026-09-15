@@ -22,7 +22,7 @@ void main() {
         source: Source.chat,
       ).single;
 
-  test('schema is at version 2', () => expect(db.schemaVersion, 2));
+  test('schema is at version 3', () => expect(db.schemaVersion, 3));
 
   test('correction in inbox becomes a high-confidence merchant mapping', () {
     ledger.commit(propose(merchant: '楼下面馆', cat: 'shopping').id, edits: {'category_id': 'food', 'account_id': cash.id});

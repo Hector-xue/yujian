@@ -94,4 +94,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('全部确认'), findsOneWidget);
   });
+
+  testWidgets('recurring due → inbox draft; budget alert shows on home', (tester) async {
+    final today = DateTime.now();
+    final ym = '${today.year}-${today.month.toString().padLeft(2, '0')}';
+    state.ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 220000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '$ym-01');
+    expect(state.generateRecurring(), 1);
+    expect(state.inbox.single.source, Source.recurring);
+    state.ledger.budgets.create(name: '吃饭', categoryId: 'food', amountMinor: 10000, startDate: '$ym-01');
+    state.addManual({'type': 'expense', 'amount_minor': 9000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'occurred_at': OccurredAt.fromLocal(DateTime.now()).toIso8601String()});
+    await tester.pumpWidget(YujianApp(state: state));
+    await tester.pumpAndSettle();
+    expect(find.text('吃饭'), findsOneWidget);
+    expect(find.textContaining('还剩 ¥10.00'), findsOneWidget);
+  });
 }

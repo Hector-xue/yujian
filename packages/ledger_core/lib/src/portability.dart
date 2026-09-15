@@ -48,6 +48,11 @@ Map<String, Object?> exportJson(Ledger ledger) => {
         for (final s in [TransactionStatus.confirmed, TransactionStatus.void_])
           for (final t in ledger.listTransactions(status: s, limit: 1 << 30)) t.toJson(),
       ],
+      'recurring': [for (final r in ledger.recurring.list(activeOnly: false)) r.toJson()],
+      'budgets': [
+        for (final b in ledger.budgets.list(activeOnly: false))
+          {'id': b.id, 'name': b.name, 'category_id': b.categoryId, 'amount_minor': b.amountMinor, 'currency': b.currency, 'period': b.period.name, 'start_date': b.startDate, 'end_date': b.endDate, 'alert_threshold': b.alertThreshold, 'is_active': b.isActive},
+      ],
       'memory': [
         for (final m in ledger.memory.all(limit: 100000))
           {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source},
@@ -67,6 +72,8 @@ int restoreFromJson(Ledger ledger, Map<String, Object?> j) {
     categories: (j['categories'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     transactions: (j['transactions'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     memory: (j['memory'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
+    recurring: (j['recurring'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
+    budgets: (j['budgets'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
   );
 }
 

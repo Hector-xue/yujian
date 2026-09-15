@@ -9,7 +9,9 @@ import 'models/category.dart';
 import 'models/draft.dart';
 import 'models/enums.dart';
 import 'models/transaction.dart';
+import 'budget.dart';
 import 'memory.dart';
+import 'recurring.dart';
 import 'occurred_at.dart';
 import 'money.dart';
 import 'validation.dart';
@@ -21,6 +23,8 @@ class Ledger implements ValidationContext {
   final DateTime Function() _clock;
 
   late final MemoryStore memory = MemoryStore(_db, _nowMs);
+  late final RecurringStore recurring = RecurringStore(this, _db, _nowMs);
+  late final BudgetStore budgets = BudgetStore(this, _db, _nowMs);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -457,9 +461,11 @@ class Ledger implements ValidationContext {
     required List<Map<String, Object?>> categories,
     required List<Map<String, Object?>> transactions,
     required List<Map<String, Object?>> memory,
+    List<Map<String, Object?>> recurring = const [],
+    List<Map<String, Object?>> budgets = const [],
   }) {
     return _db.transaction(() {
-      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'categories', 'accounts']) {
+      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'categories', 'accounts']) {
         _db.execute('DELETE FROM $t');
       }
       final ts = _nowMs();
@@ -497,6 +503,18 @@ class Ledger implements ValidationContext {
       for (final m in memory) {
         _db.execute('INSERT OR REPLACE INTO memory_map(key,kind,category_id,account_id,hits,corrections,source,updated_at) VALUES (?,?,?,?,?,?,?,?)',
             [m['key'], m['kind'], m['category_id'], m['account_id'], m['hits'] ?? 1, m['corrections'] ?? 0, m['source'] ?? 'confirmed', ts]);
+      }
+      for (final r in recurring) {
+        _db.execute(
+          'INSERT INTO recurring(id,name,template,frequency,interval,next_due,reminder_days_before,auto_create,is_active,last_generated,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          [r['id'], r['name'], jsonEncode(r['template'] ?? const {}), r['frequency'], r['interval'] ?? 1, r['next_due'], r['reminder_days_before'] ?? 0, r['auto_create'] == false ? 0 : 1, r['is_active'] == false ? 0 : 1, r['last_generated'], ts, ts],
+        );
+      }
+      for (final b in budgets) {
+        _db.execute(
+          'INSERT INTO budgets(id,name,category_id,amount_minor,currency,period,start_date,end_date,alert_threshold,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          [b['id'], b['name'], b['category_id'], b['amount_minor'], b['currency'], b['period'], b['start_date'], b['end_date'], b['alert_threshold'] ?? 0.8, b['is_active'] == false ? 0 : 1, ts, ts],
+        );
       }
       _audit(Actor.user, 'ledger.restore', 'ledger', 'all', after: {'transactions': n, 'accounts': accounts.length}, confirmed: true);
       final problems = integrityCheck();

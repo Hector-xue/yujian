@@ -56,6 +56,20 @@ class AppState extends ChangeNotifier {
 
   void touch() => notifyListeners();
 
+  /// 周期账单到期 → 草稿进收件箱。启动和新增周期项时调用。
+  int generateRecurring() {
+    final n = ledger.recurring.generateDue(today: _today(), tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes).length;
+    if (n > 0) notifyListeners();
+    return n;
+  }
+
+  static String _today() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  List<BudgetStatus> budgetAlerts() => ledger.budgets.statuses(today: _today()).where((s) => s.overAlert).toList();
+
   List<Account> get accounts => ledger.listAccounts();
   List<Category> get categories => ledger.listCategories();
   List<Draft> get inbox => ledger.listDrafts(status: DraftStatus.pending);
