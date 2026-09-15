@@ -124,6 +124,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            apps/yujian/yujian-*-android.apk
+            apps/yujian/yujian-*-android-*.apk
             apps/yujian/yujian-*-web.zip
           generate_release_notes: true
