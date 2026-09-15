@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:providers/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,7 +19,9 @@ class Settings {
   final String? syncUrl;
   final String? syncToken;
   final String? backupPassphrase;
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase});
+  final List<Map<String, Object?>> userTemplates; // 用户通知模板（notification_templates JSON）
+  final Map<String, Object?>? customPersona; // 自定义人格包 JSON
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona});
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
@@ -27,7 +31,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -38,6 +42,8 @@ class Settings {
         syncUrl: syncUrl ?? this.syncUrl,
         syncToken: syncToken ?? this.syncToken,
         backupPassphrase: backupPassphrase ?? this.backupPassphrase,
+        userTemplates: userTemplates ?? this.userTemplates,
+        customPersona: clearCustomPersona ? null : (customPersona ?? this.customPersona),
       );
 }
 
@@ -73,6 +79,8 @@ class PlatformSettingsStore implements SettingsStore {
       syncUrl: p.getString('sync_url'),
       syncToken: syncToken,
       backupPassphrase: passphrase,
+      userTemplates: _jsonList(p.getString('user_templates')),
+      customPersona: _jsonMap(p.getString('custom_persona')),
     );
   }
 
@@ -86,6 +94,8 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setBool('notifications_wanted', s.notificationsWanted);
     await p.setString('llm_vision_model', s.visionModel ?? '');
     await p.setString('sync_url', s.syncUrl ?? '');
+    await p.setString('user_templates', jsonEncode(s.userTemplates));
+    await p.setString('custom_persona', s.customPersona == null ? '' : jsonEncode(s.customPersona));
     try {
       for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
         if (e.value == null || e.value!.isEmpty) {
@@ -95,6 +105,24 @@ class PlatformSettingsStore implements SettingsStore {
         }
       }
     } catch (_) {}
+  }
+}
+
+List<Map<String, Object?>> _jsonList(String? s) {
+  if (s == null || s.isEmpty) return const [];
+  try {
+    return (jsonDecode(s) as List).cast<Map>().map((m) => m.cast<String, Object?>()).toList();
+  } catch (_) {
+    return const [];
+  }
+}
+
+Map<String, Object?>? _jsonMap(String? s) {
+  if (s == null || s.isEmpty) return null;
+  try {
+    return (jsonDecode(s) as Map).cast<String, Object?>();
+  } catch (_) {
+    return null;
   }
 }
 

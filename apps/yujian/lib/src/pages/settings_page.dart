@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
@@ -55,6 +57,36 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  Future<void> _importPersona(BuildContext context) async {
+    final app = AppScope.of(context);
+    final ctl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('人格包 JSON'),
+        content: TextField(controller: ctl, maxLines: 8, decoration: const InputDecoration(hintText: '{"id":"my","name":"…","tagline":"…","style":"风格描述","templates":{"greeting":"…","recorded":"已记 {n} 笔"}}')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('导入')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      final j = (jsonDecode(ctl.text) as Map).cast<String, Object?>();
+      final pack = PersonaPack.fromJson(j);
+      if (pack.id.isEmpty || builtinPersonas.any((b) => b.id == pack.id)) throw const FormatException('id 不能为空或与内置重名');
+      final missing = PersonaEvent.values.where((e) => !pack.templates.containsKey(e.name)).map((e) => e.name).toList();
+      if (missing.isNotEmpty) throw FormatException('templates 缺 ${missing.join('、')}');
+      await app.saveSettings(app.settings.copyWith(customPersona: j, personaId: pack.id));
+      setState(() => personaId = pack.id);
+    } on FormatException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：${e.message}')));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：$e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -101,15 +133,20 @@ class _SettingsPageState extends State<SettingsPage> {
             onChanged: (v) => setState(() => personaId = v ?? personaId),
             child: Column(
               children: [
-                for (final p in builtinPersonas)
+                for (final p in [...builtinPersonas, if (app.settings.customPersona != null) PersonaPack.fromJson(app.settings.customPersona!)])
                   RadioListTile<String>(
                     value: p.id,
                     contentPadding: EdgeInsets.zero,
                     title: Text(p.name),
-                    subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1')}"', style: theme.textTheme.bodySmall),
+                    subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1') ?? ''}"', style: theme.textTheme.bodySmall),
                   ),
               ],
             ),
+          ),
+          TextButton.icon(
+            onPressed: () => _importPersona(context),
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(app.settings.customPersona == null ? '导入自定义人格包（JSON）' : '替换自定义人格包'),
           ),
           const SizedBox(height: 20),
           FilledButton(

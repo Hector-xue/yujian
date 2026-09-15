@@ -18,7 +18,7 @@ class AppState extends ChangeNotifier {
   final QueryEngine engine;
   final SettingsStore settingsStore;
   final NotificationSource notifications;
-  final TemplateMatcher matcher = TemplateMatcher();
+  TemplateMatcher matcher = TemplateMatcher();
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
   VisionInterpreter? vision;
@@ -50,8 +50,18 @@ class AppState extends ChangeNotifier {
     final p = cfg == null ? null : OpenAICompatProvider(cfg);
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
     vision = p == null ? null : VisionInterpreter(p);
-    persona = personaById(settings.personaId);
+    final custom = settings.customPersona;
+    persona = custom != null && custom['id'] == settings.personaId ? PersonaPack.fromJson(custom) : personaById(settings.personaId);
     replier = PersonaReplier(persona, provider: p);
+    final userTemplates = <NotificationTemplate>[];
+    for (final t in settings.userTemplates) {
+      try {
+        userTemplates.add(NotificationTemplate.fromJson(t));
+      } catch (_) {
+        // 坏模板跳过，不拖垮其他
+      }
+    }
+    matcher = TemplateMatcher(userTemplates: userTemplates);
     sync = settings.syncConfigured ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
     notifyListeners();
   }

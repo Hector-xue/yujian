@@ -40,6 +40,68 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     if (mounted) setState(() => systemEnabled = v);
   }
 
+  Future<void> _addTemplate(BuildContext context) async {
+    final app = AppScope.of(context);
+    final id = TextEditingController();
+    final pkg = TextEditingController(text: 'com.tencent.mm');
+    final re = TextEditingController(text: r'已支付[¥￥]?(?<amount>\d+(?:\.\d{1,2})?)');
+    final hint = TextEditingController();
+    var direction = 'expense';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, setState) => AlertDialog(
+          title: const Text('新模板'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: id, decoration: const InputDecoration(labelText: '名字', hintText: 'my_bank')),
+                const SizedBox(height: 12),
+                TextField(controller: pkg, decoration: const InputDecoration(labelText: '包名（留空=任意）')),
+                const SizedBox(height: 12),
+                TextField(controller: re, decoration: const InputDecoration(labelText: '正文正则', helperText: '必须含 (?<amount>数字) 分组；可选 (?<merchant>…)'), maxLines: 2),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: direction,
+                  decoration: const InputDecoration(labelText: '方向'),
+                  items: const [DropdownMenuItem(value: 'expense', child: Text('支出')), DropdownMenuItem(value: 'income', child: Text('收入')), DropdownMenuItem(value: 'transfer', child: Text('转账')), DropdownMenuItem(value: '', child: Text('按关键词判'))],
+                  onChanged: (v) => setState(() => direction = v ?? ''),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: hint, decoration: const InputDecoration(labelText: '账户线索（可选）', hintText: '招行')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('保存')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      RegExp(re.text); // 先验证正则
+    } on FormatException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('正则不合法：${e.message}')));
+      return;
+    }
+    if (id.text.trim().isEmpty || !re.text.contains('(?<amount>')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('要有名字，正则要有 (?<amount>…) 分组')));
+      return;
+    }
+    final t = <String, Object?>{
+      'id': id.text.trim(),
+      'packages': pkg.text.trim().isEmpty ? <String>[] : [pkg.text.trim()],
+      'text_re': re.text,
+      if (direction.isNotEmpty) 'direction': direction,
+      if (hint.text.trim().isNotEmpty) 'account_hint': hint.text.trim(),
+      'confidence': 0.9,
+    };
+    await app.saveSettings(app.settings.copyWith(userTemplates: [...app.settings.userTemplates.where((x) => x['id'] != t['id']), t]));
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -105,6 +167,25 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               },
             ),
           if (autoLog.isNotEmpty) Text('长按一条可撤销', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(child: Text('自定义模板', style: theme.textTheme.titleMedium)),
+              TextButton.icon(onPressed: () => _addTemplate(context), icon: const Icon(Icons.add, size: 18), label: const Text('新建')),
+            ],
+          ),
+          Text('内置模板认不出的通知，自己写一条：包名 + 正则（金额用 (?<amount>…) 分组）。用户模板优先于内置。', style: theme.textTheme.bodySmall),
+          for (final t in s.userTemplates)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text('${t['id']} · ${(t['packages'] as List?)?.join(',') ?? '任意包'}'),
+              subtitle: Text('${t['text_re']} → ${t['direction'] ?? '按关键词'}${t['account_hint'] != null ? ' · ${t['account_hint']}' : ''}', style: theme.textTheme.bodySmall),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline, size: 20),
+                onPressed: () => app.saveSettings(s.copyWith(userTemplates: [for (final x in s.userTemplates) if (x['id'] != t['id']) x])),
+              ),
+            ),
           const SizedBox(height: 24),
           Text('试试模板', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),

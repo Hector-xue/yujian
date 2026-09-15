@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
+import 'package:notification_templates/notification_templates.dart';
+import 'package:persona/persona.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/notifications/notification_source.dart';
 import 'package:yujian/src/settings_store.dart';
-import 'package:notification_templates/notification_templates.dart';
 
 void main() {
   late AppState state;
@@ -161,5 +162,25 @@ void main() {
       expect(await st.startNotifications(), 0);
       expect(st.inbox, isEmpty);
     });
+  });
+
+  test('user notification templates and custom persona are honored', () async {
+    final src = FakeNotificationSource(enabled: true);
+    final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+    await st.saveSettings(Settings(
+      notificationsWanted: true,
+      userTemplates: [
+        {'id': 'canteen', 'packages': ['com.school.canteen'], 'text_re': r'消费(?<amount>\d+\.\d\d)元', 'direction': 'expense', 'confidence': 0.95},
+        {'id': 'broken', 'text_re': '(('}, // 坏模板被跳过
+      ],
+      personaId: 'pirate',
+      customPersona: {'id': 'pirate', 'name': '海盗', 'tagline': 'arr', 'style': '像海盗一样说话', 'templates': {for (final e in PersonaEvent.values) e.name: 'arr {n}'}},
+    ));
+    expect(st.persona.name, '海盗');
+    expect(st.replier.template(PersonaEvent.recorded, n: 2), 'arr 2');
+    src.queue.add(NotificationEvent(packageName: 'com.school.canteen', title: '食堂', text: '消费12.50元 余额88.00元', postedAtMs: DateTime.now().millisecondsSinceEpoch, key: 'c1'));
+    await st.startNotifications();
+    expect(st.inbox.single.payload['amount_minor'], 1250);
+    expect(st.inbox.single.interpreter, 'notification:canteen');
   });
 }
