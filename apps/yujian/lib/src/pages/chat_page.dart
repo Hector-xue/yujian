@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart' hide Intent;
-import 'package:interpreter/interpreter.dart';
 import 'package:persona/persona.dart';
 import 'package:query_dsl/query_dsl.dart';
 

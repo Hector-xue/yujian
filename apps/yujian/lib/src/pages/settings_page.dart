@@ -92,15 +92,21 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 4),
           Text('只改语气。金额、时间、余额、确认流程它碰不到。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
-          for (final p in builtinPersonas)
-            RadioListTile<String>(
-              value: p.id,
-              groupValue: personaId,
-              onChanged: (v) => setState(() => personaId = v!),
-              contentPadding: EdgeInsets.zero,
-              title: Text(p.name),
-              subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1')}"', style: theme.textTheme.bodySmall),
+          RadioGroup<String>(
+            groupValue: personaId,
+            onChanged: (v) => setState(() => personaId = v ?? personaId),
+            child: Column(
+              children: [
+                for (final p in builtinPersonas)
+                  RadioListTile<String>(
+                    value: p.id,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(p.name),
+                    subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1')}"', style: theme.textTheme.bodySmall),
+                  ),
+              ],
             ),
+          ),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: () async {
