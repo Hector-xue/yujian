@@ -10,6 +10,7 @@ import 'package:query_dsl/query_dsl.dart';
 import 'package:sync_client/sync_client.dart';
 
 import 'notifications/notification_source.dart';
+import 'notifications/share_source.dart';
 import 'settings_store.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
@@ -24,6 +25,9 @@ class AppState extends ChangeNotifier {
   VisionInterpreter? vision;
   SyncClient? sync;
   String? lastSyncNote;
+  /// 分享进来的内容，由对话页消费（消费后置 null）。
+  SharedItem? pendingShare;
+  final ShareSource share = ShareSource();
   Settings settings = const Settings();
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
@@ -90,6 +94,24 @@ class AppState extends ChangeNotifier {
   static String _today() {
     final n = DateTime.now();
     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> startShare() async {
+    final first = await share.initial();
+    if (first != null) {
+      pendingShare = first;
+      notifyListeners();
+    }
+    share.stream.listen((item) {
+      pendingShare = item;
+      notifyListeners();
+    });
+  }
+
+  SharedItem? takeShare() {
+    final s = pendingShare;
+    pendingShare = null;
+    return s;
   }
 
   // -------------------------------------------------------------------- 同步
@@ -180,6 +202,11 @@ class AppState extends ChangeNotifier {
     super.dispose();
   }
 
+  List<Anomaly> anomaliesThisMonth() {
+    final now = DateTime.now();
+    return detectAnomalies(ledger, from: '${now.year}-${now.month.toString().padLeft(2, '0')}-01', to: _today());
+  }
+
   List<BudgetStatus> budgetAlerts() => ledger.budgets.statuses(today: _today()).where((s) => s.overAlert).toList();
 
   List<Account> get accounts => ledger.listAccounts();
@@ -209,6 +236,25 @@ class AppState extends ChangeNotifier {
       final items = ledger.recurring.list();
       final lines = items.map((r) => '${r.name} ${Money(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${r.nextDue}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: items.isEmpty ? '还没有设置周期账单（更多 → 周期账单）' : '固定账单 ${items.length} 项：$lines');
+    }
+    // "每月存 3000 多久能攒到 2 万"：纯算术，不碰账本
+    final save = RegExp(r'(每月|每个月|一个月)\s*(存|攒|省)\s*([\d.]+)\s*(万|k|K|千)?').firstMatch(text);
+    final goal = RegExp(r'(攒到|存到|存够|攒够|凑够|达到)\s*([\d.]+)\s*(万|k|K|千)?').firstMatch(text);
+    if (save != null && goal != null) {
+      double num(String v, String? unit) => double.parse(v) * (unit == '万' ? 10000 : (unit == null ? 1 : 1000));
+      final monthly = num(save.group(3)!, save.group(4));
+      final target = num(goal.group(2)!, goal.group(3));
+      if (monthly > 0) {
+        final months = (target / monthly).ceil();
+        return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: '每月存 ${Money((monthly * 100).round(), 'CNY').toDecimalString()}，攒到 ${Money((target * 100).round(), 'CNY').toDecimalString()} 需要 $months 个月（${(months / 12).toStringAsFixed(1)} 年）。');
+      }
+    }
+    if (RegExp('异常|不正常|反常|比平时|花得多|花多了|大额').hasMatch(text)) {
+      final now = DateTime.now();
+      final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
+      final a = detectAnomalies(ledger, from: from, to: _today());
+      final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${Money(x.tx.amountMinor, x.tx.currency)}（${x.tx.occurredAt.localDate.substring(5)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
+      return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: a.isEmpty ? '这个月没有明显异常的支出。' : '这个月 ${a.length} 笔明显高于平时：$lines');
     }
     if (RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
       final st = ledger.budgets.statuses(today: _today());

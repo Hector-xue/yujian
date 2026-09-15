@@ -90,6 +90,40 @@ class Ledger implements ValidationContext {
     });
   }
 
+  void unarchiveAccount(String id) {
+    final before = getAccount(id);
+    if (!before.isArchived) throw InvalidStateException('account is not archived');
+    _db.transaction(() {
+      _db.execute('UPDATE accounts SET is_archived = 0, updated_at = ? WHERE id = ?', [_nowMs(), id]);
+      _audit(Actor.user, 'account.unarchive', 'account', id, before: before.toJson(), after: getAccount(id).toJson(), confirmed: true);
+      changes.record('account', id, getAccount(id).toJson());
+    });
+  }
+
+  /// 改账户。币种只有在没有任何 posting 时才能改（否则历史交易币种对不上）。
+  Account updateAccount(String id, {String? name, AccountType? type, String? currency, int? initialBalanceMinor, String? institution, String? icon, int? sortOrder}) {
+    final before = getAccount(id);
+    if (name != null && name.trim().isEmpty) throw ValidationException('name', 'required');
+    if (currency != null && currency != before.currency) {
+      if (!Currency.isKnown(currency)) throw ValidationException('currency', 'unknown currency $currency');
+      final used = _db.select('SELECT COUNT(*) AS n FROM postings WHERE account_id = ?', [id]).first['n'] as int;
+      if (used > 0) throw InvalidStateException('account has $used postings; currency cannot change');
+    }
+    return _db.transaction(() {
+      _db.execute(
+        'UPDATE accounts SET name=?, type=?, currency=?, initial_balance_minor=?, institution=?, icon=?, sort_order=?, updated_at=? WHERE id=?',
+        [
+          name?.trim() ?? before.name, (type ?? before.type).db, currency ?? before.currency, initialBalanceMinor ?? before.initialBalanceMinor,
+          institution ?? before.institution, icon ?? before.icon, sortOrder ?? before.sortOrder, _nowMs(), id,
+        ],
+      );
+      final after = getAccount(id);
+      _audit(Actor.user, 'account.update', 'account', id, before: before.toJson(), after: after.toJson(), confirmed: true);
+      changes.record('account', id, after.toJson());
+      return after;
+    });
+  }
+
   /// 余额不落库：initial + Σ 已确认交易的 posting（§5.2）。
   Money balance(String accountId) {
     final a = getAccount(accountId);
@@ -143,6 +177,50 @@ class Ledger implements ValidationContext {
       _audit(Actor.user, 'category.create', 'category', cid, after: c.toJson(), confirmed: true);
       changes.record('category', cid, c.toJson());
       return c;
+    });
+  }
+
+  /// 改分类：名字 / 父级 / 图标 / 排序。父级不能是自己或自己的子孙，且同 kind。
+  Category updateCategory(String id, {String? name, String? parentId, bool clearParent = false, String? icon, int? sortOrder}) {
+    final before = category(id) ?? (throw NotFoundException('category', id));
+    if (name != null && name.trim().isEmpty) throw ValidationException('name', 'required');
+    String? newParent = clearParent ? null : (parentId ?? before.parentId);
+    if (newParent != null) {
+      if (newParent == id) throw ValidationException('parent_id', 'cannot be itself');
+      final p = category(newParent) ?? (throw NotFoundException('category', newParent));
+      if (p.kind != before.kind) throw ValidationException('parent_id', 'parent kind mismatch');
+      var cur = p.parentId;
+      while (cur != null) {
+        if (cur == id) throw ValidationException('parent_id', 'cannot move under own descendant');
+        cur = category(cur)?.parentId;
+      }
+    }
+    return _db.transaction(() {
+      _db.execute('UPDATE categories SET name=?, parent_id=?, icon=?, sort_order=? WHERE id=?',
+          [name?.trim() ?? before.name, newParent, icon ?? before.icon, sortOrder ?? before.sortOrder, id]);
+      final after = category(id)!;
+      _audit(Actor.user, 'category.update', 'category', id, before: before.toJson(), after: after.toJson(), confirmed: true);
+      changes.record('category', id, after.toJson());
+      return after;
+    });
+  }
+
+  /// 删分类：被交易 / 子分类 / 预算 / 周期 / 记忆引用时拒绝，并说明是谁在用。
+  void deleteCategory(String id) {
+    final c = category(id) ?? (throw NotFoundException('category', id));
+    if (c.isDefault) throw InvalidStateException('default categories cannot be deleted');
+    final refs = <String>[];
+    int n(String sql) => _db.select(sql, [id]).first['n'] as int;
+    if (n('SELECT COUNT(*) AS n FROM transactions WHERE category_id = ?') > 0) refs.add('transactions');
+    if (n('SELECT COUNT(*) AS n FROM categories WHERE parent_id = ?') > 0) refs.add('subcategories');
+    if (n('SELECT COUNT(*) AS n FROM budgets WHERE category_id = ?') > 0) refs.add('budgets');
+    if (n('SELECT COUNT(*) AS n FROM memory_map WHERE category_id = ?') > 0) refs.add('memory');
+    if (n("SELECT COUNT(*) AS n FROM recurring WHERE template LIKE '%' || ? || '%'") > 0) refs.add('recurring');
+    if (refs.isNotEmpty) throw InvalidStateException('category in use by ${refs.join(', ')}');
+    _db.transaction(() {
+      _db.execute('DELETE FROM categories WHERE id = ?', [id]);
+      _audit(Actor.user, 'category.delete', 'category', id, before: c.toJson(), confirmed: true);
+      changes.record('category', id, null, deleted: true);
     });
   }
 

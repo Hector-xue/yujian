@@ -64,7 +64,7 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
       "account_id": "...", "to_account_id": "仅 transfer", "category_id": "...", "merchant": "商户名或 null",
       "description": "简短描述", "occurred_at": "2026-09-15T12:30:00+08:00", "refund_of_id": "仅 refund",
       "split": {"total": "86.00", "share": "50.00"} 或省略, "confidence": 0.0-1.0 } ],
-  "query": { "metric": "sum|count|avg|max|balance", "type": ["expense"], "time_range": {"from":"yyyy-MM-dd","to":"yyyy-MM-dd"},
+  "query": { "metric": "sum|count|avg|max|balance|forecast", "type": ["expense"], "time_range": {"from":"yyyy-MM-dd","to":"yyyy-MM-dd"},
       "group_by": "none|category|account|merchant|day|month|currency", "filter": {"category_ids": [], "account_ids": [], "merchant_like": null},
       "compare_to": {"from":"","to":""} 或省略, "limit": 20 },
   "target": { "transaction_id": "最近交易里的 id 或 null", "most_recent": true/false, "amount": "28.00" 或 null, "date": "yyyy-MM-dd" 或 null },
@@ -85,6 +85,7 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
 7. 查询（"花了多少""哪些""对比"）intent=query，只输出 query，不要 transactions。
    时间范围："这个月/本月" = 本月 1 号到月末（整月，不是到今天）；"上个月" = 上月整月；"最近 N 个月" = N-1 个月前的 1 号到今天；"这周" = 本周一到今天。
    提到某类消费（"外卖""打车"）就放进 filter.category_ids（用分类提示映射）。"哪些/分别/各" → group_by category。"比上个月" → compare_to 上月整月。
+   "月底还剩多少""照这样花下去""预计"这类外推问题 metric=forecast（time_range 本月）。
 8. 修改（"改成""记到"）intent=propose_update，给 target 和 patch；删除/作废 intent=propose_void，给 target 和 reason。
 9. 与记账无关的话 intent=chat。
 ''';

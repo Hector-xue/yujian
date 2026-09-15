@@ -21,6 +21,7 @@ Future<void> main() async {
   await state.loadSettings();
   state.generateRecurring();
   await state.startNotifications();
+  await state.startShare();
   runApp(YujianApp(state: state));
   unawaited(state.syncNow()); // 启动后台同步，不挡首屏
 }
@@ -56,6 +57,9 @@ class _ShellState extends State<Shell> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final inboxCount = app.inbox.length;
+    if (app.pendingShare != null && _index != 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = 1));
+    }
     final pages = [
       HomePage(onGoChat: () => setState(() => _index = 1)),
       const ChatPage(),

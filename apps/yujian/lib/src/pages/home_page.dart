@@ -25,6 +25,7 @@ class HomePage extends StatelessWidget {
     final balances = app.ledger.balances();
     final recent = app.ledger.listTransactions(limit: 5);
     final alerts = app.budgetAlerts();
+    final anomalies = app.anomaliesThisMonth().take(3).toList();
     final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
     final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
@@ -51,6 +52,19 @@ class HomePage extends StatelessWidget {
             Text('预算', style: theme.textTheme.bodySmall),
             const SizedBox(height: 8),
             for (final a in alerts) BudgetBar(status: a),
+          ],
+          if (anomalies.isNotEmpty) ...[
+            Text('比平时高', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            for (final a in anomalies)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  Expanded(child: Text('${a.tx.description ?? app.categoryName(a.tx.categoryId)} · ${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')}')),
+                  Text('${fmtMoney(a.tx.amountMinor, a.tx.currency)} · ${a.ratio.toStringAsFixed(1)}×', style: theme.textTheme.bodySmall),
+                ]),
+              ),
+            const SizedBox(height: 16),
           ],
           if (upcoming.isNotEmpty) ...[
             Text('近期到期', style: theme.textTheme.bodySmall),

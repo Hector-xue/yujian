@@ -101,4 +101,34 @@ void main() {
     final q = QueryDsl.fromJson({'metric': 'sum', 'group_by': 'month', 'filter': {'category_ids': ['food']}, 'limit': 5, 'order': 'asc'});
     expect(QueryDsl.fromJson(q.toJson()).toJson(), q.toJson());
   });
+
+  test('forecast extrapolates daily average to period end', () {
+    // 时钟 2026-09-15：本月已过 15 天，支出 2800+1900+2400+39900-39900 = 7100 → 日均 473 → 预计 7100+473*15
+    final r = QueryEngine(ledger).run(QueryDsl.fromJson({'metric': 'forecast'}));
+    final byKey = {for (final x in r.rows) x.key: x.valueMinor};
+    expect(byKey['spent'], 7100);
+    expect(byKey['daily_avg'], 473);
+    expect(byKey['projected'], 7100 + 473 * 15);
+    expect(byKey['income'], 1500000);
+    expect(byKey['projected_balance'], 1500000 - (7100 + 473 * 15));
+    expect(r.rows.first.label, contains('15 天'));
+  });
+
+  test('anomalies: 3x median of same category flags; sparse categories fall back; nothing flagged without baseline', () {
+    // 餐饮基线：6 笔 20-30 元，再来一笔 200 元
+    for (var i = 1; i <= 6; i++) {
+      commit(tx('expense', 2000 + i * 100, '2026-09-0$i', cat: 'food'));
+    }
+    final big = commit(tx('expense', 20000, '2026-09-14', cat: 'food', merchant: '大餐'));
+    final a = detectAnomalies(ledger, from: '2026-09-01', to: '2026-09-30');
+    expect(a.map((x) => x.tx.id), contains(big));
+    final hit = a.firstWhere((x) => x.tx.id == big);
+    expect(hit.basis, 'category');
+    expect(hit.ratio, greaterThan(3));
+    // 39900 的耳机：shopping 只有 1 笔 → 退到全部支出基线（≥10 笔）→ 也算异常
+    expect(a.any((x) => x.tx.amountMinor == 39900 && x.basis == 'overall'), isTrue);
+    // 空账本不报
+    final empty = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+    expect(detectAnomalies(empty, from: '2026-09-01', to: '2026-09-30'), isEmpty);
+  });
 }

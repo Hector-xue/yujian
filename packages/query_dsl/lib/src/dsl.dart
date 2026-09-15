@@ -1,6 +1,6 @@
 import 'package:ledger_core/ledger_core.dart';
 
-enum Metric { sum, count, avg, max, balance }
+enum Metric { sum, count, avg, max, balance, forecast }
 
 enum GroupBy { none, category, account, merchant, day, month, currency }
 

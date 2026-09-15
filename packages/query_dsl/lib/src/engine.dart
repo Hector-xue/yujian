@@ -60,6 +60,7 @@ class QueryEngine {
 
   QueryResult run(QueryDsl q) {
     if (q.metric == Metric.balance) return _balances(q);
+    if (q.metric == Metric.forecast) return _forecast(q);
     final main = _select(q, q.timeRange);
     final rows = _aggregate(q, main);
     List<QueryRow>? cmp;
@@ -81,6 +82,51 @@ class QueryEngine {
           QueryRow(key: a.id, label: a.name, currency: a.currency, valueMinor: ledger.balance(a.id).minor, count: 0),
     ];
     return QueryResult(query: q, rows: rows, evidenceTransactionIds: const [], matchedCount: rows.length);
+  }
+
+  /// 线性外推（§8）：按已过天数的日均推到期末。只做这一种，不做投资类预测。
+  QueryResult _forecast(QueryDsl q) {
+    final today = _today();
+    final range = q.timeRange ?? _thisMonth(today);
+    final spentItems = _select(QueryDsl(types: const [TransactionType.expense], timeRange: range, filter: q.filter), range);
+    final incomeItems = _select(QueryDsl(types: const [TransactionType.income], timeRange: range, filter: q.filter), range);
+    final cur = spentItems.isNotEmpty ? spentItems.first.tx.currency : (incomeItems.isNotEmpty ? incomeItems.first.tx.currency : 'CNY');
+    final spent = spentItems.where((e) => e.tx.currency == cur).fold<int>(0, (a, b) => a + b.signed);
+    final income = incomeItems.where((e) => e.tx.currency == cur).fold<int>(0, (a, b) => a + b.signed);
+    final from = DateTime.parse('${range.from}T00:00:00Z');
+    final to = DateTime.parse('${range.to}T00:00:00Z');
+    final t = DateTime.parse('${today.compareTo(range.to) > 0 ? range.to : today}T00:00:00Z');
+    final totalDays = to.difference(from).inDays + 1;
+    final elapsed = (t.difference(from).inDays + 1).clamp(1, totalDays);
+    final remaining = totalDays - elapsed;
+    final dailyAvg = spent ~/ elapsed;
+    final projected = spent + dailyAvg * remaining;
+    QueryRow row(String key, String label, int v) => QueryRow(key: key, label: label, currency: cur, valueMinor: v, count: spentItems.length);
+    return QueryResult(
+      query: q,
+      rows: [
+        row('spent', '已支出（$elapsed 天）', spent),
+        row('daily_avg', '日均', dailyAvg),
+        row('projected', '预计到期末（还有 $remaining 天）', projected),
+        row('income', '期内收入', income),
+        row('projected_balance', '预计结余', income - projected),
+      ],
+      evidenceTransactionIds: spentItems.map((e) => e.tx.id).take(200).toList(),
+      matchedCount: spentItems.length,
+    );
+  }
+
+  String _today() {
+    final n = ledger.now();
+    final local = n.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+  }
+
+  static DateRange _thisMonth(String today) {
+    final y = int.parse(today.substring(0, 4));
+    final m = int.parse(today.substring(5, 7));
+    final last = DateTime.utc(y, m + 1, 0).day;
+    return DateRange('${today.substring(0, 7)}-01', '${today.substring(0, 7)}-${last.toString().padLeft(2, '0')}');
   }
 
   /// 命中的交易 + 计入的有符号金额。退款在"支出"口径里记为负数（净支出）。
@@ -152,6 +198,7 @@ class QueryEngine {
           final top = list.reduce((a, b) => a.signed >= b.signed ? a : b);
           rows.add(QueryRow(key: gk, label: _label(q.groupBy, gk, cur), currency: cur, valueMinor: top.signed, count: list.length, topTransactionId: top.tx.id));
         case Metric.balance:
+        case Metric.forecast:
           break;
       }
     }

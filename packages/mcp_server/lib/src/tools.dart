@@ -37,7 +37,7 @@ final toolDefs = <ToolDef>[
   const ToolDef('query_ledger', '用 Query DSL 聚合查询（sum/count/avg/max/balance，可分组、对比期）。结果带依据交易 id。', {
     'type': 'object',
     'properties': {
-      'metric': {'type': 'string', 'enum': ['sum', 'count', 'avg', 'max', 'balance']},
+      'metric': {'type': 'string', 'enum': ['sum', 'count', 'avg', 'max', 'balance', 'forecast']},
       'type': {'type': 'array', 'items': {'type': 'string'}},
       'time_range': {'type': 'object', 'properties': {'from': {'type': 'string'}, 'to': {'type': 'string'}}},
       'group_by': {'type': 'string', 'enum': ['none', 'category', 'account', 'merchant', 'day', 'month', 'currency']},
@@ -45,6 +45,11 @@ final toolDefs = <ToolDef>[
       'compare_to': {'type': 'object'},
       'limit': {'type': 'integer'},
     },
+  }),
+  const ToolDef('detect_anomalies', '找出明显高于平时的支出（同分类 90 天基线，3×中位数或均值+2σ）', {
+    'type': 'object',
+    'properties': {'from': {'type': 'string', 'description': 'yyyy-MM-dd'}, 'to': {'type': 'string'}},
+    'required': ['from', 'to'],
   }),
   const ToolDef('get_budget_status', '各预算当前周期执行情况', {'type': 'object', 'properties': {'today': {'type': 'string', 'description': 'yyyy-MM-dd，默认今天'}}}),
   const ToolDef('list_recurring', '周期账单及下次到期', {'type': 'object', 'properties': {}}),
@@ -102,6 +107,8 @@ class LedgerTools {
         return _tx(ledger.getTransaction(args['id'] as String));
       case 'query_ledger':
         return engine.run(QueryDsl.fromJson(args)).toJson();
+      case 'detect_anomalies':
+        return [for (final a in detectAnomalies(ledger, from: args['from'] as String, to: args['to'] as String)) {...a.toJson(), 'amount': Money(a.tx.amountMinor, a.tx.currency).toDecimalString(), 'date': a.tx.occurredAt.localDate, 'description': a.tx.description}];
       case 'get_budget_status':
         return [
           for (final s in ledger.budgets.statuses(today: (args['today'] as String?) ?? today()))

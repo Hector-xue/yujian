@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
+import '../widgets/transaction_edit_sheet.dart';
 
 /// 交易记录：按日分组；点开看详情、改分类、作废。
 class TransactionsPage extends StatelessWidget {
@@ -110,24 +111,13 @@ class TransactionTile extends StatelessWidget {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  if (tx.type == TransactionType.expense || tx.type == TransactionType.income)
-                    TextButton(
-                      onPressed: () async {
-                        final kind = tx.type == TransactionType.income ? CategoryKind.income : CategoryKind.expense;
-                        final cats = app.ledger.listCategories(kind: kind);
-                        final picked = await showDialog<String>(
-                          context: ctx,
-                          builder: (d) => SimpleDialog(
-                            title: const Text('改分类'),
-                            children: [for (final c in cats) SimpleDialogOption(onPressed: () => Navigator.pop(d, c.id), child: Text(c.name))],
-                          ),
-                        );
-                        if (picked == null || !ctx.mounted) return;
-                        app.updateTransaction(tx.id, {'category_id': picked});
-                        Navigator.pop(ctx);
-                      },
-                      child: const Text('改分类'),
-                    ),
+                  TextButton(
+                    onPressed: () async {
+                      final changed = await showTransactionEditSheet(ctx, tx);
+                      if (changed && ctx.mounted) Navigator.pop(ctx);
+                    },
+                    child: const Text('编辑'),
+                  ),
                   const Spacer(),
                   TextButton(
                     style: TextButton.styleFrom(foregroundColor: const Color(0xFFB4562E)),

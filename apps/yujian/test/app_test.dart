@@ -183,4 +183,35 @@ void main() {
     expect(st.inbox.single.payload['amount_minor'], 1250);
     expect(st.inbox.single.interpreter, 'notification:canteen');
   });
+
+  testWidgets('transaction edit sheet updates amount/category/time via update draft', (tester) async {
+    final tx = state.addManual({'type': 'expense', 'amount_minor': 2800, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'description': '午饭', 'occurred_at': OccurredAt.fromLocal(DateTime.now()).toIso8601String()});
+    await tester.pumpWidget(YujianApp(state: state));
+    await tester.tap(find.text('记录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('午饭'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '金额（CNY）'), '30');
+    await tester.enterText(find.widgetWithText(TextField, '说明'), '午饭加蛋');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    final after = state.ledger.getTransaction(tx.id);
+    expect(after.amountMinor, 3000);
+    expect(after.description, '午饭加蛋');
+    expect(state.ledger.balance('wechat').minor, -3000);
+    expect(state.ledger.auditFor(tx.id).map((e) => e.action), contains('transaction.update'));
+  });
+
+  test('forecast, savings math and anomaly questions answer directly', () async {
+    final r = await state.say('每月存 3000 多久能攒到 2 万');
+    expect(r.error, contains('7 个月'));
+    final a = await state.say('这个月有没有异常支出');
+    expect(a.error, contains('没有明显异常'));
+    state.addManual({'type': 'expense', 'amount_minor': 1000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'occurred_at': OccurredAt.fromLocal(DateTime.now()).toIso8601String()});
+    final f = await state.say('照现在的花法月底还剩多少');
+    expect(f.query, isNotNull);
+    expect(f.query!.rows.map((x) => x.key), contains('projected'));
+  });
 }

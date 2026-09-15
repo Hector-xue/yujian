@@ -195,7 +195,9 @@ class RuleInterpreter implements Interpreter {
     final wallNow = ctx.wallNow;
     final range = extractRange(text, wallNow) ?? extractRange('这个月', wallNow)!;
     String metric;
-    if (RegExp('余额|还剩|还有多少钱|剩多少').hasMatch(text) && !_hasAny(text, ['花'])) {
+    if (RegExp('月底|预计|照这样|照现在|这个速度|这么花|花完|够不够|撑到|还能花').hasMatch(text)) {
+      metric = 'forecast';
+    } else if (RegExp('余额|还剩|还有多少钱|剩多少').hasMatch(text) && !_hasAny(text, ['花'])) {
       metric = 'balance';
     } else if (RegExp('几笔|几次|多少次|多少笔').hasMatch(text)) {
       metric = 'count';

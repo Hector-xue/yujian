@@ -137,10 +137,33 @@ class _ChatPageState extends State<ChatPage> {
     setState(() => _msgs.add(_TextMsg(reply)));
   }
 
+  Future<void> _consumeShare(AppState app) async {
+    final item = app.takeShare();
+    if (item == null) return;
+    if (item.kind == 'text' && (item.text ?? '').trim().isNotEmpty) {
+      _input.text = item.text!.trim();
+      await _send();
+    } else if (item.kind == 'image' && item.bytes != null) {
+      setState(() {
+        _msgs.add(_UserMsg('［分享的图片］'));
+        _busy = true;
+      });
+      final r = await app.sayImage(item.bytes!, item.mime ?? 'image/jpeg');
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _msgs.add(r.error != null ? _TextMsg(r.error!) : _DraftMsg(r.drafts.first.groupId, '截图识别 · ${r.modelUsed}'));
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    if (app.pendingShare != null && !_busy) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShare(app));
+    }
     return Scaffold(
       appBar: AppBar(title: Text(app.persona.name)),
       body: Column(

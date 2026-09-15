@@ -852,6 +852,32 @@
           "amount_minor": 3600
         }
       }
+    },
+    {
+      "id": "c51",
+      "tag": "预测",
+      "text": "照现在的花法月底还剩多少钱",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "forecast",
+          "time_range": {
+            "from": "2026-09-01",
+            "to": "2026-09-30"
+          }
+        }
+      }
+    },
+    {
+      "id": "c52",
+      "tag": "预测2",
+      "text": "这个月预计要花多少",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "forecast"
+        }
+      }
     }
   ]
 }
