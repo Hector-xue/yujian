@@ -10,6 +10,7 @@ import 'models/draft.dart';
 import 'models/enums.dart';
 import 'models/transaction.dart';
 import 'memory.dart';
+import 'occurred_at.dart';
 import 'money.dart';
 import 'validation.dart';
 
@@ -447,6 +448,64 @@ class Ledger implements ValidationContext {
     );
     return [for (final r in rows) Transaction.fromRow(r, _postingsOf(r['id'] as String))];
   }
+
+  // ----------------------------------------------------------------- restore
+
+  /// 整库替换（备份恢复用）。一个事务：清空 → 写入；任何一条非法整体回滚。返回交易数。
+  int restoreRaw({
+    required List<Map<String, Object?>> accounts,
+    required List<Map<String, Object?>> categories,
+    required List<Map<String, Object?>> transactions,
+    required List<Map<String, Object?>> memory,
+  }) {
+    return _db.transaction(() {
+      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'categories', 'accounts']) {
+        _db.execute('DELETE FROM $t');
+      }
+      final ts = _nowMs();
+      for (final c in categories) {
+        _db.execute('INSERT INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,?,?)',
+            [c['id'], c['parent_id'], c['kind'], c['name'], c['icon'], c['is_default'] == true ? 1 : 0, c['sort_order'] ?? 0]);
+      }
+      for (final a in accounts) {
+        _db.execute(
+          'INSERT INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+          [a['id'], a['name'], a['type'], a['currency'], a['initial_balance_minor'] ?? 0, a['institution'], a['icon'], a['is_archived'] == true ? 1 : 0, a['sort_order'] ?? 0, ts, ts],
+        );
+      }
+      var n = 0;
+      for (final t in transactions) {
+        final occ = OccurredAt.parse(t['occurred_at'] as String);
+        final postings = (t['postings'] as List).cast<Map>();
+        if (postings.isEmpty) throw ValidationException('postings', 'transaction ${t['id']} has no postings');
+        _db.execute(
+          'INSERT INTO transactions(id,type,occurred_at_ms,tz_offset_min,currency,merchant,description,category_id,tags,source,status,'
+          'confidence,refund_of_id,recurring_id,event_fingerprint,metadata,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          [
+            t['id'], t['type'], occ.millis, occ.offsetMinutes, t['currency'], t['merchant'], t['description'], t['category_id'],
+            jsonEncode(t['tags'] ?? const []), t['source'] ?? 'import', t['status'] ?? 'confirmed', t['confidence'], t['refund_of_id'],
+            t['recurring_id'], t['event_fingerprint'], jsonEncode(t['metadata'] ?? const {}),
+            _parseIsoMs(t['created_at']) ?? ts, _parseIsoMs(t['updated_at']) ?? ts,
+          ],
+        );
+        for (final p in postings) {
+          _db.execute('INSERT INTO postings(id,transaction_id,account_id,amount_minor) VALUES (?,?,?,?)',
+              [p['id'] ?? Ulid.next(), t['id'], p['account_id'], p['amount_minor']]);
+        }
+        n++;
+      }
+      for (final m in memory) {
+        _db.execute('INSERT OR REPLACE INTO memory_map(key,kind,category_id,account_id,hits,corrections,source,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+            [m['key'], m['kind'], m['category_id'], m['account_id'], m['hits'] ?? 1, m['corrections'] ?? 0, m['source'] ?? 'confirmed', ts]);
+      }
+      _audit(Actor.user, 'ledger.restore', 'ledger', 'all', after: {'transactions': n, 'accounts': accounts.length}, confirmed: true);
+      final problems = integrityCheck();
+      if (problems.isNotEmpty) throw ValidationException('integrity', problems.first);
+      return n;
+    });
+  }
+
+  static int? _parseIsoMs(Object? v) => v is String ? DateTime.tryParse(v)?.toUtc().millisecondsSinceEpoch : null;
 
   // ------------------------------------------------------------------- audit
 

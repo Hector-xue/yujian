@@ -176,6 +176,38 @@ class AppState extends ChangeNotifier {
     return c;
   }
 
+  /// 导入账单 CSV：解析 → 账户/分类映射 → 一组草稿进收件箱。返回统计。
+  ({int drafts, int deduped, int problems, String? error}) importBillCsv(String text) {
+    final List<ImportedRow> rows;
+    try {
+      rows = parseBillCsv(text, tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes);
+    } on FormatException catch (e) {
+      return (drafts: 0, deduped: 0, problems: 0, error: e.message);
+    }
+    final ctx = context();
+    final rule = interpreter.rule;
+    final inputs = <DraftInput>[];
+    var problems = 0;
+    for (final r in rows) {
+      if (r.problems.isNotEmpty) problems++;
+      final kind = r.type == 'income' ? 'income' : 'expense';
+      final text = [r.categoryHint, r.merchant, r.description].whereType<String>().join(' ');
+      final categoryId = r.type == 'transfer' ? null : rule.guessCategory(text, ctx, kind);
+      final accountId = (r.accountHint == null ? null : rule.matchAccount(r.accountHint!, ctx)) ?? ctx.defaultAccountId;
+      inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId));
+    }
+    final drafts = ledger.propose(inputs, source: Source.import_, actor: Actor.automation, interpreter: 'import');
+    notifyListeners();
+    return (drafts: drafts.length, deduped: inputs.length - drafts.length, problems: problems, error: null);
+  }
+
+  /// 恢复备份：整库替换，之后重新装配（分类/账户变了）。
+  int restoreBackup(Map<String, Object?> json) {
+    final n = restoreFromJson(ledger, json);
+    notifyListeners();
+    return n;
+  }
+
   String categoryName(String? id) => id == null ? '未分类' : (ledger.category(id)?.name ?? id);
   String accountName(String? id) => id == null ? '—' : (ledger.account(id)?.name ?? id);
 }

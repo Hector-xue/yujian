@@ -297,6 +297,17 @@ class RuleInterpreter implements Interpreter {
     );
   }
 
+  // ------------------------------------------------- 供导入等场景复用的公开入口
+
+  /// 猜分类：财务记忆 → 用户关键词 → 内置关键词。没把握返回 null。
+  String? guessCategory(String text, InterpretContext ctx, String kind) => _categoryOf(text, ctx, kind)?.categoryId;
+
+  /// 按别名匹配账户（"零钱"→微信，"招商银行(1234)"→招行信用卡）。
+  String? matchAccount(String text, InterpretContext ctx) {
+    final a = _accountsIn(text, ctx);
+    return a.isEmpty ? null : a.first.id;
+  }
+
   // ----------------------------------------------------------------- helpers
 
   static String normalize(String s) {

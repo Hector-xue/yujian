@@ -37,7 +37,7 @@ const borrowKeywords = ['借了', '借我', '借给', '跟', '向', '找'];
 
 /// 账户别名（匹配 ctx.accounts 的名字）。key 为文本里出现的词，value 为账户名候选。
 const builtinAccountAliases = <String, List<String>>{
-  '微信': ['微信', '微信钱包', '微信支付', 'wechat', 'WeChat'],
+  '微信': ['微信', '微信钱包', '微信支付', 'wechat', 'WeChat', '零钱', '零钱通'],
   '支付宝': ['支付宝', 'alipay', 'Alipay', '余额宝'],
   '花呗': ['花呗'],
   '白条': ['白条', '京东白条'],

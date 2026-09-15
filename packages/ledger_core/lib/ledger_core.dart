@@ -16,4 +16,5 @@ export 'src/models/enums.dart';
 export 'src/models/transaction.dart';
 export 'src/money.dart';
 export 'src/occurred_at.dart';
+export 'src/portability.dart';
 export 'src/validation.dart' show Analysis, ValidatedTransaction, analyzeCreatePayload;

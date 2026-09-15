@@ -73,4 +73,25 @@ void main() {
     expect(state.hasModel, isTrue);
     expect(state.interpreter.llm, isNotNull);
   });
+
+  testWidgets('import bill csv lands in inbox with mapped category/account; re-import dedupes', (tester) async {
+    const csv = '交易时间,交易类型,交易对方,商品,收/支,支付方式,金额(元),当前状态\n'
+        '2026-09-14 12:31:05,商户消费,瑞幸咖啡,拿铁,支出,零钱,¥19.00,支付成功\n'
+        '2026-09-14 20:10:00,转账,张三,转账,收入,/,¥200.00,已收钱\n';
+    final r = state.importBillCsv(csv);
+    expect(r.drafts, 2);
+    expect(r.error, isNull);
+    final drafts = state.inbox;
+    final coffee = drafts.firstWhere((d) => d.payload['amount_minor'] == 1900);
+    expect(coffee.payload['category_id'], 'food');
+    expect(coffee.payload['account_id'], 'wechat');
+    expect(coffee.source, Source.import_);
+    final again = state.importBillCsv(csv);
+    expect(again.drafts, 0);
+    expect(again.deduped, 2);
+    await tester.pumpWidget(YujianApp(state: state));
+    await tester.tap(find.text('收件箱'));
+    await tester.pumpAndSettle();
+    expect(find.text('全部确认'), findsOneWidget);
+  });
 }
