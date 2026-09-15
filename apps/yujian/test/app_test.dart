@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
+import 'package:yujian/src/settings_store.dart';
 
 void main() {
   late AppState state;
@@ -33,6 +34,7 @@ void main() {
     expect(state.inbox, isEmpty);
     expect(state.ledger.listTransactions().single.amountMinor, 2800);
     expect(state.ledger.balance('wechat').minor, -2800);
+    expect(find.text('已记 1 笔。'), findsOneWidget); // 极简助手的人格回复
   });
 
   testWidgets('chat: query renders result card', (tester) async {
@@ -57,5 +59,18 @@ void main() {
     expect(find.textContaining('缺'), findsWidgets);
     final confirm = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '确认'));
     expect(confirm.onPressed, isNull); // 缺字段时不能确认
+  });
+
+  testWidgets('settings: persona switch changes chat voice; model config builds interpreter', (tester) async {
+    await state.saveSettings(const Settings(personaId: 'catgirl'));
+    await tester.pumpWidget(YujianApp(state: state));
+    await tester.tap(find.text('对话'));
+    await tester.pumpAndSettle();
+    expect(find.text('猫娘'), findsOneWidget);
+    expect(find.textContaining('喵'), findsWidgets);
+    expect(state.hasModel, isFalse);
+    await state.saveSettings(const Settings(personaId: 'catgirl', baseUrl: 'http://127.0.0.1:1/v1', model: 'm', apiKey: 'k'));
+    expect(state.hasModel, isTrue);
+    expect(state.interpreter.llm, isNotNull);
   });
 }

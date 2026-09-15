@@ -1,17 +1,48 @@
 import 'package:flutter/widgets.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
+import 'package:persona/persona.dart';
+import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
+
+import 'settings_store.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
 class AppState extends ChangeNotifier {
   final Ledger ledger;
   final QueryEngine engine;
-  HybridInterpreter interpreter;
+  final SettingsStore settingsStore;
+  HybridInterpreter interpreter = HybridInterpreter();
+  Settings settings = const Settings();
+  PersonaPack persona = builtinPersonas.first;
+  PersonaReplier replier = PersonaReplier(builtinPersonas.first);
 
-  AppState(this.ledger, {HybridInterpreter? interpreter})
+  AppState(this.ledger, {SettingsStore? settingsStore})
       : engine = QueryEngine(ledger),
-        interpreter = interpreter ?? HybridInterpreter();
+        settingsStore = settingsStore ?? MemorySettingsStore();
+
+  /// 读设置并按它装配解析器与人格。启动时和保存设置后各调一次。
+  Future<void> loadSettings() async {
+    settings = await settingsStore.load();
+    _apply();
+  }
+
+  Future<void> saveSettings(Settings s) async {
+    settings = s;
+    await settingsStore.save(s);
+    _apply();
+  }
+
+  void _apply() {
+    final cfg = settings.providerConfig;
+    final p = cfg == null ? null : OpenAICompatProvider(cfg);
+    interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
+    persona = personaById(settings.personaId);
+    replier = PersonaReplier(persona, provider: p);
+    notifyListeners();
+  }
+
+  bool get hasModel => settings.providerConfig != null;
 
   /// 首次启动：默认分类 + 三个常用账户。
   void bootstrap() {
@@ -37,6 +68,7 @@ class AppState extends ChangeNotifier {
       defaultAccountId: accs.isEmpty ? null : accs.first.id,
       accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency)],
       categories: [for (final c in categories) CategoryRef(id: c.id, name: c.name, kind: c.kind.db, parentId: c.parentId)],
+      merchantMap: {for (final m in ledger.memory.all(limit: 300)) m.key: (categoryId: m.categoryId, accountId: m.accountId)},
       recentTransactions: [
         for (final t in ledger.listTransactions(limit: 20))
           RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description),

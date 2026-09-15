@@ -8,12 +8,14 @@ import 'src/pages/home_page.dart';
 import 'src/pages/inbox_page.dart';
 import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
+import 'src/settings_store.dart';
 import 'src/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await openAppDatabase();
-  final state = AppState(Ledger(db))..bootstrap();
+  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore())..bootstrap();
+  await state.loadSettings();
   runApp(YujianApp(state: state));
 }
 

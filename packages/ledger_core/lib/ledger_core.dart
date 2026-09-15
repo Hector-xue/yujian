@@ -7,6 +7,7 @@ export 'src/db/database.dart';
 export 'src/errors.dart';
 export 'src/ids.dart';
 export 'src/ledger.dart';
+export 'src/memory.dart';
 export 'src/models/account.dart';
 export 'src/models/audit.dart';
 export 'src/models/category.dart';

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
+import 'package:persona/persona.dart';
 import 'package:query_dsl/query_dsl.dart';
 
 import '../app_state.dart';
@@ -62,21 +63,53 @@ class _ChatPageState extends State<ChatPage> {
             : r.result.degraded
                 ? '规则解析 · 模型暂时不可用'
                 : '规则解析';
+    // 人格只拿到事件摘要，拿不到账本
+    String reply;
+    if (r.error != null) {
+      reply = r.error!;
+    } else if (r.query != null) {
+      final rows = r.query!.rows;
+      final label = rows.isEmpty ? '这段时间没有匹配的记录' : '${rows.first.label} ${fmtMoney(rows.first.valueMinor, rows.first.currency)}${rows.length > 1 ? ' 等 ${rows.length} 项' : ''}';
+      reply = await app.replier.reply(PersonaEvent.queryAnswered, n: rows.length, label: label);
+    } else if (r.drafts.isNotEmpty) {
+      final missing = r.drafts.expand((d) => d.missingFields).toSet();
+      reply = missing.isNotEmpty
+          ? await app.replier.reply(PersonaEvent.missingFields, n: r.drafts.length, label: missing.map(_fieldName).join('、'))
+          : await app.replier.reply(PersonaEvent.draftsProposed, n: r.drafts.length);
+      if (r.result.degraded && !noModel) reply = '${app.replier.template(PersonaEvent.modelUnavailable)} $reply';
+    } else {
+      reply = await app.replier.reply(PersonaEvent.notUnderstood);
+    }
+    if (!mounted) return;
     setState(() {
       _busy = false;
-      if (r.error != null) {
-        _msgs.add(_TextMsg(r.error!));
-      } else if (r.query != null) {
+      if (r.query != null) {
         _msgs.add(_QueryMsg(r.query!, meta));
       } else if (r.drafts.isNotEmpty) {
         _msgs.add(_DraftMsg(r.drafts.first.groupId, meta));
-      } else {
-        _msgs.add(_TextMsg(r.result.intent == Intent.chat ? '没听出记账或查询的意思。试试"午饭 28"或"这个月花了多少"。' : '没有可记的内容'));
       }
+      _msgs.add(_TextMsg(reply));
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
     });
+  }
+
+  static String _fieldName(String f) => switch (f) {
+        'account_id' => '账户',
+        'to_account_id' => '转入账户',
+        'category_id' => '分类',
+        'amount_minor' => '金额',
+        'occurred_at' => '时间',
+        'refund_of_id' => '原交易',
+        _ => f,
+      };
+
+  Future<void> _afterCommit(int n) async {
+    final app = AppScope.of(context);
+    final reply = await app.replier.reply(PersonaEvent.recorded, n: n);
+    if (!mounted) return;
+    setState(() => _msgs.add(_TextMsg(reply)));
   }
 
   @override
@@ -84,7 +117,7 @@ class _ChatPageState extends State<ChatPage> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('对话')),
+      appBar: AppBar(title: Text(app.persona.name)),
       body: Column(
         children: [
           Expanded(
@@ -92,7 +125,7 @@ class _ChatPageState extends State<ChatPage> {
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
-                      child: Text('直接说发生了什么\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                      child: Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
                     ),
                   )
                 : ListView.builder(
@@ -147,7 +180,7 @@ class _ChatPageState extends State<ChatPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DraftGroupCard(drafts: drafts, onChanged: () => setState(() {})),
+            DraftGroupCard(drafts: drafts, onChanged: () => setState(() {}), onCommitted: _afterCommit),
             Padding(padding: const EdgeInsets.only(top: 4, left: 4), child: Text(m.meta, style: theme.textTheme.bodySmall)),
           ],
         );

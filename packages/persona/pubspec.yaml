@@ -1,0 +1,12 @@
+name: persona
+description: 余见人格系统：只改语气，触不到账本事实。分层注入 + 模板回退。
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  providers:
+    path: ../providers
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

@@ -46,7 +46,7 @@ void main() {
 
   group('schema', () {
     test('migrated to latest', () {
-      expect(db.schemaVersion, 1);
+      expect(db.schemaVersion, 2);
     });
     test('persists across reopen', () {
       final dir = Directory.systemTemp.createTempSync('yujian_');

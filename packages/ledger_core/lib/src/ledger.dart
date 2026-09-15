@@ -9,6 +9,7 @@ import 'models/category.dart';
 import 'models/draft.dart';
 import 'models/enums.dart';
 import 'models/transaction.dart';
+import 'memory.dart';
 import 'money.dart';
 import 'validation.dart';
 
@@ -17,6 +18,8 @@ import 'validation.dart';
 class Ledger implements ValidationContext {
   final LedgerDatabase _db;
   final DateTime Function() _clock;
+
+  late final MemoryStore memory = MemoryStore(_db, _nowMs);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -256,8 +259,28 @@ class Ledger implements ValidationContext {
       switch (d.kind) {
         case DraftKind.create:
           tx = _createTransaction(finalPayload, d);
+          if (tx.type == TransactionType.expense || tx.type == TransactionType.income) {
+            memory.learn(
+              merchant: tx.merchant,
+              description: tx.description,
+              categoryId: tx.categoryId,
+              accountId: tx.accountId,
+              categoryCorrected: edits?.containsKey('category_id') == true && edits!['category_id'] != d.payload['category_id'],
+              accountCorrected: edits?.containsKey('account_id') == true && edits!['account_id'] != d.payload['account_id'],
+            );
+          }
         case DraftKind.update:
           tx = _updateTransaction(d.targetTransactionId!, finalPayload, d);
+          if ((tx.type == TransactionType.expense || tx.type == TransactionType.income) && (finalPayload.containsKey('category_id') || finalPayload.containsKey('account_id'))) {
+            memory.learn(
+              merchant: tx.merchant,
+              description: tx.description,
+              categoryId: tx.categoryId,
+              accountId: tx.accountId,
+              categoryCorrected: finalPayload.containsKey('category_id'),
+              accountCorrected: finalPayload.containsKey('account_id'),
+            );
+          }
         case DraftKind.void_:
           tx = _voidTransaction(d.targetTransactionId!, (finalPayload['reason'] as String?) ?? '', d);
       }

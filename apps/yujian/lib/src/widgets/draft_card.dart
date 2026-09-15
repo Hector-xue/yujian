@@ -9,7 +9,8 @@ import 'fmt.dart';
 class DraftGroupCard extends StatelessWidget {
   final List<Draft> drafts;
   final VoidCallback? onChanged;
-  const DraftGroupCard({super.key, required this.drafts, this.onChanged});
+  final void Function(int committed)? onCommitted;
+  const DraftGroupCard({super.key, required this.drafts, this.onChanged, this.onCommitted});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +24,7 @@ class DraftGroupCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final d in drafts) _DraftRow(draft: d, onChanged: onChanged),
+            for (final d in drafts) _DraftRow(draft: d, onChanged: onChanged, onCommitted: onCommitted),
             if (pending.isNotEmpty) ...[
               const SizedBox(height: 6),
               Row(
@@ -45,7 +46,8 @@ class DraftGroupCard extends StatelessWidget {
                         ? null
                         : () {
                             try {
-                              app.commitGroup(drafts.first.groupId); // 卡片自己会变成"已记账 N 笔"，不再弹条挡住输入框
+                              final n = app.commitGroup(drafts.first.groupId).length; // 卡片自己会变成"已记账 N 笔"，不弹条挡输入框
+                              onCommitted?.call(n);
                             } on LedgerException catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
                             }
@@ -70,7 +72,8 @@ class DraftGroupCard extends StatelessWidget {
 class _DraftRow extends StatelessWidget {
   final Draft draft;
   final VoidCallback? onChanged;
-  const _DraftRow({required this.draft, this.onChanged});
+  final void Function(int committed)? onCommitted;
+  const _DraftRow({required this.draft, this.onChanged, this.onCommitted});
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +112,7 @@ class _DraftRow extends StatelessWidget {
               if (edits == null || !context.mounted) return;
               try {
                 app.commit(draft.id, edits: edits);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已记账')));
+                onCommitted?.call(1);
               } on LedgerException catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
               }

@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import 'accounts_page.dart';
 import 'categories_page.dart';
+import 'settings_page.dart';
 import 'stats_page.dart';
 
 class MorePage extends StatelessWidget {
@@ -31,9 +32,11 @@ class MorePage extends StatelessWidget {
           const Divider(),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+            leading: Icon(Icons.tune, color: theme.colorScheme.primary),
             title: const Text('模型与人格'),
-            subtitle: Text('下一版：接入你自己的模型', style: theme.textTheme.bodySmall),
-            enabled: false,
+            subtitle: Text(app.hasModel ? '${app.settings.model} · ${app.persona.name}' : '未配置模型（规则解析） · ${app.persona.name}', style: theme.textTheme.bodySmall),
+            trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0B7B3)),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),

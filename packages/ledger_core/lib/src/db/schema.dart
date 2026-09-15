@@ -110,4 +110,16 @@ CREATE TABLE events (
 );
 CREATE INDEX idx_event_fingerprint ON events(fingerprint);
 ''',
+  2: '''
+CREATE TABLE memory_map (
+  key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  category_id TEXT,
+  account_id TEXT,
+  hits INTEGER NOT NULL DEFAULT 1,
+  corrections INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''',
 };
