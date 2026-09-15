@@ -18,6 +18,9 @@ packages/ledger_core   账本核心：账户 / 交易 + posting 轻复式 / 草�
 packages/interpreter   自然语言 → 草稿 / 查询 / 修改意图（规则优先，LLM 兜底，可插拔）
 packages/query_dsl     查询 DSL（模型只出 JSON，引擎在账本上执行并给依据）
 packages/providers     模型 Provider 抽象、OpenAI-compatible 实现、能力实测
+packages/persona       人格包：五段分层提示词，人格只能改风格段
+packages/notification_templates  支付类通知 → 金额/方向/商户（Android 自动记账用）
+packages/mcp_server    MCP Server（stdio）：只读 + propose 工具，给任何 agent 用
 apps/yujian            Flutter App                                  [Phase 1]
 server/                可选 Python 服务端                            [Phase 3]
 corpus/                解析语料
@@ -79,6 +82,14 @@ ledger.auditFor(tx.id);         // propose → commit → create 全链
 ```
 
 金额一律最小货币单位整数；时间带偏移存储；交易由 type 决定 posting 结构（expense 一负、income 一正、transfer 一负一正和为零、refund 挂原交易且不超余额、adjustment 必填原因）。
+
+## MCP
+
+```bash
+cd packages/mcp_server && dart run bin/yujian_mcp.dart --db ~/.local/share/com.ivyea.yujian/yujian.db
+```
+
+Claude Desktop / ivyea-agent 等把它配成 stdio server 即可。工具只有查询和 `propose_*`：agent 提议的交易进收件箱，用户在 App 里确认后才入账。
 
 ## 发布
 

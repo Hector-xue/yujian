@@ -1,0 +1,14 @@
+name: mcp_server
+description: 余见 MCP Server：把账本以 MCP 工具暴露给任何 agent。只读 + propose，没有直写。
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ledger_core:
+    path: ../ledger_core
+  query_dsl:
+    path: ../query_dsl
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
