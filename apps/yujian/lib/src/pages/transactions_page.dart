@@ -93,7 +93,7 @@ class TransactionTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [SizedBox(width: 72, child: Text(k, style: theme.textTheme.bodySmall)), Expanded(child: Text(v))]),
             );
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,

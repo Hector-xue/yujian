@@ -126,4 +126,31 @@ void main() {
       expect(() => parseBillCsv('a,b\n1,2\n'), throwsFormatException);
     });
   });
+
+  test('manual column mapping bypasses header detection; table API accepts excel-like rows', () {
+    final rows = [
+      ['我的账本', '', '', ''],
+      ['日子', '花了', '店', '备注'],
+      ['2026/9/14', '19.9', '瑞幸', '拿铁'],
+      ['2026/9/13', '-36.5', '滴滴', ''],
+    ];
+    expect(() => parseBillTable(rows), throwsFormatException);
+    final parsed = parseBillTable(rows, mapping: const ColumnMapping(date: 0, amount: 1, merchant: 2, description: 3, headerRow: 1));
+    expect(parsed.length, 2);
+    expect(parsed[0].amountMinor, 1990);
+    expect(parsed[0].merchant, '瑞幸');
+    expect(parsed[0].type, 'unknown'); // 没有收支列也没符号
+    expect(parsed[1].type, 'expense'); // 负号
+    expect(parsed[1].occurredAt!.localDate, '2026-09-13');
+    expect(findHeaderRow(rows), -1);
+  });
+
+  test('markdown monthly report', () {
+    final md = exportMarkdownReport(ledger, year: 2026, month: 9);
+    expect(md, contains('# 余见月报 2026 年 9 月'));
+    expect(md, contains('| CNY | 47.50 | 0.00 | -47.50 |'));
+    expect(md, contains('| 餐饮 | 47.50 CNY | 100% |'));
+    expect(md, contains('午饭 "牛肉面"'));
+    expect(md, contains('微信：'));
+  });
 }

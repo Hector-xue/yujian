@@ -104,54 +104,94 @@ class ImportedRow {
   });
 }
 
+/// 手工列映射（表头认不出时由用户指定；索引为列号）。
+class ColumnMapping {
+  final int date;
+  final int amount;
+  final int? inOut;
+  final int? merchant;
+  final int? description;
+  final int? account;
+  final int? category;
+  final int? status;
+  final int headerRow; // 表头所在行（0 起），数据从下一行开始
+  const ColumnMapping({required this.date, required this.amount, this.inOut, this.merchant, this.description, this.account, this.category, this.status, this.headerRow = 0});
+}
+
 /// 通用账单 CSV 解析：自动找表头行（含"金额"或 amount），按同义词认列。
 /// 覆盖微信、支付宝账单导出，以及余见自己导出的 CSV；其他表只要有日期+金额也能读。
-List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480}) {
-  final lines = const LineSplitter().convert(text.replaceFirst('﻿', ''));
-  var headerIdx = -1;
-  List<String> header = const [];
-  for (var i = 0; i < lines.length; i++) {
-    final cells = parseCsvLine(lines[i]);
+List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
+  final lines = const LineSplitter().convert(text.replaceFirst('\uFEFF', ''));
+  return parseBillTable([for (final l in lines) parseCsvLine(l)], defaultCurrency: defaultCurrency, tzOffsetMinutes: tzOffsetMinutes, mapping: mapping);
+}
+
+/// 找表头行：含"金额/amount"且含"时间/日期/date"的第一行。找不到返回 -1。
+int findHeaderRow(List<List<String>> rows) {
+  for (var i = 0; i < rows.length; i++) {
+    final cells = rows[i];
     if (cells.any((c) => RegExp(r'金额|amount', caseSensitive: false).hasMatch(c)) && cells.any((c) => RegExp(r'时间|日期|date|time', caseSensitive: false).hasMatch(c))) {
-      headerIdx = i;
-      header = cells.map((c) => c.trim()).toList();
-      break;
+      return i;
     }
   }
-  if (headerIdx < 0) throw const FormatException('没找到表头（需要有"时间/日期"和"金额"列）');
+  return -1;
+}
 
-  // 同义词按优先级找列：先精确后前缀，名字顺序优先于列位置（微信账单"交易类型"在"收/支"前面）
-  int? col(List<String> names) {
-    final hs = header.map((h) => h.toLowerCase().replaceAll(RegExp(r'[()（）\s]'), '')).toList();
-    for (final n in names) {
-      final exact = hs.indexOf(n);
-      if (exact >= 0) return exact;
+/// 表格（CSV / Excel 已拆成行列）→ 归一行。
+List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
+  int headerIdx;
+  List<String> header;
+  int? cDate, cAmount, cInOut, cCounter, cGoods, cPay, cCat, cStatus, cCurrency;
+  var cTime = -1;
+  if (mapping != null) {
+    headerIdx = mapping.headerRow;
+    header = headerIdx < rows.length ? rows[headerIdx].map((c) => c.trim()).toList() : const [];
+    cDate = mapping.date;
+    cAmount = mapping.amount;
+    cInOut = mapping.inOut;
+    cCounter = mapping.merchant;
+    cGoods = mapping.description;
+    cPay = mapping.account;
+    cCat = mapping.category;
+    cStatus = mapping.status;
+  } else {
+    headerIdx = findHeaderRow(rows);
+    if (headerIdx < 0) throw const FormatException('没找到表头（需要有"时间/日期"和"金额"列）');
+    header = rows[headerIdx].map((c) => c.trim()).toList();
+
+    // 同义词按优先级找列：先精确后前缀，名字顺序优先于列位置（微信账单"交易类型"在"收/支"前面）
+    int? col(List<String> names) {
+      final hs = header.map((h) => h.toLowerCase().replaceAll(RegExp(r'[()（）\s]'), '')).toList();
+      for (final n in names) {
+        final exact = hs.indexOf(n);
+        if (exact >= 0) return exact;
+      }
+      for (final n in names) {
+        final i = hs.indexWhere((h) => h.startsWith(n));
+        if (i >= 0) return i;
+      }
+      return null;
     }
-    for (final n in names) {
-      final i = hs.indexWhere((h) => h.startsWith(n));
-      if (i >= 0) return i;
-    }
-    return null;
+
+    cDate = col(['交易时间', '时间', '日期', 'date', 'time', '交易日期', '发生时间']);
+    cAmount = col(['金额元', '金额', 'amount']);
+    cInOut = col(['收/支', '收支', '类型', 'type', '交易类型']);
+    cCounter = col(['交易对方', '对方', 'merchant', '商户', '收款方']);
+    cGoods = col(['商品', '商品说明', '说明', 'description', '备注', '摘要', '商品名称']);
+    cPay = col(['支付方式', '收/付款方式', '付款方式', 'account', '账户']);
+    cCat = col(['交易分类', '分类', 'category', '类别']);
+    cStatus = col(['当前状态', '交易状态', 'status']);
+    cCurrency = col(['币种', 'currency']);
+    cTime = header.indexWhere((h) => h.toLowerCase() == 'time');
+    if (cDate == null || cAmount == null) throw const FormatException('表头缺少时间或金额列');
   }
-
-  final cDate = col(['交易时间', '时间', '日期', 'date', 'time', '交易日期', '发生时间']);
-  final cAmount = col(['金额元', '金额', 'amount']);
-  final cInOut = col(['收/支', '收支', '类型', 'type', '交易类型']);
-  final cCounter = col(['交易对方', '对方', 'merchant', '商户', '收款方']);
-  final cGoods = col(['商品', '商品说明', '说明', 'description', '备注', '摘要', '商品名称']);
-  final cPay = col(['支付方式', '收/付款方式', '付款方式', 'account', '账户']);
-  final cCat = col(['交易分类', '分类', 'category', '类别']);
-  final cStatus = col(['当前状态', '交易状态', 'status']);
-  final cCurrency = col(['币种', 'currency']);
-  final cTime = header.indexWhere((h) => h.toLowerCase() == 'time');
-  if (cDate == null || cAmount == null) throw const FormatException('表头缺少时间或金额列');
+  final dateCol = cDate;
+  final amountCol = cAmount;
 
   final out = <ImportedRow>[];
-  for (var i = headerIdx + 1; i < lines.length; i++) {
-    final raw = lines[i];
-    if (raw.trim().isEmpty) continue;
-    final cells = parseCsvLine(raw);
-    if (cells.length <= cAmount || cells.length <= cDate) continue;
+  for (var i = headerIdx + 1; i < rows.length; i++) {
+    final cells = rows[i];
+    if (cells.every((c) => c.trim().isEmpty)) continue;
+    if (cells.length <= amountCol || cells.length <= dateCol) continue;
     String cell(int? c) => c == null || c >= cells.length ? '' : cells[c].trim();
     final problems = <String>[];
 
@@ -160,13 +200,13 @@ List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int
 
     final currency = cell(cCurrency).isEmpty ? defaultCurrency : cell(cCurrency).toUpperCase();
     int? amount;
-    final amtText = cell(cAmount).replaceAll(RegExp(r'[¥￥,\s元]'), '');
+    final amtText = cell(amountCol).replaceAll(RegExp(r'[¥￥,\s元]'), '');
     try {
       final m = Money.parse(amtText.replaceFirst(RegExp(r'^[+-]'), ''), Currency.isKnown(currency) ? currency : defaultCurrency);
       amount = m.minor.abs();
       if (amount == 0) problems.add('金额为 0');
     } catch (_) {
-      problems.add('金额无法解析：${cell(cAmount)}');
+      problems.add('金额无法解析：${cell(amountCol)}');
     }
 
     final inOut = cell(cInOut);
@@ -184,7 +224,7 @@ List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int
     if (type == 'income' && RegExp('退款').hasMatch(inOut)) type = 'refund_like';
 
     OccurredAt? when;
-    final dateText = cell(cDate) + (cTime >= 0 && cTime != cDate ? ' ${cell(cTime)}' : '');
+    final dateText = cell(dateCol) + (cTime >= 0 && cTime != dateCol ? ' ${cell(cTime)}' : '');
     try {
       when = _parseDateTime(dateText, tzOffsetMinutes);
     } catch (_) {
@@ -209,6 +249,61 @@ List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int
     ));
   }
   return out;
+}
+
+/// Markdown 月报（§12.2 可选）：总览、分类、大额、账户余额。
+String exportMarkdownReport(Ledger ledger, {required int year, required int month}) {
+  final from = '$year-${month.toString().padLeft(2, '0')}-01';
+  final last = DateTime.utc(year, month + 1, 0).day;
+  final to = '$year-${month.toString().padLeft(2, '0')}-${last.toString().padLeft(2, '0')}';
+  final fromUtc = DateTime.parse('${from}T00:00:00Z').subtract(const Duration(days: 1));
+  final toUtc = DateTime.parse('${to}T00:00:00Z').add(const Duration(days: 2));
+  final txs = ledger.listTransactions(from: fromUtc, to: toUtc, limit: 1 << 30).where((t) => t.occurredAt.localDate.compareTo(from) >= 0 && t.occurredAt.localDate.compareTo(to) <= 0).toList();
+  final byCur = <String, ({int expense, int income})>{};
+  final byCat = <String, int>{};
+  for (final t in txs) {
+    final cur = byCur[t.currency] ?? (expense: 0, income: 0);
+    switch (t.type) {
+      case TransactionType.expense:
+        byCur[t.currency] = (expense: cur.expense + t.amountMinor, income: cur.income);
+        byCat['${t.currency}|${t.categoryId ?? ''}'] = (byCat['${t.currency}|${t.categoryId ?? ''}'] ?? 0) + t.amountMinor;
+      case TransactionType.refund:
+        byCur[t.currency] = (expense: cur.expense - t.amountMinor, income: cur.income);
+        byCat['${t.currency}|${t.categoryId ?? ''}'] = (byCat['${t.currency}|${t.categoryId ?? ''}'] ?? 0) - t.amountMinor;
+      case TransactionType.income:
+        byCur[t.currency] = (expense: cur.expense, income: cur.income + t.amountMinor);
+      default:
+        break;
+    }
+  }
+  final b = StringBuffer('# 余见月报 $year 年 $month 月\n\n');
+  b.writeln('共 ${txs.length} 笔记录。\n');
+  b.writeln('## 总览\n');
+  b.writeln('| 币种 | 支出 | 收入 | 结余 |');
+  b.writeln('|---|---:|---:|---:|');
+  for (final e in byCur.entries) {
+    b.writeln('| ${e.key} | ${Money(e.value.expense, e.key).toDecimalString()} | ${Money(e.value.income, e.key).toDecimalString()} | ${Money(e.value.income - e.value.expense, e.key).toDecimalString()} |');
+  }
+  b.writeln('\n## 支出分类\n');
+  b.writeln('| 分类 | 金额 | 占比 |');
+  b.writeln('|---|---:|---:|');
+  final cats = byCat.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  for (final e in cats) {
+    final cur = e.key.split('|')[0];
+    final id = e.key.split('|')[1];
+    final total = byCur[cur]?.expense ?? 1;
+    b.writeln('| ${id.isEmpty ? '未分类' : (ledger.category(id)?.name ?? id)} | ${Money(e.value, cur).toDecimalString()} $cur | ${total == 0 ? '-' : '${(100 * e.value / total).toStringAsFixed(0)}%'} |');
+  }
+  b.writeln('\n## 最大的 10 笔支出\n');
+  final big = txs.where((t) => t.type == TransactionType.expense).toList()..sort((a, b) => b.amountMinor.compareTo(a.amountMinor));
+  for (final t in big.take(10)) {
+    b.writeln('- ${t.occurredAt.localDate} ${t.description ?? t.merchant ?? ledger.category(t.categoryId ?? '')?.name ?? ''} · ${Money(t.amountMinor, t.currency)} · ${ledger.category(t.categoryId ?? '')?.name ?? '未分类'}');
+  }
+  b.writeln('\n## 账户余额（截至导出时）\n');
+  for (final a in ledger.listAccounts()) {
+    b.writeln('- ${a.name}：${ledger.balance(a.id)}');
+  }
+  return b.toString();
 }
 
 OccurredAt _parseDateTime(String s, int tz) {
