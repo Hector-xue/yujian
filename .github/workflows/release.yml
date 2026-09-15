@@ -108,15 +108,16 @@ jobs:
           ver=$(awk '/^  sqlite3:$/{f=1} f&&/^    version:/{gsub(/[" ]/,"",$2); print $2; exit}' pubspec.lock)
           curl -sSfL -o web/sqlite3.wasm "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
       - run: flutter build web --release --base-href /
-      - run: flutter build apk --release
+      - run: flutter build apk --release --split-per-abi
       - name: verify signature
         run: |
-          apk=build/app/outputs/flutter-apk/app-release.apk
+          apk=build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify --print-certs "$apk" | grep -i "SHA-256" | head -1
       - name: package
         run: |
           ver=${GITHUB_REF_NAME#v}
-          cp build/app/outputs/flutter-apk/app-release.apk "yujian-${ver}-android.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "yujian-${ver}-android-arm64.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "yujian-${ver}-android-arm32.apk"
           (cd build/web && zip -qr "../../yujian-${ver}-web.zip" .)
           ls -la yujian-*
       - uses: softprops/action-gh-release@v2
