@@ -12,6 +12,7 @@ YUJIAN_DATA=./data uvicorn app.main:app --port 8787
 - `POST /api/v1/sync/push` `{device_id, changes:[{entity, entity_id, deleted, payload, at}]}`
 - `GET  /api/v1/sync/pull?device_id=&since=&limit=` → 其他设备的变更，按 seq 分页
 - `PUT/GET /api/v1/backup`（客户端 AES-GCM 加密后的字节；服务端看不到明文）、`GET /api/v1/backup/info`
+- `POST /api/v1/ai/chat/completions`：AI 代理（可选，配 `YUJIAN_AI_UPSTREAM`=上游 base url、`YUJIAN_AI_KEY`）。App 里 Base URL 填 `<server>/api/v1/ai`，API Key 填同步 token，多设备共用一把上游密钥
 - `GET /healthz`
 
 Docker 见 `deploy/docker-compose.yml`。

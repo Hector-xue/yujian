@@ -878,6 +878,756 @@
           "metric": "forecast"
         }
       }
+    },
+    {
+      "id": "c53",
+      "tag": "早餐",
+      "text": "早饭 8 块",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 800,
+            "category_id": "food",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c54",
+      "tag": "晚饭外卖",
+      "text": "晚上点了个外卖 45.5",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 4550,
+            "category_id": "food",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c55",
+      "tag": "地铁",
+      "text": "地铁 6 元",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 600,
+            "category_id": "transport",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c56",
+      "tag": "停车",
+      "text": "停车费 20",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 2000,
+            "category_id": "transport",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c57",
+      "tag": "加油",
+      "text": "昨天加油 350",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 35000,
+            "category_id": "transport",
+            "date": "2026-09-14"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c58",
+      "tag": "水电",
+      "text": "交了水电费 186.4",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 18640,
+            "category_id": "housing",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c59",
+      "tag": "超市",
+      "text": "超市买东西 132",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 13200,
+            "category_id": "daily",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c60",
+      "tag": "淘宝",
+      "text": "淘宝买了个杯子 29.9",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 2990,
+            "category_id": "shopping",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c61",
+      "tag": "衣服",
+      "text": "买了件衣服 299",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 29900,
+            "category_id": "shopping",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c62",
+      "tag": "电影",
+      "text": "看电影 55",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 5500,
+            "category_id": "entertainment",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c63",
+      "tag": "游戏",
+      "text": "游戏充了 68",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 6800,
+            "category_id": "entertainment",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c64",
+      "tag": "药",
+      "text": "买药 36.8",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 3680,
+            "category_id": "medical",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c65",
+      "tag": "体检",
+      "text": "体检 500 块",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 50000,
+            "category_id": "medical",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c66",
+      "tag": "网课",
+      "text": "报了个网课 199",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 19900,
+            "category_id": "education",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c67",
+      "tag": "流量",
+      "text": "流量包 30",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 3000,
+            "category_id": "telecom",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c68",
+      "tag": "酒店",
+      "text": "酒店住了两晚 680",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 68000,
+            "category_id": "travel",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c69",
+      "tag": "红包",
+      "text": "给同事结婚随了 500 红包",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 50000,
+            "category_id": "social",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c70",
+      "tag": "猫粮",
+      "text": "猫砂 45",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 4500,
+            "category_id": "pet",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c71",
+      "tag": "奖金",
+      "text": "发了 5000 奖金",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "income",
+            "amount_minor": 500000,
+            "category_id": "bonus",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c72",
+      "tag": "利息",
+      "text": "余额宝利息 3.2",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "income",
+            "amount_minor": 320,
+            "category_id": "investment_income",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c73",
+      "tag": "收红包",
+      "text": "收到 200 红包",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "income",
+            "amount_minor": 20000,
+            "category_id": "gift",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c74",
+      "tag": "转账支付宝",
+      "text": "支付宝转到微信 300",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "transfer",
+            "amount_minor": 30000,
+            "date": "2026-09-15",
+            "account_id": "alipay",
+            "to_account_id": "wechat"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c75",
+      "tag": "存钱",
+      "text": "往工行存了 2000",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "transfer",
+            "amount_minor": 200000,
+            "date": "2026-09-15",
+            "to_account_id": "bank"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c76",
+      "tag": "还花呗",
+      "text": "还花呗 1200",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "transfer",
+            "amount_minor": 120000,
+            "date": "2026-09-15",
+            "to_account_id": "huabei"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c77",
+      "tag": "上周末",
+      "text": "上周六和朋友吃饭 260",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 26000,
+            "category_id": "food",
+            "date": "2026-09-12"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c78",
+      "tag": "周一",
+      "text": "周一打车 18",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 1800,
+            "category_id": "transport",
+            "date": "2026-09-14"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c79",
+      "tag": "三天前",
+      "text": "3 天前买菜 52",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 5200,
+            "category_id": "daily",
+            "date": "2026-09-12"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c80",
+      "tag": "具体日期",
+      "text": "9 月 1 号交房租 3500",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 350000,
+            "category_id": "housing",
+            "date": "2026-09-01"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c81",
+      "tag": "上月",
+      "text": "上个月 20 号买了个键盘 399",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 39900,
+            "category_id": "shopping",
+            "date": "2026-08-20"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c82",
+      "tag": "万",
+      "text": "买了台 1.2 万的电脑",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 1200000,
+            "category_id": "shopping",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c83",
+      "tag": "千",
+      "text": "花了三千块修车",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 300000,
+            "category_id": "transport",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c84",
+      "tag": "两百五",
+      "text": "打车两百五",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 25000,
+            "category_id": "transport",
+            "date": "2026-09-15"
+          }
+        ]
+      },
+      "rule_optional": true
+    },
+    {
+      "id": "c85",
+      "tag": "口语毛",
+      "text": "买瓶水两块五",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 250,
+            "category_id": "daily",
+            "date": "2026-09-15"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c86",
+      "tag": "账户现金",
+      "text": "现金付了 30 停车",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 3000,
+            "category_id": "transport",
+            "date": "2026-09-15",
+            "account_id": "cash"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c87",
+      "tag": "账户信用卡",
+      "text": "信用卡刷了 1500 买手机",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 150000,
+            "category_id": "shopping",
+            "date": "2026-09-15",
+            "account_id": "cc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c88",
+      "tag": "账户工行",
+      "text": "工行卡扣了 88 话费",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 8800,
+            "category_id": "telecom",
+            "date": "2026-09-15",
+            "account_id": "bank"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c89",
+      "tag": "多笔3",
+      "text": "早上包子 5 块，中午盖饭 22，下午奶茶 15",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 500,
+            "category_id": "food"
+          },
+          {
+            "type": "expense",
+            "amount_minor": 2200,
+            "category_id": "food"
+          },
+          {
+            "type": "expense",
+            "amount_minor": 1500,
+            "category_id": "food"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c90",
+      "tag": "多笔不同账户",
+      "text": "微信付了 30 午饭，支付宝付了 12 地铁",
+      "expect": {
+        "intent": "propose_transactions",
+        "drafts": [
+          {
+            "type": "expense",
+            "amount_minor": 3000,
+            "category_id": "food",
+            "account_id": "wechat"
+          },
+          {
+            "type": "expense",
+            "amount_minor": 1200,
+            "category_id": "transport",
+            "account_id": "alipay"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c91",
+      "tag": "查询上周",
+      "text": "上周花了多少",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "sum",
+          "time_range": {
+            "from": "2026-09-07",
+            "to": "2026-09-13"
+          }
+        }
+      }
+    },
+    {
+      "id": "c92",
+      "tag": "查询今天",
+      "text": "今天花了多少钱",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "sum",
+          "time_range": {
+            "from": "2026-09-15",
+            "to": "2026-09-15"
+          }
+        }
+      }
+    },
+    {
+      "id": "c93",
+      "tag": "查询笔数",
+      "text": "这个月吃了几次外卖",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "count",
+          "category_ids": [
+            "food"
+          ]
+        }
+      }
+    },
+    {
+      "id": "c94",
+      "tag": "查询平均",
+      "text": "这个月平均每笔花多少",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "avg"
+        }
+      }
+    },
+    {
+      "id": "c95",
+      "tag": "查询按天",
+      "text": "这个月每天花了多少",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "sum",
+          "group_by": "day"
+        }
+      }
+    },
+    {
+      "id": "c96",
+      "tag": "查询8月",
+      "text": "8 月交通花了多少",
+      "expect": {
+        "intent": "query",
+        "query": {
+          "metric": "sum",
+          "time_range": {
+            "from": "2026-08-01",
+            "to": "2026-08-31"
+          },
+          "category_ids": [
+            "transport"
+          ]
+        }
+      }
+    },
+    {
+      "id": "c97",
+      "tag": "删除最近",
+      "text": "刚才那笔删掉",
+      "expect": {
+        "intent": "propose_void",
+        "target_id": "t_last"
+      }
+    },
+    {
+      "id": "c98",
+      "tag": "改账户2",
+      "text": "刚才那笔是用现金付的",
+      "expect": {
+        "intent": "propose_update",
+        "target_id": "t_last",
+        "patch": {
+          "account_id": "cash"
+        }
+      }
+    },
+    {
+      "id": "c99",
+      "tag": "闲聊2",
+      "text": "你好呀",
+      "expect": {
+        "intent": "chat"
+      }
+    },
+    {
+      "id": "c100",
+      "tag": "闲聊3",
+      "text": "帮我算算今天几号",
+      "expect": {
+        "intent": "chat"
+      }
     }
   ]
 }

@@ -30,9 +30,9 @@ const _periodHour = {'凌晨': 2, '早上': 8, '早晨': 8, '清晨': 7, '上午
 final _relDayRe = RegExp(r'大前天|前天|昨天|昨日|今天|今日|明天|后天|刚才|刚刚|现在|方才');
 final _daysAgoRe = RegExp(r'([一二两三四五六七八九十\d]{1,3})\s*天前');
 final _weekRe = RegExp(r'(上上|上|这|本|下)?(周|星期|礼拜)([一二三四五六日天])');
-final _mdRe = RegExp(r'(?:(\d{4})年)?([一二三四五六七八九十\d]{1,3})月([一二三四五六七八九十\d]{1,3})[日号]');
+final _mdRe = RegExp(r'(?:(\d{4})\s*年\s*)?([一二三四五六七八九十\d]{1,3})\s*月\s*([一二三四五六七八九十\d]{1,3})\s*[日号]');
 final _dayOnlyRe = RegExp(r'(?<![\d月])([一二三四五六七八九十\d]{1,3})号');
-final _lastMonthDayRe = RegExp(r'(上个?月|这个?月|本月)([一二三四五六七八九十\d]{1,3})[日号]');
+final _lastMonthDayRe = RegExp(r'(上个?月|这个?月|本月)\s*([一二三四五六七八九十\d]{1,3})\s*[日号]');
 final _periodRe = RegExp('今早|今晚|昨晚|前晚|凌晨|早上|早晨|清晨|上午|中午|午饭|午餐|下午|傍晚|晚上|晚饭|晚餐|夜里|深夜|半夜');
 final _clockRe = RegExp(r'([一二三四五六七八九十\d]{1,2})\s*[点:：]\s*(半|[0-5]?\d分?)?');
 
@@ -211,7 +211,7 @@ OccurredAt toOccurredAt(DateTime wall, int tzOffsetMinutes) =>
   }
   if (RegExp('去年').hasMatch(text)) return (from: '${wallNow.year - 1}-01-01', to: '${wallNow.year - 1}-12-31');
   if (RegExp('今年').hasMatch(text)) return (from: '${wallNow.year}-01-01', to: d(today));
-  final m = RegExp(r'([一二三四五六七八九十\d]{1,2})月份?(?![\d一二三四五六七八九十]+[日号])').firstMatch(text);
+  final m = RegExp(r'([一二三四五六七八九十\d]{1,2})\s*月份?(?!\s*[\d一二三四五六七八九十]+\s*[日号])').firstMatch(text);
   if (m != null) {
     final mo = _num(m.group(1)!);
     if (mo != null && mo >= 1 && mo <= 12) {

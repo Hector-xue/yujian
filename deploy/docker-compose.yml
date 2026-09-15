@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     environment:
       YUJIAN_SYNC_TOKEN: ${YUJIAN_SYNC_TOKEN:?run: export YUJIAN_SYNC_TOKEN=$(openssl rand -hex 24)}
+      # 可选：AI 代理，密钥留在服务端
+      YUJIAN_AI_UPSTREAM: ${YUJIAN_AI_UPSTREAM:-}
+      YUJIAN_AI_KEY: ${YUJIAN_AI_KEY:-}
     volumes:
       - yujian-data:/data
     ports:

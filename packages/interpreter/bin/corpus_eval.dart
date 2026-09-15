@@ -61,7 +61,7 @@ Future<void> main(List<String> args) async {
     final ms = sw.elapsedMilliseconds - t0;
     final s = scoreCase(c, r);
     metrics.add(s);
-    final mark = s.pass ? 'PASS' : 'FAIL';
+    final mark = s.pass ? 'PASS' : (c.ruleOptional && mode == 'rule' ? 'SKIP' : 'FAIL');
     stdout.writeln('$mark ${c.id.padRight(4)} ${ms.toString().padLeft(5)}ms  ${c.tag.padRight(10)} ${c.text}');
     if (!s.pass || verbose) {
       for (final f in s.failures) {

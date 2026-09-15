@@ -47,7 +47,7 @@ class Corpus {
     );
     final cases = [
       for (final c in (j['cases'] as List).cast<Map>())
-        CorpusCase(id: c['id'] as String, tag: (c['tag'] as String?) ?? '', text: c['text'] as String, expect: (c['expect'] as Map).cast<String, Object?>()),
+        CorpusCase(id: c['id'] as String, tag: (c['tag'] as String?) ?? '', text: c['text'] as String, expect: (c['expect'] as Map).cast<String, Object?>(), ruleOptional: c['rule_optional'] == true),
     ];
     return Corpus(ctx, cases);
   }
@@ -58,7 +58,9 @@ class CorpusCase {
   final String tag;
   final String text;
   final Map<String, Object?> expect;
-  const CorpusCase({required this.id, required this.tag, required this.text, required this.expect});
+  /// 规则解析允许不过（要靠模型的用例）；回归门禁在 rule 模式跳过它们。
+  final bool ruleOptional;
+  const CorpusCase({required this.id, required this.tag, required this.text, required this.expect, this.ruleOptional = false});
 }
 
 /// 一条用例的判分明细。

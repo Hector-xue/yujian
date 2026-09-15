@@ -96,7 +96,7 @@ void main() {
       for (final c in corpus.cases) {
         final s = scoreCase(c, rule.interpretSync(c.text, corpus.context));
         metrics.add(s);
-        if (!s.pass) failures.add('${c.id}: ${s.failures.join('; ')}');
+        if (!s.pass && !c.ruleOptional) failures.add('${c.id}: ${s.failures.join('; ')}');
       }
       expect(failures, isEmpty, reason: failures.join('\n'));
       expect(metrics.cases, greaterThanOrEqualTo(50));

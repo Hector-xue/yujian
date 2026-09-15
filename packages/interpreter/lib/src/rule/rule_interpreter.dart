@@ -19,7 +19,9 @@ class RuleInterpreter implements Interpreter {
     final text = normalize(raw);
     if (text.isEmpty) return const InterpretResult(intent: Intent.chat, interpreter: 'rule');
     if (_hasAny(text, voidMarkers)) return _modify(text, ctx, isVoid: true);
-    if (_hasAny(text, updateMarkers)) return _modify(text, ctx, isVoid: false);
+    if (_hasAny(text, updateMarkers) && !(RegExp('是用|用的是|付的').hasMatch(text) && !_hasAny(text, targetRecentMarkers) && extractAmounts(text, defaultCurrency: ctx.defaultCurrency).isNotEmpty)) {
+      return _modify(text, ctx, isVoid: false); // "刚才那笔是用现金付的"是修改；"打车 36 微信付的"是新记账
+    }
     if (_isQuery(text)) return _query(text, ctx);
     final drafts = parseTransactions(text, ctx);
     if (drafts.isEmpty) return const InterpretResult(intent: Intent.chat, interpreter: 'rule');
@@ -186,6 +188,8 @@ class RuleInterpreter implements Interpreter {
   // ------------------------------------------------------------------- query
 
   bool _isQuery(String text) {
+    // "余额"是查询词，但"余额宝"是个产品名
+    if (RegExp('余额(?!宝)').hasMatch(text)) return true;
     if (!_hasAny(text, queryMarkers)) return text.endsWith('?') || text.endsWith('？') ? extractAmounts(text).isEmpty : false;
     // "一共花了 300" 是记账，"一共花了多少" 是查询
     return true;

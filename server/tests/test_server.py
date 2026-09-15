@@ -1,4 +1,7 @@
 import json
+import os
+
+import httpx
 
 import pytest
 from fastapi.testclient import TestClient
@@ -60,3 +63,26 @@ def test_backup_roundtrip(client):
     r = client.put("/api/v1/backup", content=b"v2", headers=h("dev-b"))
     assert client.get("/api/v1/backup", headers=h()).content == b"v2"
     assert client.put("/api/v1/backup", content=b"", headers=h()).status_code == 400
+
+
+def test_ai_proxy_forwards_with_server_key(tmp_path, monkeypatch):
+    seen = {}
+
+    def upstream(req: httpx.Request) -> httpx.Response:
+        seen["auth"] = req.headers.get("authorization")
+        seen["url"] = str(req.url)
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "hi"}}], "model": "m"})
+
+    monkeypatch.setenv("YUJIAN_AI_UPSTREAM", "https://api.example.com/v1/")
+    monkeypatch.setenv("YUJIAN_AI_KEY", "upstream-secret")
+    app = create_app(data_dir=tmp_path, token=TOKEN, upstream_client=httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+    c = TestClient(app)
+    r = c.post("/api/v1/ai/chat/completions", json={"model": "m", "messages": []}, headers=h())
+    assert r.status_code == 200 and r.json()["choices"][0]["message"]["content"] == "hi"
+    assert seen["auth"] == "Bearer upstream-secret" and seen["url"] == "https://api.example.com/v1/chat/completions" and seen["body"]["model"] == "m"
+    assert c.post("/api/v1/ai/chat/completions", json={}).status_code == 401
+
+
+def test_ai_proxy_unconfigured(client):
+    assert client.post("/api/v1/ai/chat/completions", json={}, headers=h()).status_code == 503

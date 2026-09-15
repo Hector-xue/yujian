@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, List, Optional
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
@@ -133,10 +134,14 @@ class PushBody(BaseModel):
     changes: List[WireChange] = Field(max_length=MAX_PUSH)
 
 
-def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None) -> FastAPI:
+def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None, upstream_client: Optional[httpx.AsyncClient] = None) -> FastAPI:
     tok = token if token is not None else _token()
     store = Store((data_dir or _data_dir()) / "sync.db")
     app = FastAPI(title="Yujian Server", version="0.3.0")
+    # AI 代理（可选）：密钥放服务端，多设备共用；App 里 Base URL 填 <server>/api/v1/ai，API Key 填同步 token
+    ai_upstream = os.environ.get("YUJIAN_AI_UPSTREAM", "").rstrip("/")
+    ai_key = os.environ.get("YUJIAN_AI_KEY", "")
+    app.state.upstream = upstream_client
 
     def auth(authorization: str = Header(default="")) -> None:
         scheme, _, cred = authorization.partition(" ")
@@ -181,6 +186,18 @@ def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None) -> 
         if r is None:
             raise HTTPException(404, "no backup")
         return r[1]
+
+    @app.post("/api/v1/ai/chat/completions", dependencies=[Depends(auth)])
+    async def ai_proxy(request: Request) -> Response:
+        if not ai_upstream:
+            raise HTTPException(503, "服务端没配 YUJIAN_AI_UPSTREAM")
+        body = await request.body()
+        client: httpx.AsyncClient = app.state.upstream or httpx.AsyncClient(timeout=120)
+        try:
+            r = await client.post(f"{ai_upstream}/chat/completions", content=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {ai_key}"})
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"upstream: {e}") from e
+        return Response(content=r.content, status_code=r.status_code, media_type=r.headers.get("content-type", "application/json"))
 
     return app
 
