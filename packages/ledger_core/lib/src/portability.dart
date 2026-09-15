@@ -216,13 +216,14 @@ OccurredAt _parseDateTime(String s, int tz) {
 }
 
 String _hash(String s) {
-  // FNV-1a 64，够做指纹；不引 crypto 依赖
-  var h = 0xcbf29ce484222325;
+  // 两路 31 位多项式哈希拼成 ~62 位指纹；全程 < 2^53，Web(JS 数字)与原生结果一致。不引 crypto 依赖。
+  var a = 7;
+  var b = 13;
   for (final c in utf8.encode(s)) {
-    h ^= c;
-    h = (h * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+    a = (a * 131 + c) % 2147483647;
+    b = (b * 137 + c) % 2147483629;
   }
-  return h.toRadixString(16).padLeft(16, '0');
+  return '${a.toRadixString(16).padLeft(8, '0')}${b.toRadixString(16).padLeft(8, '0')}';
 }
 
 /// RFC4180 风格单行解析（引号、转义引号、逗号）。
