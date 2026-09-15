@@ -1,20 +1,21 @@
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import 'schema.dart';
 
-/// 薄封装：打开、迁移、事务。所有 SQL 由 ledger_core 持有，上层不直接碰库。
+/// 薄封装：迁移、事务。所有 SQL 由 ledger_core 持有，上层不直接碰库。
+/// 只依赖 sqlite3 的 CommonDatabase，原生（dart:ffi）与 Web（wasm）都能用；
+/// 打开数据库的方式由平台决定，见 `package:ledger_core/native.dart`。
 class LedgerDatabase {
-  final Database db;
+  final CommonDatabase db;
 
-  LedgerDatabase._(this.db);
+  /// 接管一个已打开的连接，跑迁移。
+  LedgerDatabase.wrap(this.db, {bool wal = true}) {
+    _init(wal: wal);
+  }
 
-  factory LedgerDatabase.open(String path) => LedgerDatabase._(sqlite3.open(path)).._init();
-
-  factory LedgerDatabase.inMemory() => LedgerDatabase._(sqlite3.openInMemory()).._init();
-
-  void _init() {
+  void _init({required bool wal}) {
     db.execute('PRAGMA foreign_keys = ON;');
-    db.execute('PRAGMA journal_mode = WAL;');
+    if (wal) db.execute('PRAGMA journal_mode = WAL;');
     db.execute('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);');
     final applied = db.select('SELECT version FROM schema_migrations').map((r) => r['version'] as int).toSet();
     final pending = migrations.keys.where((v) => !applied.contains(v)).toList()..sort();

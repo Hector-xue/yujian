@@ -4,3 +4,6 @@ build/
 *.db
 *.db-journal
 .env
+apps/yujian/web/sqlite3.wasm
+apps/yujian/build/
+apps/yujian/.flutter-plugins-dependencies

@@ -1,0 +1,43 @@
+name: flutter
+on:
+  push:
+    branches: [main]
+    paths: ['apps/yujian/**', 'packages/**', '.github/workflows/flutter.yml']
+  pull_request:
+    paths: ['apps/yujian/**', 'packages/**']
+  workflow_dispatch:
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/yujian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get
+      - run: flutter analyze --fatal-infos
+      - run: flutter test
+      - name: sqlite3.wasm for web
+        run: |
+          ver=$(grep -A0 '^  sqlite3:' pubspec.lock -A3 | grep version | tr -d ' "' | cut -d: -f2)
+          echo "sqlite3 $ver"
+          curl -sSfL -o web/sqlite3.wasm "https://github.com/simonbinder/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
+      - run: flutter build web --release --base-href /
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: apps/yujian/build/web
+      - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug
+          path: apps/yujian/build/app/outputs/flutter-apk/app-debug.apk

@@ -83,7 +83,8 @@ CREATE INDEX idx_draft_group ON drafts(group_id);
 CREATE INDEX idx_draft_fingerprint ON drafts(event_fingerprint);
 
 CREATE TABLE audit_log (
-  id TEXT PRIMARY KEY,
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
   at INTEGER NOT NULL,
   actor TEXT NOT NULL,
   action TEXT NOT NULL,

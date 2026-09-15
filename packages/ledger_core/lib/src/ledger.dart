@@ -467,12 +467,12 @@ class Ledger implements ValidationContext {
     for (final did in draftIds) {
       add(_db.select('SELECT * FROM audit_log WHERE draft_id = ?', [did]).map(AuditEntry.fromRow));
     }
-    out.sort((a, b) => a.at != b.at ? a.at.compareTo(b.at) : a.id.compareTo(b.id));
+    out.sort((a, b) => a.seq.compareTo(b.seq));
     return out;
   }
 
   List<AuditEntry> auditLog({int limit = 200}) =>
-      _db.select('SELECT * FROM audit_log ORDER BY at DESC, id DESC LIMIT ?', [limit]).map(AuditEntry.fromRow).toList();
+      _db.select('SELECT * FROM audit_log ORDER BY seq DESC LIMIT ?', [limit]).map(AuditEntry.fromRow).toList();
 
   /// 完整性自检：每笔已确认交易的 posting 结构与 type 一致。返回问题列表，空即健康。
   List<String> integrityCheck() {

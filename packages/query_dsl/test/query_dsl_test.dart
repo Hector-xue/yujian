@@ -1,4 +1,5 @@
 import 'package:ledger_core/ledger_core.dart';
+import 'package:ledger_core/native.dart';
 import 'package:query_dsl/query_dsl.dart';
 import 'package:test/test.dart';
 
@@ -23,7 +24,7 @@ Map<String, Object?> tx(String type, int amt, String when, {String? cat, String?
 
 void main() {
   setUp(() {
-    db = LedgerDatabase.inMemory();
+    db = openLedgerDatabaseInMemory();
     ledger = Ledger(db, clock: () => DateTime.utc(2026, 9, 15, 4))..seedDefaultCategories();
     ledger.createCategory(id: 'food.coffee', name: '咖啡', kind: CategoryKind.expense, parentId: 'food');
     wechat = ledger.createAccount(name: '微信', type: AccountType.eWallet, currency: 'CNY', initialBalanceMinor: 100000);

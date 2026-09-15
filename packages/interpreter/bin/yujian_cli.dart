@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
+import 'package:ledger_core/native.dart';
 import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
 
@@ -16,7 +17,7 @@ Future<void> main(List<String> args) async {
     if (args[i] == '--db') dbPath = args[++i];
     if (args[i] == '--tz') tz = int.parse(args[++i]);
   }
-  final db = dbPath == ':memory:' ? LedgerDatabase.inMemory() : LedgerDatabase.open(dbPath);
+  final db = dbPath == ':memory:' ? openLedgerDatabaseInMemory() : openLedgerDatabase(dbPath);
   final ledger = Ledger(db)..seedDefaultCategories();
   if (ledger.listAccounts().isEmpty) {
     ledger.createAccount(id: 'wechat', name: '微信', type: AccountType.eWallet, currency: 'CNY');

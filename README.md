@@ -59,7 +59,7 @@ Flutter App（`apps/yujian`）不在本机构建：GitHub Actions 负责 analyze
 ## 账本核心速览
 
 ```dart
-final db = LedgerDatabase.open('yujian.db');
+final db = openLedgerDatabase('yujian.db');
 final ledger = Ledger(db)..seedDefaultCategories();
 final wechat = ledger.createAccount(name: '微信', type: AccountType.eWallet, currency: 'CNY');
 

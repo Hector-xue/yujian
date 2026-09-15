@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'enums.dart';
 
 class AuditEntry {
+  final int seq; // 写入顺序，同一毫秒内也稳定
   final String id;
   final DateTime at;
   final Actor actor;
@@ -17,6 +18,7 @@ class AuditEntry {
   final bool confirmedByUser;
 
   const AuditEntry({
+    required this.seq,
     required this.id,
     required this.at,
     required this.actor,
@@ -32,6 +34,7 @@ class AuditEntry {
   });
 
   factory AuditEntry.fromRow(Map<String, Object?> r) => AuditEntry(
+        seq: r['seq'] as int,
         id: r['id'] as String,
         at: DateTime.fromMillisecondsSinceEpoch(r['at'] as int, isUtc: true),
         actor: enumFromDb(Actor.values, r['actor'] as String),

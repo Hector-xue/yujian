@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:ledger_core/ledger_core.dart';
+import 'package:ledger_core/native.dart';
 import 'package:test/test.dart';
 
 /// 固定时钟：2026-09-15 12:00 +08:00
@@ -14,7 +15,7 @@ late Account bank;
 late Account usd;
 
 void setUpLedger() {
-  db = LedgerDatabase.inMemory();
+  db = openLedgerDatabaseInMemory();
   ledger = Ledger(db, clock: () => fixedNow);
   ledger.seedDefaultCategories();
   wechat = ledger.createAccount(name: '微信', type: AccountType.eWallet, currency: 'CNY', initialBalanceMinor: 100000);
@@ -50,13 +51,13 @@ void main() {
     test('persists across reopen', () {
       final dir = Directory.systemTemp.createTempSync('yujian_');
       final path = '${dir.path}/ledger.db';
-      final d1 = LedgerDatabase.open(path);
+      final d1 = openLedgerDatabase(path);
       final l1 = Ledger(d1, clock: () => fixedNow)..seedDefaultCategories();
       final a = l1.createAccount(name: '现金', type: AccountType.cash, currency: 'CNY', initialBalanceMinor: 1000);
       final dr = l1.propose([DraftInput(payload: {...expense(300), 'account_id': a.id})], source: Source.manual).single;
       l1.commit(dr.id);
       d1.close();
-      final d2 = LedgerDatabase.open(path);
+      final d2 = openLedgerDatabase(path);
       final l2 = Ledger(d2);
       expect(l2.balance(a.id).minor, 700);
       expect(l2.listTransactions().length, 1);
