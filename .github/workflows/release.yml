@@ -1,0 +1,65 @@
+name: release
+# 打 tag v* → 签名 release apk + web 包 → GitHub Release。缺签名 Secret 直接失败，不出没签名的包。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/yujian
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: restore keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          test -n "$KS_B64" -a -n "$KS_PASSWORD" -a -n "$KS_ALIAS" || { echo "missing signing secrets"; exit 1; }
+          echo "$KS_B64" | base64 -d > android/release.keystore
+          cat > android/keystore.properties <<EOT
+          storeFile=release.keystore
+          storePassword=$KS_PASSWORD
+          keyAlias=$KS_ALIAS
+          keyPassword=$KS_PASSWORD
+          EOT
+      - run: flutter pub get
+      - run: flutter analyze --fatal-infos
+      - run: flutter test
+      - name: sqlite3.wasm for web
+        run: |
+          ver=$(awk '/^  sqlite3:$/{f=1} f&&/^    version:/{gsub(/[" ]/,"",$2); print $2; exit}' pubspec.lock)
+          curl -sSfL -o web/sqlite3.wasm "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
+      - run: flutter build web --release --base-href /
+      - run: flutter build apk --release
+      - name: verify signature
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify --print-certs "$apk" | grep -i "SHA-256" | head -1
+      - name: package
+        run: |
+          ver=${GITHUB_REF_NAME#v}
+          cp build/app/outputs/flutter-apk/app-release.apk "yujian-${ver}-android.apk"
+          (cd build/web && zip -qr "../../yujian-${ver}-web.zip" .)
+          ls -la yujian-*
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            apps/yujian/yujian-*-android.apk
+            apps/yujian/yujian-*-web.zip
+          generate_release_notes: true

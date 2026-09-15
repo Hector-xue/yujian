@@ -7,3 +7,5 @@ build/
 apps/yujian/web/sqlite3.wasm
 apps/yujian/build/
 apps/yujian/.flutter-plugins-dependencies
+apps/yujian/android/keystore.properties
+apps/yujian/android/*.keystore
