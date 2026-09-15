@@ -120,4 +120,17 @@ void main() {
     final c = ProviderConfig.fromEnvironment({'YUJIAN_LLM_BASE_URL': 'http://x/v1', 'YUJIAN_LLM_MODEL': 'm'});
     expect(c?.model, 'm');
   });
+
+  test('completeWithImages sends data URI content parts and vision model override', () async {
+    s.handler = (_) => chatReply('{"ok":1}');
+    final c = ProviderConfig(name: 't', type: ProviderType.openaiCompat, baseUrl: s.baseUrl, apiKey: 'k', model: 'text-model', visionModel: 'vision-model');
+    final r = await OpenAICompatProvider(c).completeWithImages(system: 's', user: 'u', images: const [ImageInput([1, 2, 3], 'image/png')], jsonMode: true);
+    expect(r.text, '{"ok":1}');
+    final body = s.requests.single['body'] as Map;
+    expect(body['model'], 'vision-model');
+    final content = ((body['messages'] as List)[1] as Map)['content'] as List;
+    expect((content[0] as Map)['type'], 'image_url');
+    expect((((content[0] as Map)['image_url']) as Map)['url'], startsWith('data:image/png;base64,'));
+    expect((content[1] as Map)['text'], 'u');
+  });
 }

@@ -54,6 +54,43 @@ class OpenAICompatProvider implements ChatProvider {
     }
   }
 
+  @override
+  Future<ChatResult> completeWithImages({
+    required String system,
+    required String user,
+    required List<ImageInput> images,
+    bool jsonMode = false,
+    Duration? timeout,
+  }) async {
+    final body = <String, Object?>{
+      'model': config.visionModel ?? config.model,
+      'messages': [
+        {'role': 'system', 'content': system},
+        {
+          'role': 'user',
+          'content': [
+            for (final im in images) {'type': 'image_url', 'image_url': {'url': 'data:${im.mime};base64,${base64Encode(im.bytes)}'}},
+            {'type': 'text', 'text': user},
+          ],
+        },
+      ],
+      'temperature': config.temperature,
+      if (config.maxTokens != null) 'max_tokens': config.maxTokens,
+      if (jsonMode) 'response_format': {'type': 'json_object'},
+      'stream': false,
+      ...config.extraBody,
+    };
+    try {
+      return await _post(body, timeout ?? config.timeout);
+    } on ProviderException catch (e) {
+      if (jsonMode && e.status == 400) {
+        body.remove('response_format');
+        return _post(body, timeout ?? config.timeout);
+      }
+      rethrow;
+    }
+  }
+
   Future<ChatResult> _post(Map<String, Object?> body, Duration timeout) async {
     final sw = Stopwatch()..start();
     HttpClientResponse resp;

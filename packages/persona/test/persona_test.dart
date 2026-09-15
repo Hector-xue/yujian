@@ -2,7 +2,7 @@ import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
 import 'package:test/test.dart';
 
-class Fake implements ChatProvider {
+class Fake extends ChatProvider {
   final String out;
   String? lastSystem;
   Fake(this.out);

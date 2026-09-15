@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide Intent;
+import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 import 'package:query_dsl/query_dsl.dart';
 
@@ -104,6 +105,31 @@ class _ChatPageState extends State<ChatPage> {
         _ => f,
       };
 
+  Future<void> _pickImage() async {
+    final app = AppScope.of(context);
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
+    if (x == null || !mounted) return;
+    final bytes = await x.readAsBytes();
+    setState(() {
+      _msgs.add(_UserMsg('［图片 ${x.name}］'));
+      _busy = true;
+    });
+    final r = await app.sayImage(bytes, x.mimeType ?? 'image/jpeg');
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (r.error != null) {
+        _msgs.add(_TextMsg(r.error!));
+      } else {
+        _msgs.add(_DraftMsg(r.drafts.first.groupId, '截图识别 · ${r.modelUsed}'));
+      }
+    });
+    if (r.error == null) {
+      final reply = await app.replier.reply(PersonaEvent.draftsProposed, n: r.drafts.length);
+      if (mounted) setState(() => _msgs.add(_TextMsg(reply)));
+    }
+  }
+
   Future<void> _afterCommit(int n) async {
     final app = AppScope.of(context);
     final reply = await app.replier.reply(PersonaEvent.recorded, n: n);
@@ -141,6 +167,7 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
               child: Row(
                 children: [
+                  if (app.vision != null) IconButton(onPressed: _busy ? null : _pickImage, icon: const Icon(Icons.image_outlined), tooltip: '识别截图 / 小票'),
                   Expanded(
                     child: TextField(
                       controller: _input,

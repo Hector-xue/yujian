@@ -20,6 +20,7 @@ class AppState extends ChangeNotifier {
   final TemplateMatcher matcher = TemplateMatcher();
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
+  VisionInterpreter? vision;
   Settings settings = const Settings();
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
@@ -45,6 +46,7 @@ class AppState extends ChangeNotifier {
     final cfg = settings.providerConfig;
     final p = cfg == null ? null : OpenAICompatProvider(cfg);
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
+    vision = p == null ? null : VisionInterpreter(p);
     persona = personaById(settings.personaId);
     replier = PersonaReplier(persona, provider: p);
     notifyListeners();
@@ -211,6 +213,23 @@ class AppState extends ChangeNotifier {
         final drafts = ledger.propose(inputs, source: Source.chat, interpreter: r.interpreter, modelUsed: r.modelUsed);
         notifyListeners();
         return (result: r, drafts: drafts, query: null, error: null);
+    }
+  }
+
+  /// 截图 / 小票 → 草稿（source screenshot）。
+  Future<({List<Draft> drafts, String? error, String? modelUsed})> sayImage(List<int> bytes, String mime, {String hint = ''}) async {
+    final v = vision;
+    if (v == null) return (drafts: const <Draft>[], error: '识别图片需要先配置模型（更多 → 模型与人格）', modelUsed: null);
+    try {
+      final r = await v.interpret([ImageInput(bytes, mime)], context(), hint: hint);
+      if (r.drafts.isEmpty) return (drafts: const <Draft>[], error: '图里没认出交易', modelUsed: r.modelUsed);
+      final drafts = ledger.propose([for (final d in r.drafts) DraftInput(payload: d.payload, confidence: d.confidence)], source: Source.screenshot, interpreter: 'vision', modelUsed: r.modelUsed);
+      notifyListeners();
+      return (drafts: drafts, error: null, modelUsed: r.modelUsed);
+    } on UnsupportedError {
+      return (drafts: const <Draft>[], error: '当前模型不支持看图', modelUsed: null);
+    } on ProviderException catch (e) {
+      return (drafts: const <Draft>[], error: '模型出错：${e.message}', modelUsed: null);
     }
   }
 

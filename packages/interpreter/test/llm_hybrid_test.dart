@@ -4,7 +4,7 @@ import 'package:providers/providers.dart';
 import 'package:test/test.dart';
 
 /// 脚本化假模型：按 user 文本返回预设 JSON，或抛错模拟不可用。
-class FakeProvider implements ChatProvider {
+class FakeProvider extends ChatProvider {
   final String Function(String system, String user) reply;
   int calls = 0;
   FakeProvider(this.reply);
@@ -19,7 +19,23 @@ class FakeProvider implements ChatProvider {
   }
 }
 
-class DeadProvider implements ChatProvider {
+class VisionFake extends ChatProvider {
+  List<ImageInput>? got;
+  @override
+  String get name => 'v';
+  @override
+  String get model => 'v';
+  @override
+  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
+      throw UnimplementedError();
+  @override
+  Future<ChatResult> completeWithImages({required String system, required String user, required List<ImageInput> images, bool jsonMode = false, Duration? timeout}) async {
+    got = images;
+    return ChatResult(text: '{"intent":"propose_transactions","transactions":[{"type":"expense","amount":"19.90","merchant":"瑞幸咖啡","category_id":"food","account_id":"wechat","occurred_at":"2026-09-14T12:31:00+08:00","confidence":0.9},{"type":"expense","amount":null,"description":"看不清","confidence":0.3}]}', model: 'v', latency: Duration.zero);
+  }
+}
+
+class DeadProvider extends ChatProvider {
   @override
   String get name => 'dead';
   @override
@@ -141,6 +157,26 @@ void main() {
       final r = await HybridInterpreter().interpret('今天真开心', ctx);
       expect(r.intent, Intent.chat);
       expect(r.degraded, isTrue);
+    });
+  });
+
+  group('VisionInterpreter', () {
+    test('images go to the model; drafts normalized; confidence discounted; unreadable amount stays null', () async {
+      final v = VisionFake();
+      final r = await VisionInterpreter(v).interpret([const ImageInput([1, 2, 3], 'image/png')], ctx);
+      expect(v.got!.single.mime, 'image/png');
+      expect(r.intent, Intent.proposeTransactions);
+      expect(r.interpreter, 'vision');
+      expect(r.drafts.length, 2);
+      expect(r.drafts[0].payload['amount_minor'], 1990);
+      expect(r.drafts[0].payload['merchant'], '瑞幸咖啡');
+      expect(r.drafts[0].confidence, closeTo(0.72, 0.001));
+      expect(r.drafts[1].payload['amount_minor'], isNull);
+      expect(r.drafts[1].missing, contains('amount_minor'));
+    });
+
+    test('provider without vision support surfaces UnsupportedError', () async {
+      expect(() => VisionInterpreter(DeadProvider()).interpret([const ImageInput([], 'image/png')], ctx), throwsUnsupportedError);
     });
   });
 }

@@ -11,3 +11,4 @@ export 'src/rule/amount.dart';
 export 'src/rule/datetime.dart';
 export 'src/rule/keywords.dart';
 export 'src/rule/rule_interpreter.dart';
+export 'src/vision_interpreter.dart';

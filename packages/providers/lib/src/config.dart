@@ -12,6 +12,8 @@ class ProviderConfig {
   final Duration timeout;
   /// 原样并入请求体的厂商特有字段（如 OpenRouter 的 reasoning 开关）。
   final Map<String, Object?> extraBody;
+  /// 视觉任务用的模型名；空 = 与 model 相同。
+  final String? visionModel;
 
   const ProviderConfig({
     required this.name,
@@ -23,6 +25,7 @@ class ProviderConfig {
     this.maxTokens,
     this.timeout = const Duration(seconds: 60),
     this.extraBody = const {},
+    this.visionModel,
   });
 
   /// 从环境变量构造（开发与语料回归用）：YUJIAN_LLM_BASE_URL / YUJIAN_LLM_API_KEY / YUJIAN_LLM_MODEL。
@@ -41,6 +44,7 @@ class ProviderConfig {
       apiKey: env['YUJIAN_LLM_API_KEY'],
       model: model,
       extraBody: extra,
+      visionModel: env['YUJIAN_LLM_VISION_MODEL'],
     );
   }
 }

@@ -13,21 +13,23 @@ class Settings {
   final String personaId;
   final AutomationMode automationMode;
   final bool notificationsWanted; // 用户在余见里打开了开关（系统授权另查）
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false});
+  final String? visionModel; // 空 = 用 model
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel});
 
   ProviderConfig? get providerConfig {
     if (baseUrl == null || baseUrl!.isEmpty || model == null || model!.isEmpty) return null;
     final extra = <String, Object?>{if (baseUrl!.contains('openrouter.ai')) 'reasoning': {'enabled': false}};
-    return ProviderConfig(name: 'user', type: ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra);
+    return ProviderConfig(name: 'user', type: ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
         personaId: personaId ?? this.personaId,
         automationMode: automationMode ?? this.automationMode,
         notificationsWanted: notificationsWanted ?? this.notificationsWanted,
+        visionModel: visionModel ?? this.visionModel,
       );
 }
 
@@ -55,6 +57,7 @@ class PlatformSettingsStore implements SettingsStore {
       personaId: p.getString('persona_id') ?? 'minimalist',
       automationMode: AutomationMode.values.asNameMap()[p.getString('automation_mode') ?? ''] ?? AutomationMode.confirm,
       notificationsWanted: p.getBool('notifications_wanted') ?? false,
+      visionModel: p.getString('llm_vision_model'),
     );
   }
 
@@ -66,6 +69,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('persona_id', s.personaId);
     await p.setString('automation_mode', s.automationMode.name);
     await p.setBool('notifications_wanted', s.notificationsWanted);
+    await p.setString('llm_vision_model', s.visionModel ?? '');
     try {
       if (s.apiKey == null || s.apiKey!.isEmpty) {
         await _secure.delete(key: 'llm_api_key');

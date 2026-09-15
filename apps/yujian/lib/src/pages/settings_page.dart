@@ -16,6 +16,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController baseUrl;
   late final TextEditingController apiKey;
   late final TextEditingController model;
+  late final TextEditingController visionModel;
   late String personaId;
   String? probeResult;
   var probing = false;
@@ -28,10 +29,11 @@ class _SettingsPageState extends State<SettingsPage> {
     baseUrl = TextEditingController(text: s.baseUrl ?? '');
     apiKey = TextEditingController(text: s.apiKey ?? '');
     model = TextEditingController(text: s.model ?? '');
+    visionModel = TextEditingController(text: s.visionModel ?? '');
     personaId = s.personaId;
   }
 
-  Settings _draft() => Settings(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId);
+  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim());
 
   Future<void> _probe() async {
     final cfg = _draft().providerConfig;
@@ -79,6 +81,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 12),
           TextField(controller: model, decoration: const InputDecoration(labelText: '模型名', hintText: 'deepseek-chat')),
+          const SizedBox(height: 12),
+          TextField(controller: visionModel, decoration: const InputDecoration(labelText: '看图模型名（可选）', hintText: '识别截图/小票用；留空则用上面的模型', helperText: '如 qwen3-vl、gpt-4o-mini；文本模型不支持看图时填这个')),
           const SizedBox(height: 12),
           Row(
             children: [
