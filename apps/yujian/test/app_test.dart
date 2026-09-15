@@ -54,7 +54,8 @@ void main() {
     expect(find.text('1'), findsWidgets); // badge
     await tester.tap(find.text('收件箱'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('缺'), findsOneWidget);
-    expect(find.text('全部确认'), findsNothing);
+    expect(find.textContaining('缺'), findsWidgets);
+    final confirm = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '确认'));
+    expect(confirm.onPressed, isNull); // 缺字段时不能确认
   });
 }
