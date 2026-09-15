@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
 import 'package:query_dsl/query_dsl.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Category;
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
