@@ -1,3 +1,4 @@
+import 'changes.dart';
 import 'db/database.dart';
 import 'models/enums.dart';
 
@@ -30,7 +31,13 @@ class MemoryEntry {
 class MemoryStore {
   final LedgerDatabase _db;
   final int Function() _nowMs;
-  MemoryStore(this._db, this._nowMs);
+  final ChangeLog? _changes;
+  MemoryStore(this._db, this._nowMs, [this._changes]);
+
+  Map<String, Object?> _row(String key) {
+    final m = get(key)!;
+    return {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source};
+  }
 
   /// 一次落账后学习：用户改过分类/账户 → 纠正；没改 → 轻度强化。
   /// [key] 优先商户，其次描述（去掉太短/太泛的）。
@@ -52,6 +59,7 @@ class MemoryStore {
         'INSERT INTO memory_map(key,kind,category_id,account_id,hits,corrections,source,updated_at) VALUES (?,?,?,?,1,?,?,?)',
         [key, kind, categoryId, accountId, corrected ? 1 : 0, corrected ? 'user_correction' : 'confirmed', _nowMs()],
       );
+      _changes?.record('memory', key, _row(key));
       return;
     }
     // 纠正覆盖旧映射；仅确认且与旧映射不同时不改（避免一次误确认冲掉纠正过的）
@@ -61,6 +69,7 @@ class MemoryStore {
       'UPDATE memory_map SET category_id=?, account_id=?, hits=hits+1, corrections=corrections+?, source=?, updated_at=? WHERE key=?',
       [newCat, newAcc, corrected ? 1 : 0, corrected ? 'user_correction' : existing.source, _nowMs(), key],
     );
+    _changes?.record('memory', key, _row(key));
   }
 
   MemoryEntry? get(String key) {
@@ -71,7 +80,17 @@ class MemoryStore {
   List<MemoryEntry> all({int limit = 500}) =>
       _db.select('SELECT * FROM memory_map ORDER BY corrections DESC, hits DESC LIMIT ?', [limit]).map(MemoryEntry.fromRow).toList();
 
-  void forget(String key) => _db.execute('DELETE FROM memory_map WHERE key = ?', [key]);
+  void forget(String key) {
+    _db.execute('DELETE FROM memory_map WHERE key = ?', [key]);
+    _changes?.record('memory', key, null, deleted: true);
+  }
+
+  /// 同步应用远端行（不再记本地变更）。
+  void upsertRaw(Map<String, Object?> m) => _db.execute(
+        'INSERT OR REPLACE INTO memory_map(key,kind,category_id,account_id,hits,corrections,source,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+        [m['key'], m['kind'], m['category_id'], m['account_id'], m['hits'] ?? 1, m['corrections'] ?? 0, m['source'] ?? 'confirmed', _nowMs()],
+      );
+  void deleteRaw(String key) => _db.execute('DELETE FROM memory_map WHERE key = ?', [key]);
 
   static String? _keyOf(String? merchant, String? description) {
     final m = merchant?.trim();

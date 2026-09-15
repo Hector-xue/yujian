@@ -1,0 +1,18 @@
+services:
+  yujian-server:
+    build: ../server
+    restart: unless-stopped
+    environment:
+      YUJIAN_SYNC_TOKEN: ${YUJIAN_SYNC_TOKEN:?run: export YUJIAN_SYNC_TOKEN=$(openssl rand -hex 24)}
+    volumes:
+      - yujian-data:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+  # 反代示例（Caddy，自动 HTTPS）：
+  # caddy:
+  #   image: caddy:2
+  #   ports: ["80:80", "443:443"]
+  #   volumes: ["./Caddyfile:/etc/caddy/Caddyfile", "caddy-data:/data"]
+volumes:
+  yujian-data:
+  # caddy-data:

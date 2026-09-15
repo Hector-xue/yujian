@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'changes.dart';
 import 'db/database.dart';
 import 'errors.dart';
 import 'ids.dart';
@@ -89,7 +90,8 @@ class RecurringStore {
   final Ledger ledger;
   final LedgerDatabase _db;
   final int Function() _nowMs;
-  RecurringStore(this.ledger, this._db, this._nowMs);
+  final ChangeLog? _changes;
+  RecurringStore(this.ledger, this._db, this._nowMs, [this._changes]);
 
   Recurring create({
     required String name,
@@ -112,6 +114,7 @@ class RecurringStore {
       'INSERT INTO recurring(id,name,template,frequency,interval,next_due,reminder_days_before,auto_create,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,1,?,?)',
       [id, name.trim(), jsonEncode({...template}..remove('occurred_at')), frequency.name, interval, firstDue, reminderDaysBefore, autoCreate ? 1 : 0, ts, ts],
     );
+    _changes?.record('recurring', id, get(id).toJson());
     return get(id);
   }
 
@@ -129,12 +132,21 @@ class RecurringStore {
   void setActive(String id, bool active) {
     get(id);
     _db.execute('UPDATE recurring SET is_active = ?, updated_at = ? WHERE id = ?', [active ? 1 : 0, _nowMs(), id]);
+    _changes?.record('recurring', id, get(id).toJson());
   }
 
   void delete(String id) {
     get(id);
     _db.execute('DELETE FROM recurring WHERE id = ?', [id]);
+    _changes?.record('recurring', id, null, deleted: true);
   }
+
+  /// 同步应用远端行。
+  void upsertRaw(Map<String, Object?> r) => _db.execute(
+        'INSERT OR REPLACE INTO recurring(id,name,template,frequency,interval,next_due,reminder_days_before,auto_create,is_active,last_generated,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [r['id'], r['name'], jsonEncode(r['template'] ?? const {}), r['frequency'], r['interval'] ?? 1, r['next_due'], r['reminder_days_before'] ?? 0, r['auto_create'] == false ? 0 : 1, r['is_active'] == false ? 0 : 1, r['last_generated'], _nowMs(), _nowMs()],
+      );
+  void deleteRaw(String id) => _db.execute('DELETE FROM recurring WHERE id = ?', [id]);
 
   /// 到期的都生成草稿（每个周期项一组），并推进 next_due；一个周期项一次最多补 [maxCatchUp] 期，
   /// 防止半年没打开一下子冒出几十条。返回生成的草稿。
@@ -163,6 +175,7 @@ class RecurringStore {
         }
         out.addAll(ledger.propose(inputs, source: Source.recurring, actor: Actor.automation, interpreter: 'recurring'));
         _db.execute('UPDATE recurring SET next_due = ?, last_generated = ?, updated_at = ? WHERE id = ?', [due, today, _nowMs(), r.id]);
+        _changes?.record('recurring', r.id, get(r.id).toJson());
       }
     });
     return out;

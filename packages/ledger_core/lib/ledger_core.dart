@@ -4,6 +4,7 @@
 library;
 
 export 'src/budget.dart';
+export 'src/changes.dart';
 export 'src/db/database.dart';
 export 'src/errors.dart';
 export 'src/ids.dart';

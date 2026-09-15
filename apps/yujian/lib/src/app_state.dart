@@ -7,6 +7,7 @@ import 'package:notification_templates/notification_templates.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
+import 'package:sync_client/sync_client.dart';
 
 import 'notifications/notification_source.dart';
 import 'settings_store.dart';
@@ -21,6 +22,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
   VisionInterpreter? vision;
+  SyncClient? sync;
+  String? lastSyncNote;
   Settings settings = const Settings();
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
@@ -49,6 +52,7 @@ class AppState extends ChangeNotifier {
     vision = p == null ? null : VisionInterpreter(p);
     persona = personaById(settings.personaId);
     replier = PersonaReplier(persona, provider: p);
+    sync = settings.syncConfigured ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
     notifyListeners();
   }
 
@@ -76,6 +80,24 @@ class AppState extends ChangeNotifier {
   static String _today() {
     final n = DateTime.now();
     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+  }
+
+  // -------------------------------------------------------------------- 同步
+
+  /// 一轮同步；失败不抛，记到 lastSyncNote 给 UI 看。
+  Future<SyncReport?> syncNow() async {
+    final c = sync;
+    if (c == null) return null;
+    try {
+      final r = await c.sync();
+      lastSyncNote = '${DateTime.now().toIso8601String().substring(11, 16)} ${r.toString()}';
+      notifyListeners();
+      return r;
+    } on SyncException catch (e) {
+      lastSyncNote = '同步失败：${e.message}';
+      notifyListeners();
+      return null;
+    }
   }
 
   // ------------------------------------------------------------ 自动记账

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'budget.dart';
 import 'ledger.dart';
 import 'models/draft.dart';
 import 'models/enums.dart';
@@ -49,10 +50,7 @@ Map<String, Object?> exportJson(Ledger ledger) => {
           for (final t in ledger.listTransactions(status: s, limit: 1 << 30)) t.toJson(),
       ],
       'recurring': [for (final r in ledger.recurring.list(activeOnly: false)) r.toJson()],
-      'budgets': [
-        for (final b in ledger.budgets.list(activeOnly: false))
-          {'id': b.id, 'name': b.name, 'category_id': b.categoryId, 'amount_minor': b.amountMinor, 'currency': b.currency, 'period': b.period.name, 'start_date': b.startDate, 'end_date': b.endDate, 'alert_threshold': b.alertThreshold, 'is_active': b.isActive},
-      ],
+      'budgets': [for (final b in ledger.budgets.list(activeOnly: false)) BudgetStore.toJson(b)],
       'memory': [
         for (final m in ledger.memory.all(limit: 100000))
           {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source},

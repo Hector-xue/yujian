@@ -11,6 +11,7 @@ import 'data_page.dart';
 import 'recurring_page.dart';
 import 'settings_page.dart';
 import 'stats_page.dart';
+import 'sync_page.dart';
 
 class MorePage extends StatelessWidget {
   const MorePage({super.key});
@@ -38,6 +39,7 @@ class MorePage extends StatelessWidget {
           item(Icons.label_outline, '分类', const CategoriesPage()),
           item(Icons.history, '审计日志', const _AuditPage()),
           item(Icons.import_export, '数据：导出 / 备份 / 导入', const DataPage()),
+          item(Icons.sync_outlined, '同步与云备份', const SyncPage()),
           const Divider(),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20),
@@ -49,7 +51,7 @@ class MorePage extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-            child: SelectableText('余见 0.2.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 0.3.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

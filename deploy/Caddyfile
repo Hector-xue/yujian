@@ -1,0 +1,3 @@
+yujian.example.com {
+    reverse_proxy yujian-server:8787
+}

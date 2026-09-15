@@ -153,4 +153,19 @@ CREATE TABLE budgets (
   updated_at INTEGER NOT NULL
 );
 ''',
+  4: '''
+CREATE TABLE changes (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  payload TEXT,
+  at INTEGER NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'local',
+  pushed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_changes_pending ON changes(origin, pushed);
+CREATE INDEX idx_changes_entity ON changes(entity, entity_id);
+CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+''',
 };

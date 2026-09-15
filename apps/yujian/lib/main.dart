@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
@@ -20,6 +22,7 @@ Future<void> main() async {
   state.generateRecurring();
   await state.startNotifications();
   runApp(YujianApp(state: state));
+  unawaited(state.syncNow()); // 启动后台同步，不挡首屏
 }
 
 class YujianApp extends StatelessWidget {

@@ -10,6 +10,7 @@ import 'models/draft.dart';
 import 'models/enums.dart';
 import 'models/transaction.dart';
 import 'budget.dart';
+import 'changes.dart';
 import 'memory.dart';
 import 'recurring.dart';
 import 'occurred_at.dart';
@@ -22,9 +23,10 @@ class Ledger implements ValidationContext {
   final LedgerDatabase _db;
   final DateTime Function() _clock;
 
-  late final MemoryStore memory = MemoryStore(_db, _nowMs);
-  late final RecurringStore recurring = RecurringStore(this, _db, _nowMs);
-  late final BudgetStore budgets = BudgetStore(this, _db, _nowMs);
+  late final ChangeLog changes = ChangeLog(_db, _nowMs);
+  late final MemoryStore memory = MemoryStore(_db, _nowMs, changes);
+  late final RecurringStore recurring = RecurringStore(this, _db, _nowMs, changes);
+  late final BudgetStore budgets = BudgetStore(this, _db, _nowMs, changes);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -59,6 +61,7 @@ class Ledger implements ValidationContext {
       );
       final a = getAccount(aid);
       _audit(Actor.user, 'account.create', 'account', aid, after: a.toJson(), confirmed: true);
+      changes.record('account', aid, a.toJson());
       return a;
     });
   }
@@ -83,6 +86,7 @@ class Ledger implements ValidationContext {
       _db.execute('UPDATE accounts SET is_archived = 1, updated_at = ? WHERE id = ?', [_nowMs(), id]);
       _audit(Actor.user, 'account.archive', 'account', id,
           before: before.toJson(), after: getAccount(id).toJson(), confirmed: true);
+      changes.record('account', id, getAccount(id).toJson());
     });
   }
 
@@ -106,10 +110,12 @@ class Ledger implements ValidationContext {
   void seedDefaultCategories() {
     _db.transaction(() {
       for (final c in defaultCategories) {
+        if (category(c.id) != null) continue;
         _db.execute(
-          'INSERT OR IGNORE INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,1,?)',
+          'INSERT INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,1,?)',
           [c.id, c.parentId, c.kind.db, c.name, c.icon, c.sortOrder],
         );
+        // 默认分类每台设备都会种，不记变更（否则两台设备互相推同一批）
       }
     });
   }
@@ -135,6 +141,7 @@ class Ledger implements ValidationContext {
       );
       final c = category(cid)!;
       _audit(Actor.user, 'category.create', 'category', cid, after: c.toJson(), confirmed: true);
+      changes.record('category', cid, c.toJson());
       return c;
     });
   }
@@ -337,6 +344,7 @@ class Ledger implements ValidationContext {
     final tx = getTransaction(id);
     _audit(Actor.user, 'transaction.create', 'transaction', id,
         after: tx.toJson(), draftId: d.id, interpreter: d.interpreter, modelUsed: d.modelUsed, confirmed: true);
+    changes.record('transaction', id, tx.toJson());
     return tx;
   }
 
@@ -363,6 +371,7 @@ class Ledger implements ValidationContext {
     _audit(Actor.user, 'transaction.update', 'transaction', id,
         before: before.toJson(), after: after.toJson(), draftId: d.id,
         interpreter: d.interpreter, modelUsed: d.modelUsed, confirmed: true);
+    changes.record('transaction', id, after.toJson());
     return after;
   }
 
@@ -379,6 +388,7 @@ class Ledger implements ValidationContext {
     final after = getTransaction(id);
     _audit(Actor.user, 'transaction.void', 'transaction', id,
         before: before.toJson(), after: after.toJson(), draftId: d.id, confirmed: true);
+    changes.record('transaction', id, after.toJson());
     return after;
   }
 
@@ -465,7 +475,7 @@ class Ledger implements ValidationContext {
     List<Map<String, Object?>> budgets = const [],
   }) {
     return _db.transaction(() {
-      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'categories', 'accounts']) {
+      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'categories', 'accounts', 'changes']) {
         _db.execute('DELETE FROM $t');
       }
       final ts = _nowMs();
@@ -519,7 +529,86 @@ class Ledger implements ValidationContext {
       _audit(Actor.user, 'ledger.restore', 'ledger', 'all', after: {'transactions': n, 'accounts': accounts.length}, confirmed: true);
       final problems = integrityCheck();
       if (problems.isNotEmpty) throw ValidationException('integrity', problems.first);
+      // 恢复后的全量当作本机新变更，下次同步整体推上去
+      for (final a in listAccounts(includeArchived: true)) {
+        changes.record('account', a.id, a.toJson());
+      }
+      for (final c in listCategories()) {
+        if (!c.isDefault) changes.record('category', c.id, c.toJson());
+      }
+      for (final st in [TransactionStatus.confirmed, TransactionStatus.void_]) {
+        for (final t in listTransactions(status: st, limit: 1 << 30)) {
+          changes.record('transaction', t.id, t.toJson());
+        }
+      }
+      for (final m in this.memory.all(limit: 1 << 30)) {
+        changes.record('memory', m.key, {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source});
+      }
+      for (final r in this.recurring.list(activeOnly: false)) {
+        changes.record('recurring', r.id, r.toJson());
+      }
+      for (final b in this.budgets.list(activeOnly: false)) {
+        changes.record('budget', b.id, BudgetStore.toJson(b));
+      }
       return n;
+    });
+  }
+
+  // -------------------------------------------------------------------- sync
+
+  /// 应用一条来自其他设备的变更。LWW：本地对同一实体有更晚的变更就跳过并审计。
+  /// 返回 applied / skipped。
+  String applyRemoteChange(ChangeRecord c, {required String fromDevice}) {
+    return _db.transaction(() {
+      final localAt = changes.latestAt(c.entity, c.entityId);
+      if (localAt != null && localAt > c.at) {
+        _audit(Actor.automation, 'sync.conflict_skipped', c.entity, c.entityId, after: {'remote_at': c.at, 'local_at': localAt, 'from': fromDevice});
+        return 'skipped';
+      }
+      final p = c.payload ?? const <String, Object?>{};
+      final ts = _nowMs();
+      switch (c.entity) {
+        case 'account':
+          if (c.deleted) break; // 账户不删只归档
+          _db.execute(
+            'INSERT OR REPLACE INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM accounts WHERE id = ?),?),?)',
+            [p['id'], p['name'], p['type'], p['currency'], p['initial_balance_minor'] ?? 0, p['institution'], p['icon'], p['is_archived'] == true ? 1 : 0, p['sort_order'] ?? 0, p['id'], ts, ts],
+          );
+        case 'category':
+          if (c.deleted) {
+            _db.execute('DELETE FROM categories WHERE id = ?', [c.entityId]);
+          } else {
+            _db.execute('INSERT OR REPLACE INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,?,?)',
+                [p['id'], p['parent_id'], p['kind'], p['name'], p['icon'], p['is_default'] == true ? 1 : 0, p['sort_order'] ?? 0]);
+          }
+        case 'transaction':
+          if (c.deleted) break; // 交易只作废不删
+          final occ = OccurredAt.parse(p['occurred_at'] as String);
+          _db.execute(
+            'INSERT OR REPLACE INTO transactions(id,type,occurred_at_ms,tz_offset_min,currency,merchant,description,category_id,tags,source,status,'
+            'confidence,refund_of_id,recurring_id,event_fingerprint,metadata,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM transactions WHERE id = ?),?),?)',
+            [
+              p['id'], p['type'], occ.millis, occ.offsetMinutes, p['currency'], p['merchant'], p['description'], p['category_id'],
+              jsonEncode(p['tags'] ?? const []), p['source'] ?? 'manual', p['status'] ?? 'confirmed', p['confidence'], p['refund_of_id'],
+              p['recurring_id'], p['event_fingerprint'], jsonEncode(p['metadata'] ?? const {}), p['id'], ts, ts,
+            ],
+          );
+          _db.execute('DELETE FROM postings WHERE transaction_id = ?', [c.entityId]);
+          for (final po in (p['postings'] as List? ?? const []).cast<Map>()) {
+            _db.execute('INSERT INTO postings(id,transaction_id,account_id,amount_minor) VALUES (?,?,?,?)', [po['id'] ?? Ulid.next(), c.entityId, po['account_id'], po['amount_minor']]);
+          }
+        case 'memory':
+          c.deleted ? memory.deleteRaw(c.entityId) : memory.upsertRaw(p);
+        case 'recurring':
+          c.deleted ? recurring.deleteRaw(c.entityId) : recurring.upsertRaw(p);
+        case 'budget':
+          c.deleted ? budgets.deleteRaw(c.entityId) : budgets.upsertRaw(p);
+        default:
+          throw ValidationException('entity', 'unknown entity ${c.entity}');
+      }
+      changes.record(c.entity, c.entityId, c.payload, deleted: c.deleted, origin: fromDevice, at: c.at);
+      _audit(Actor.automation, 'sync.apply', c.entity, c.entityId, after: {'from': fromDevice, 'deleted': c.deleted});
+      return 'applied';
     });
   }
 

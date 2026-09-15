@@ -1,16 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import 'config.dart';
 import 'provider.dart';
 
 /// OpenAI-compatible `/chat/completions`。覆盖 OpenAI、DeepSeek、各类中转、Ollama(/v1)、LM Studio、vLLM。
-/// 用 dart:io HttpClient，不引第三方 HTTP 依赖。
+/// 用 package:http，原生与 Web 都能跑。
 class OpenAICompatProvider implements ChatProvider {
   final ProviderConfig config;
-  final HttpClient _client;
+  final http.Client _client;
 
-  OpenAICompatProvider(this.config, {HttpClient? client}) : _client = client ?? HttpClient();
+  OpenAICompatProvider(this.config, {http.Client? client}) : _client = client ?? http.Client();
 
   @override
   String get name => config.name;
@@ -93,23 +95,26 @@ class OpenAICompatProvider implements ChatProvider {
 
   Future<ChatResult> _post(Map<String, Object?> body, Duration timeout) async {
     final sw = Stopwatch()..start();
-    HttpClientResponse resp;
+    http.Response resp;
     try {
-      final req = await _client.postUrl(_endpoint).timeout(timeout);
-      req.headers.contentType = ContentType.json;
-      if (config.apiKey != null && config.apiKey!.isNotEmpty) {
-        req.headers.set('Authorization', 'Bearer ${config.apiKey}');
-      }
-      req.write(jsonEncode(body));
-      resp = await req.close().timeout(timeout);
-    } on SocketException catch (e) {
+      resp = await _client
+          .post(
+            _endpoint,
+            headers: {
+              'Content-Type': 'application/json',
+              if (config.apiKey != null && config.apiKey!.isNotEmpty) 'Authorization': 'Bearer ${config.apiKey}',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw ProviderException('timeout after ${timeout.inSeconds}s', retryable: true);
+    } on http.ClientException catch (e) {
       throw ProviderException('network: ${e.message}', retryable: true);
-    } on HttpException catch (e) {
-      throw ProviderException('http: ${e.message}', retryable: true);
     } catch (e) {
-      throw ProviderException('timeout or transport: $e', retryable: true);
+      throw ProviderException('transport: $e', retryable: true);
     }
-    final text = await resp.transform(utf8.decoder).join().timeout(timeout);
+    final text = utf8.decode(resp.bodyBytes, allowMalformed: true);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw ProviderException(_short(text), status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
     }

@@ -1,0 +1,14 @@
+name: sync_client
+description: 余见同步客户端：推拉变更日志 + 加密备份。服务端只是中继，冲突在客户端按 LWW 解决。
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ledger_core:
+    path: ../ledger_core
+  http: ^1.2.0
+  cryptography: ^2.7.0
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

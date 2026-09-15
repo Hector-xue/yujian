@@ -1,3 +1,4 @@
+import 'changes.dart';
 import 'db/database.dart';
 import 'errors.dart';
 import 'ids.dart';
@@ -63,7 +64,10 @@ class BudgetStore {
   final Ledger ledger;
   final LedgerDatabase _db;
   final int Function() _nowMs;
-  BudgetStore(this.ledger, this._db, this._nowMs);
+  final ChangeLog? _changes;
+  BudgetStore(this.ledger, this._db, this._nowMs, [this._changes]);
+
+  static Map<String, Object?> toJson(Budget b) => {'id': b.id, 'name': b.name, 'category_id': b.categoryId, 'amount_minor': b.amountMinor, 'currency': b.currency, 'period': b.period.name, 'start_date': b.startDate, 'end_date': b.endDate, 'alert_threshold': b.alertThreshold, 'is_active': b.isActive};
 
   Budget create({
     required String name,
@@ -86,6 +90,7 @@ class BudgetStore {
       'INSERT INTO budgets(id,name,category_id,amount_minor,currency,period,start_date,end_date,alert_threshold,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,1,?,?)',
       [id, name.trim(), categoryId, amountMinor, currency, period.name, startDate, endDate, alertThreshold, ts, ts],
     );
+    _changes?.record('budget', id, toJson(get(id)));
     return get(id);
   }
 
@@ -102,12 +107,21 @@ class BudgetStore {
     final b = get(id);
     _db.execute('UPDATE budgets SET amount_minor=?, alert_threshold=?, is_active=?, name=?, updated_at=? WHERE id=?',
         [amountMinor ?? b.amountMinor, alertThreshold ?? b.alertThreshold, (isActive ?? b.isActive) ? 1 : 0, name ?? b.name, _nowMs(), id]);
+    _changes?.record('budget', id, toJson(get(id)));
   }
 
   void delete(String id) {
     get(id);
     _db.execute('DELETE FROM budgets WHERE id = ?', [id]);
+    _changes?.record('budget', id, null, deleted: true);
   }
+
+  /// 同步应用远端行。
+  void upsertRaw(Map<String, Object?> b) => _db.execute(
+        'INSERT OR REPLACE INTO budgets(id,name,category_id,amount_minor,currency,period,start_date,end_date,alert_threshold,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [b['id'], b['name'], b['category_id'], b['amount_minor'], b['currency'], b['period'], b['start_date'], b['end_date'], b['alert_threshold'] ?? 0.8, b['is_active'] == false ? 0 : 1, _nowMs(), _nowMs()],
+      );
+  void deleteRaw(String id) => _db.execute('DELETE FROM budgets WHERE id = ?', [id]);
 
   /// 当前周期的执行情况。周期按 startDate 对齐：月度 = 每月同日起，周 = 每 7 天起。
   BudgetStatus status(String id, {required String today}) {
