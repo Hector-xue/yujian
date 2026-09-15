@@ -1,5 +1,5 @@
 .dart_tool/
-pubspec.lock
+packages/*/pubspec.lock
 build/
 *.db
 *.db-journal
