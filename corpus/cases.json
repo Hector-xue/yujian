@@ -834,8 +834,9 @@
         "drafts": [
           {
             "type": "expense",
-            "amount_minor": 35680,
-            "category_id": "housing"
+            "amount_minor": 17840,
+            "category_id": "housing",
+            "split_total": 35680
           }
         ]
       }

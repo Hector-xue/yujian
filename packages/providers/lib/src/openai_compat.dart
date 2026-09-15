@@ -40,6 +40,7 @@ class OpenAICompatProvider implements ChatProvider {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (jsonMode) 'response_format': {'type': 'json_object'},
       'stream': false,
+      ...config.extraBody,
     };
     try {
       return await _post(body, timeout ?? config.timeout);

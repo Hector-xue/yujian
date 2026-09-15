@@ -6,6 +6,7 @@ import 'package:providers/providers.dart';
 import 'context.dart';
 import 'interpreter.dart';
 import 'result.dart';
+import 'rule/keywords.dart';
 
 /// LLM 解析：结构化 JSON 输出，补齐规则填不上的字段。输出仍是候选，一切以 ledger_core 校验为准。
 class LLMInterpreter implements Interpreter {
@@ -39,6 +40,10 @@ class LLMInterpreter implements Interpreter {
     final incCats = ctx.categories.where((c) => c.kind == 'income').map((c) => '${c.id}=${c.name}').join(', ');
     final memory = ctx.merchantMap.entries.take(50).map((e) => '- ${e.key} → ${e.value.categoryId ?? ''}${e.value.accountId != null ? ' / ${e.value.accountId}' : ''}').join('\n');
     final recent = ctx.recentTransactions.take(10).map((t) => '- ${t.id}: ${t.localDate} ${Money(t.amountMinor, t.currency)} ${t.categoryId ?? ''} ${t.description ?? ''}').join('\n');
+    final hints = ctx.categories
+        .where((c) => builtinCategoryKeywords.containsKey(c.id))
+        .map((c) => '${c.id}(${c.name}): ${builtinCategoryKeywords[c.id]!.take(8).join('/')}')
+        .join('\n');
     return '''
 你是个人记账助手的解析器。把用户的一句话变成结构化 JSON。只输出一个 JSON 对象，不要任何解释。
 
@@ -48,6 +53,9 @@ ${accounts.isEmpty ? '(无)' : accounts}
 默认账户 id：${ctx.defaultAccountId ?? '(无)'}
 支出分类（只能用这些 id）：$expCats
 收入分类（只能用这些 id）：$incCats
+分类提示（按用途分，不按场景猜）：
+$hints
+注意：买菜/超市/日用品是 daily 不是 food；机票/高铁/打车是 transport，酒店/民宿才是 travel；话费是 telecom。
 ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'}${recent.isEmpty ? '' : '最近交易（修改/删除/退款时用于定位）：\n$recent\n'}
 输出格式：
 {
@@ -66,12 +74,17 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
 
 规则：
 1. 金额用十进制字符串，正数；方向由 type 决定。"和同事吃饭 86 我付了 50" → amount 50，split.total 86。绝不把总额记成个人支出。
+   反过来也不要替用户分摊："3 个人吃了 150" 没说别人付，amount 就是 150；只有明确说了"我付了 X""各付一半"才算分摊（"一半"= total/2）。
 2. 一句话里多笔就输出多条 transactions。
 3. 时间必须带时区偏移；"昨晚"=昨天 19:00，"中午"=12:00；没说时间就用当前时间；不确定日期不要编，用当天。
 4. 分类和账户只能用给定 id；没把握就填 null，不要猜一个错的。
-5. 转账（还信用卡、存钱、充值到钱包）type=transfer，需要 account_id 和 to_account_id，没有分类。
+5. 转账（还信用卡、存钱、充值到钱包、取现）type=transfer，需要 account_id 和 to_account_id，没有分类。
+   transfer 只用于用户自己账户之间（含借贷：对手方是应付/应收账户；没有对应账户就 to_account_id 填 null）。
+   别人转钱给我（"老婆转给我 2000"）是 income（gift）；我转钱给别人（"给爸妈转了 3000"）是 expense（social）。
 6. 退款 type=refund，尽量在最近交易里找到原单填 refund_of_id。
-7. 查询（"花了多少""哪些""对比"）intent=query，只输出 query，不要 transactions。查询不带 time_range 时默认本月。
+7. 查询（"花了多少""哪些""对比"）intent=query，只输出 query，不要 transactions。
+   时间范围："这个月/本月" = 本月 1 号到月末（整月，不是到今天）；"上个月" = 上月整月；"最近 N 个月" = N-1 个月前的 1 号到今天；"这周" = 本周一到今天。
+   提到某类消费（"外卖""打车"）就放进 filter.category_ids（用分类提示映射）。"哪些/分别/各" → group_by category。"比上个月" → compare_to 上月整月。
 8. 修改（"改成""记到"）intent=propose_update，给 target 和 patch；删除/作废 intent=propose_void，给 target 和 reason。
 9. 与记账无关的话 intent=chat。
 ''';

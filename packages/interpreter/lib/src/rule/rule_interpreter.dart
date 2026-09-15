@@ -66,6 +66,16 @@ class RuleInterpreter implements Interpreter {
         continue;
       }
 
+      // "水电费 356.8，室友付了一半"：没有第二个数字的对半分摊
+      if (hits.length == 1 && RegExp('(付了|出了|各付|各出|平摊|平分|分摊|AA)?一半|一人一半|平摊|平分|各付各的|AA').hasMatch(text) && !_splitShareRe.hasMatch(text)) {
+        final total = hits.first.minor;
+        if (total.isEven) {
+          out.add(_candidate(clause, AmountHit(minor: total ~/ 2, currency: hits.first.currency, start: hits.first.start, end: hits.first.end, basis: hits.first.basis),
+              clause, text, ctx, globalDate, globalType, wallNow, extra: {'split': {'total': total, 'share': total ~/ 2}}, singleAmount: true));
+          continue;
+        }
+      }
+
       var segStart = 0;
       for (var i = 0; i < hits.length; i++) {
         final h = hits[i];
