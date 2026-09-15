@@ -79,11 +79,10 @@ class _SettingsPageState extends State<SettingsPage> {
       final missing = PersonaEvent.values.where((e) => !pack.templates.containsKey(e.name)).map((e) => e.name).toList();
       if (missing.isNotEmpty) throw FormatException('templates 缺 ${missing.join('、')}');
       await app.saveSettings(app.settings.copyWith(customPersona: j, personaId: pack.id));
-      setState(() => personaId = pack.id);
-    } on FormatException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：${e.message}')));
+      if (mounted) setState(() => personaId = pack.id);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：$e')));
+      final msg = e is FormatException ? e.message : '$e';
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：$msg')));
     }
   }
 
