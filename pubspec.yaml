@@ -1,0 +1,7 @@
+name: yujian_workspace
+description: 余见 Yujian monorepo workspace
+publish_to: none
+environment:
+  sdk: ^3.6.0
+workspace:
+  - packages/ledger_core

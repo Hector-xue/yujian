@@ -1,0 +1,12 @@
+name: ledger_core
+description: 余见 Yujian 账本核心。纯逻辑、零 UI、零网络；唯一的账本事实实现。
+version: 0.1.0
+publish_to: none
+resolution: workspace
+environment:
+  sdk: ^3.6.0
+dependencies:
+  sqlite3: ^2.4.0
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
