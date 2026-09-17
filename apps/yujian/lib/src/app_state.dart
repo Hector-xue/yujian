@@ -11,6 +11,7 @@ import 'package:query_dsl/query_dsl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sync_client/sync_client.dart';
 
+import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/share_source.dart';
@@ -37,6 +38,9 @@ class AppState extends ChangeNotifier {
   Settings settings = const Settings();
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
+  /// 陪聊：有模型才有；没模型时对话页用模板提示去配。
+  CompanionReplier? companion;
+  final CompanionMemory memory = CompanionMemory();
 
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
@@ -49,7 +53,23 @@ class AppState extends ChangeNotifier {
   /// 读设置并按它装配解析器与人格。启动时和保存设置后各调一次。
   Future<void> loadSettings() async {
     settings = await settingsStore.load();
+    await memory.load();
+    try {
+      autoHintDismissed = (await SharedPreferences.getInstance()).getBool('auto_hint_dismissed') ?? false;
+    } catch (_) {}
     _apply();
+  }
+
+  /// 首页「自动记账还没开」的提示卡：两条路都没开才显示；用户关掉后不再出现。
+  bool autoHintDismissed = false;
+  bool get showAutoHint => notifications.supported && !autoHintDismissed && !settings.notificationsWanted && !settings.screenWanted;
+
+  Future<void> dismissAutoHint() async {
+    autoHintDismissed = true;
+    notifyListeners();
+    try {
+      await (await SharedPreferences.getInstance()).setBool('auto_hint_dismissed', true);
+    } catch (_) {}
   }
 
   Future<void> saveSettings(Settings s) async {
@@ -65,7 +85,8 @@ class AppState extends ChangeNotifier {
     vision = p == null ? null : VisionInterpreter(p);
     final custom = settings.customPersona;
     persona = custom != null && custom['id'] == settings.personaId ? PersonaPack.fromJson(custom) : personaById(settings.personaId);
-    replier = PersonaReplier(persona, provider: p);
+    replier = PersonaReplier(persona, provider: p, memory: () => memory.lines);
+    companion = p == null ? null : CompanionReplier(persona, p);
     final userTemplates = <NotificationTemplate>[];
     for (final t in settings.userTemplates) {
       try {
@@ -178,9 +199,11 @@ class AppState extends ChangeNotifier {
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
       final balance = ledger.balances().values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+      final today = _today();
+      final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
       final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${latest.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
-      await w.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月', recent: recent);
+      await w.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月', recent: recent, today: fmtMoney(todayExp, 'CNY'));
     } catch (_) {}
   }
 
@@ -206,7 +229,7 @@ class AppState extends ChangeNotifier {
 
   /// 启动：把 App 关着时攒下的通知吃掉，再订阅实时流。
   Future<int> startNotifications() async {
-    if (!settings.notificationsWanted) return 0;
+    if (!settings.notificationsWanted && !settings.screenWanted) return 0;
     final n = ingestNotifications(await notifications.drain());
     _liveSub ??= notifications.live.listen((e) => ingestNotifications([e]));
     return n;
@@ -237,7 +260,7 @@ class AppState extends ChangeNotifier {
         'merchant': x.merchant,
         'description': x.merchant ?? (e.title ?? e.packageName),
         'occurred_at': OccurredAt(DateTime.fromMillisecondsSinceEpoch(e.postedAtMs), DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
-        'metadata': {'notification': {'package': e.packageName, 'title': e.title, 'text': e.text, 'template': x.templateId}},
+        'metadata': {'notification': {'package': e.packageName, 'title': e.title, 'text': e.text, 'template': x.templateId, if (e.source != null) 'source': e.source}},
       };
       final drafts = ledger.propose(
         [DraftInput(payload: payload, confidence: x.confidence, eventFingerprint: x.fingerprint, fingerprintIsExact: x.fingerprintIsExact)],
@@ -300,6 +323,36 @@ class AppState extends ChangeNotifier {
           RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description),
       ],
     );
+  }
+
+  /// 给陪聊层看的几行数字：今天 / 本月支出收入、预算、最近几笔、待确认。模型只能转述这些，别的编不出来。
+  String ledgerBrief() {
+    try {
+      final now = DateTime.now();
+      final today = _today();
+      final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
+      final last = DateTime(now.year, now.month + 1, 0).day;
+      final to = '${now.year}-${now.month.toString().padLeft(2, '0')}-${last.toString().padLeft(2, '0')}';
+      int cny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
+      final todayExp = engine.run(QueryDsl(timeRange: DateRange(today, today)));
+      final monthExp = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
+      final monthInc = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
+      final byCat = engine.run(QueryDsl(timeRange: DateRange(from, to), groupBy: GroupBy.category, limit: 3)).rows;
+      final recent = ledger.listTransactions(limit: 3);
+      final budgets = ledger.budgets.statuses(today: today);
+      final lines = <String>[
+        '今天支出 ${fmtMoney(cny(todayExp.rows), 'CNY')}（${todayExp.matchedCount} 笔）',
+        '本月支出 ${fmtMoney(monthExp, 'CNY')}，本月收入 ${fmtMoney(monthInc, 'CNY')}',
+        if (byCat.isNotEmpty) '本月花得最多：${byCat.map((r) => '${r.label} ${fmtMoney(r.valueMinor, r.currency)}').join('、')}',
+        for (final b in budgets.take(3)) '预算「${b.budget.name}」已用 ${fmtMoney(b.spentMinor, b.budget.currency)} / ${fmtMoney(b.budget.amountMinor, b.budget.currency)}${b.exceeded ? '（已超）' : ''}',
+        if (recent.isNotEmpty) '最近几笔：${recent.map((t) => '${t.occurredAt.localDate.substring(5).replaceFirst('-', '/')} ${t.description ?? categoryName(t.categoryId)} ${fmtSigned(t)}').join('；')}',
+        if (inbox.isNotEmpty) '收件箱里还有 ${inbox.length} 条待确认',
+        if (ledger.listTransactions(limit: 1).isEmpty) '账本还是空的，一笔都没记过',
+      ];
+      return lines.join('\n');
+    } catch (_) {
+      return '';
+    }
   }
 
   /// 一句话 → 解析 → 草稿进收件箱（不落账）。返回解析结果与建立的草稿。

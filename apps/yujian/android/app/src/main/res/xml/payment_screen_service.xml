@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 支付页识别：只看支付 / 购物 App 的窗口，只在「支付成功」页读一次金额与商户 -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/screen_service_description"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="300"
+    android:packageNames="com.tencent.mm,com.eg.android.AlipayGphone,com.unionpay,com.taobao.taobao,com.tmall.wireless,com.jingdong.app.mall,com.xunmeng.pinduoduo,com.sankuai.meituan,com.sankuai.meituan.takeoutnew,me.ele,com.ss.android.ugc.aweme,com.xingin.xhs,com.sdu.didi.psnger,com.MobileTicket,ctrip.android.view,com.dianping.v1"/>

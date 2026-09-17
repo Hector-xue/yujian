@@ -15,6 +15,7 @@ class Settings {
   final String personaId;
   final AutomationMode automationMode;
   final bool notificationsWanted; // 用户在余见里打开了开关（系统授权另查）
+  final bool screenWanted; // 支付页识别（无障碍）开关（系统授权另查）
   final String? visionModel; // 空 = 用 model
   final String? syncUrl;
   final String? syncToken;
@@ -27,7 +28,7 @@ class Settings {
   final String? assistantName; // 对话页显示名，空 = 人格名
   final String themeId; // 外观主题
   final String? transcribeModel; // 语音转写模型（/audio/transcriptions），空 = 不用云转写
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
@@ -38,13 +39,14 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
         personaId: personaId ?? this.personaId,
         automationMode: automationMode ?? this.automationMode,
         notificationsWanted: notificationsWanted ?? this.notificationsWanted,
+        screenWanted: screenWanted ?? this.screenWanted,
         visionModel: visionModel ?? this.visionModel,
         syncUrl: syncUrl ?? this.syncUrl,
         syncToken: syncToken ?? this.syncToken,
@@ -88,6 +90,7 @@ class PlatformSettingsStore implements SettingsStore {
       personaId: p.getString('persona_id') ?? 'minimalist',
       automationMode: AutomationMode.values.asNameMap()[p.getString('automation_mode') ?? ''] ?? AutomationMode.confirm,
       notificationsWanted: p.getBool('notifications_wanted') ?? false,
+      screenWanted: p.getBool('screen_wanted') ?? false,
       visionModel: p.getString('llm_vision_model'),
       syncUrl: p.getString('sync_url'),
       syncToken: syncToken,
@@ -111,6 +114,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('persona_id', s.personaId);
     await p.setString('automation_mode', s.automationMode.name);
     await p.setBool('notifications_wanted', s.notificationsWanted);
+    await p.setBool('screen_wanted', s.screenWanted);
     await p.setString('llm_vision_model', s.visionModel ?? '');
     await p.setString('sync_url', s.syncUrl ?? '');
     await p.setString('user_templates', jsonEncode(s.userTemplates));

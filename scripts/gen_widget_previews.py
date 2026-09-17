@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""桌面小部件的预览图（添加小部件面板里显示的那张）。照着 res/layout/widget_*.xml 画，改布局记得重跑。
+用法：python3 scripts/gen_widget_previews.py   → res/drawable-nodpi/widget_preview_*.png
+"""
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / 'apps/yujian/android/app/src/main/res/drawable-nodpi'
+FONT_DIR = '/usr/share/fonts/google-noto-cjk'
+S = 2  # dp → px
+
+BLUE = (0x1B, 0x6B, 0xC7)
+GREEN = (0x2E, 0x9A, 0x5C)
+INK = (0x1C, 0x24, 0x30)
+MUTED = (0x6C, 0x75, 0x80)
+WHITE = (255, 255, 255)
+
+
+def font(size_sp, bold=False):
+    f = f'{FONT_DIR}/NotoSansCJK-{"Bold" if bold else "Regular"}.ttc'
+    return ImageFont.truetype(f, int(size_sp * S), index=2)  # index 2 = SC
+
+
+def card(w_dp, h_dp, radius=22, gradient=None):
+    w, h = w_dp * S, h_dp * S
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    if gradient:
+        base = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        g = ImageDraw.Draw(base)
+        for x in range(w):
+            t = x / max(1, w - 1)
+            c = tuple(int(gradient[0][i] * (1 - t) + gradient[1][i] * t) for i in range(3))
+            g.line([(x, 0), (x, h)], fill=c + (255,))
+        mask = Image.new('L', (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius * S, fill=255)
+        img.paste(base, (0, 0), mask)
+    else:
+        d.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius * S, fill=(255, 255, 255, 242), outline=(0, 0, 0, 51), width=1)
+    return img, ImageDraw.Draw(img)
+
+
+def button(d, x, y, w, h, text, size=13):
+    d.rounded_rectangle([x, y, x + w, y + h], radius=14 * S, fill=BLUE)
+    f = font(size, True)
+    tw = d.textlength(text, font=f)
+    d.text((x + (w - tw) / 2, y + (h - f.size) / 2 - 2 * S), text, font=f, fill=WHITE)
+
+
+def summary():
+    img, d = card(280, 140)
+    p = 18 * S
+    d.text((p, 14 * S), '余额', font=font(12, True), fill=BLUE)
+    f = font(12)
+    d.text((280 * S - p - d.textlength('9 月', font=f), 14 * S), '9 月', font=f, fill=MUTED)
+    d.text((p, 30 * S), '¥ 12,480.50', font=font(30, True), fill=BLUE)
+    y = 78 * S
+    d.text((p, y), '支出', font=font(11), fill=MUTED)
+    d.text((p, y + 15 * S), '¥ 3,832', font=font(15, True), fill=INK)
+    d.text((p + 78 * S, y), '收入', font=font(11), fill=MUTED)
+    d.text((p + 78 * S, y + 15 * S), '¥ 8,000', font=font(15, True), fill=GREEN)
+    button(d, 280 * S - p - 88 * S, y + 2 * S, 88 * S, 34 * S, '＋ 记一笔')
+    d.text((p, 118 * S), '最近：美团外卖 −¥13.80 · 9/17', font=font(12), fill=MUTED)
+    return img
+
+
+def large():
+    img, d = card(140, 140)
+    p = 16 * S
+    d.text((p, 14 * S), '今日支出', font=font(12, True), fill=BLUE)
+    f = font(11)
+    d.text((140 * S - p - d.textlength('9 月', font=f), 15 * S), '9 月', font=f, fill=MUTED)
+    d.text((p, 30 * S), '¥ 22.80', font=font(26, True), fill=INK)
+    d.text((p, 66 * S), '本月支出 ¥ 3,832.90', font=font(11), fill=MUTED)
+    d.text((p, 82 * S), '余额 ¥ 12,480.50', font=font(11), fill=BLUE)
+    button(d, p, 102 * S, 140 * S - 2 * p, 30 * S, '＋ 记一笔')
+    return img
+
+
+def compact():
+    img, d = card(140, 70)
+    p = 16 * S
+    d.text((p, 10 * S), '余额', font=font(11, True), fill=BLUE)
+    d.text((p, 25 * S), '¥ 9,480', font=font(18, True), fill=BLUE)
+    d.text((p, 50 * S), '本月支出 ¥ 3,832', font=font(11), fill=MUTED)
+    button(d, 140 * S - 12 * S - 40 * S, 20 * S, 40 * S, 30 * S, '＋记', size=12)
+    return img
+
+
+def mini():
+    img, d = card(70, 70, gradient=(BLUE, GREEN))
+    f = font(30, True)
+    d.text(((70 * S - d.textlength('＋', font=f)) / 2, 6 * S), '＋', font=f, fill=WHITE)
+    f2 = font(12, True)
+    d.text(((70 * S - d.textlength('记一笔', font=f2)) / 2, 46 * S), '记一笔', font=f2, fill=WHITE)
+    return img
+
+
+if __name__ == '__main__':
+    OUT.mkdir(parents=True, exist_ok=True)
+    for name, fn in [('summary', summary), ('large', large), ('compact', compact), ('mini', mini)]:
+        fn().save(OUT / f'widget_preview_{name}.png')
+        print('wrote', name)

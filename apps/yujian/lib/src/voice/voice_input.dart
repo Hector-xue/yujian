@@ -27,10 +27,43 @@ class VoiceUnavailable implements Exception {
 
 typedef Transcriber = Future<String> Function(Uint8List bytes, String filename, String mime);
 
+/// 录音机的最小接口：真机用 record 插件，测试用假的。
+abstract class RecorderPort {
+  Future<bool> hasPermission();
+  Future<bool> isRecording();
+  Future<void> start({required bool wav, required String path});
+  Future<String?> stop();
+  Future<void> dispose();
+}
+
+class PluginRecorder implements RecorderPort {
+  final _r = AudioRecorder();
+  @override
+  Future<bool> hasPermission() => _r.hasPermission();
+  @override
+  Future<bool> isRecording() => _r.isRecording();
+  @override
+  Future<void> start({required bool wav, required String path}) =>
+      _r.start(RecordConfig(encoder: wav ? AudioEncoder.wav : AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1), path: path);
+  @override
+  Future<String?> stop() => _r.stop();
+  @override
+  Future<void> dispose() => _r.dispose();
+}
+
 class VoiceInput {
   final _speech = SpeechToText();
-  final _recorder = AudioRecorder();
+  final RecorderPort _recorder;
+  final Future<bool> Function() _localInstalled;
+  final Future<String> Function(String wavPath) _localTranscribe;
+  final Future<String> Function({required String ext}) _recordingPath;
   static const _intent = MethodChannel('yujian/speech');
+
+  VoiceInput({RecorderPort? recorder, Future<bool> Function()? localInstalled, Future<String> Function(String)? localTranscribe, Future<String> Function({required String ext})? recordingPath})
+      : _recorder = recorder ?? PluginRecorder(),
+        _localInstalled = localInstalled ?? LocalAsr.installed,
+        _localTranscribe = localTranscribe ?? LocalAsr.transcribeWav,
+        _recordingPath = recordingPath ?? audio.recordingPath;
 
   /// 本次会话里已经证实坏掉的引擎，之后直接跳过。
   final broken = <VoiceEngine, String>{};
@@ -73,7 +106,7 @@ class VoiceInput {
       return;
     }
     final order = [
-      if (await LocalAsr.installed()) VoiceEngine.local,
+      if (await _localInstalled()) VoiceEngine.local,
       VoiceEngine.system,
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) VoiceEngine.intent,
       if (transcriber != null) VoiceEngine.cloud,
@@ -272,11 +305,17 @@ class VoiceInput {
       throw VoiceUnavailable('没有麦克风权限');
     }
     final wav = e == VoiceEngine.local;
+    // 上一次没收尾（App 被切走、手势被打断）的录音先停掉，否则 start 会报 already recording
+    if (await _recorder.isRecording()) {
+      _log('上次录音没停，先停');
+      final leftover = await _recorder.stop();
+      if (leftover != null) await audio.deleteRecording(leftover);
+    }
     _log('开始录音 ${wav ? 'wav16k' : 'aac'}');
-    await _recorder.start(
-      RecordConfig(encoder: wav ? AudioEncoder.wav : AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1),
-      path: await audio.recordingPath(ext: wav ? 'wav' : 'm4a'),
-    );
+    await _recorder.start(wav: wav, path: await _recordingPath(ext: wav ? 'wav' : 'm4a'));
+    // 0.6.0 把这两行弄丢了：phase 不进 recording，UI 以为没开始、松开也不会停 → 「准备中」一闪就没
+    phase = VoicePhase.recording;
+    onPhase(phase);
     lastReport[key] = '录音中';
     return true;
   }
@@ -301,7 +340,7 @@ class VoiceInput {
         onPhase(phase);
         try {
           final sw = Stopwatch()..start();
-          final text = await LocalAsr.transcribeWav(path);
+          final text = await _localTranscribe(path);
           lastReport['local'] = text.isEmpty ? '识别为空（没录到声音？）' : '识别成功';
           _log('离线识别 ${sw.elapsedMilliseconds}ms → "${text.length > 30 ? text.substring(0, 30) : text}"');
           return text;

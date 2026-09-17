@@ -5,9 +5,10 @@ class NotificationEvent {
   final String text;
   final int postedAtMs; // epoch ms
   final String? key; // 系统 notification key，有就当外部 ID
-  const NotificationEvent({required this.packageName, this.title, required this.text, required this.postedAtMs, this.key});
+  final String? source; // null = 系统通知；'screen' = 支付页识别（无障碍）
+  const NotificationEvent({required this.packageName, this.title, required this.text, required this.postedAtMs, this.key, this.source});
 
-  Map<String, Object?> toJson() => {'package': packageName, 'title': title, 'text': text, 'posted_at_ms': postedAtMs, 'key': key};
+  Map<String, Object?> toJson() => {'package': packageName, 'title': title, 'text': text, 'posted_at_ms': postedAtMs, 'key': key, if (source != null) 'source': source};
 
   factory NotificationEvent.fromJson(Map<String, Object?> j) => NotificationEvent(
         packageName: j['package'] as String,
@@ -15,6 +16,7 @@ class NotificationEvent {
         text: (j['text'] as String?) ?? '',
         postedAtMs: (j['posted_at_ms'] as num).toInt(),
         key: j['key'] as String?,
+        source: j['source'] as String?,
       );
 }
 

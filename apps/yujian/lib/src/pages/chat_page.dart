@@ -32,7 +32,7 @@ sealed class _Msg {
   /// 历史里认不出的条目丢掉（比如以后加的类型），别让整段历史读不出来。
   static _Msg? fromJson(Map<String, Object?> j) => switch (j['t']) {
         'user' => _UserMsg(j['text'] as String),
-        'text' => _TextMsg(j['text'] as String),
+        'text' => _TextMsg(j['text'] as String, meta: j['meta'] as String?),
         'draft' => _DraftMsg(j['group'] as String, (j['meta'] as String?) ?? ''),
         'query' => _QueryMsg(QueryResult.fromJson((j['result'] as Map).cast<String, Object?>()), (j['meta'] as String?) ?? ''),
         'sticker' => _StickerMsg(j['text'] as String),
@@ -66,9 +66,11 @@ class _QueryMsg extends _Msg {
 
 class _TextMsg extends _Msg {
   final String text;
-  _TextMsg(this.text);
+  /// 气泡下的小字：哪个模型在陪聊（让人知道配的模型真在用）。
+  final String? meta;
+  _TextMsg(this.text, {this.meta});
   @override
-  Map<String, Object?> toJson() => {'t': 'text', 'text': text};
+  Map<String, Object?> toJson() => {'t': 'text', 'text': text, if (meta != null) 'meta': meta};
 }
 
 /// 用户发的图片：bytes 只在本次会话里有，path 落盘后历史里再读。
@@ -146,6 +148,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     if (mounted) setState(() => _historyLoaded = true);
     _jumpToEnd(animate: false);
+    _maybeGreet();
   }
 
   Future<void> _saveHistory() async {
@@ -153,7 +156,84 @@ class _ChatPageState extends State<ChatPage> {
       final p = await SharedPreferences.getInstance();
       final keep = _msgs.length > _historyMax ? _msgs.sublist(_msgs.length - _historyMax) : _msgs;
       await p.setString(_historyKey, jsonEncode(keep.map((m) => m.toJson()).toList()));
+      await p.setInt(_lastMsgKey, DateTime.now().millisecondsSinceEpoch);
     } catch (_) {}
+  }
+
+  // ------------------------------------------------------------- 陪聊
+  static const _lastMsgKey = 'chat_last_msg_ms';
+  static const _greetGap = Duration(hours: 6);
+
+  /// 隔了半天再打开：它先开口（像个真会惦记你的角色），而不是一片空白等你说。只在有模型时。
+  Future<void> _maybeGreet() async {
+    if (!mounted) return;
+    final app = AppScope.of(context);
+    final c = app.companion;
+    if (c == null || _busy) return;
+    try {
+      final p = await SharedPreferences.getInstance();
+      final last = p.getInt(_lastMsgKey) ?? 0;
+      if (DateTime.now().millisecondsSinceEpoch - last < _greetGap.inMilliseconds) return;
+      await p.setInt(_lastMsgKey, DateTime.now().millisecondsSinceEpoch); // 先占位，别因为慢或失败而反复问候
+      final r = await c.chat(user: '', history: _recentTurns(), memory: app.memory.lines, ledgerBrief: app.ledgerBrief(), assistantName: app.settings.assistantName);
+      if (!mounted) return;
+      setState(() {
+        _msgs.add(_TextMsg(r.text, meta: _chatMeta(r.model)));
+        if (r.sticker != null) _msgs.add(_StickerMsg(r.sticker!));
+      });
+      _say(r.text);
+      _saveHistory();
+      _jumpToEnd();
+    } catch (_) {
+      // 问候失败就安静，别在对话里报错
+    }
+  }
+
+  static String _chatMeta(String? model) => '${model ?? '模型'} · 陪聊';
+
+  /// 最近几轮给模型当上下文（只要用户和它说的话，卡片不算）。
+  List<ChatTurn> _recentTurns({int max = 12}) {
+    final out = <ChatTurn>[];
+    for (final m in _msgs.reversed) {
+      if (m is _UserMsg) out.add(ChatTurn.user(m.text));
+      if (m is _TextMsg && !m.text.startsWith('（记住了')) out.add(ChatTurn.assistant(m.text));
+      if (out.length >= max) break;
+    }
+    return out.reversed.toList();
+  }
+
+  /// 解析器说这句不是记账也不是查询：交给陪聊层。没模型就直说去配。
+  Future<void> _companionReply(AppState app, String text) async {
+    final c = app.companion;
+    if (c == null) {
+      setState(() {
+        _busy = false;
+        _msgs.add(_TextMsg('${app.replier.template(PersonaEvent.notUnderstood)}\n想让我陪你聊天的话，先在「更多 → 模型与人格」配一个模型。'));
+      });
+      _saveHistory();
+      _jumpToEnd();
+      return;
+    }
+    CompanionReply r;
+    try {
+      r = await c.chat(user: app.settings.redact ? redactForModel(text) : text, history: _recentTurns().where((t) => !(t.fromUser && t.text == text)).toList(), memory: app.memory.lines, ledgerBrief: app.ledgerBrief(), assistantName: app.settings.assistantName);
+    } on ProviderException catch (e) {
+      r = CompanionReply(text: '${app.replier.template(PersonaEvent.modelUnavailable)}（${e.message}）');
+    } catch (e) {
+      r = CompanionReply(text: '${app.replier.template(PersonaEvent.modelUnavailable)}（$e）');
+    }
+    if (!mounted) return;
+    final learned = await app.memory.addAll(r.remember);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _msgs.add(_TextMsg(r.text, meta: r.model == null ? null : _chatMeta(r.model)));
+      if (r.sticker != null) _msgs.add(_StickerMsg(r.sticker!));
+      if (learned.isNotEmpty) _msgs.add(_TextMsg('（记住了：${learned.join('；')}）', meta: '可在「模型与人格 → 它记住的事」里管理'));
+    });
+    _say(r.text);
+    _saveHistory();
+    _jumpToEnd();
   }
 
   Future<void> _clearHistory() async {
@@ -343,24 +423,54 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   // 按住说话（微信式）：按下开始，松开就发，上滑取消
+  // 引擎起来要几百毫秒（首次还有权限弹窗），手指可能在这之前就松开：记下来，起来后立刻收尾，别让录音悬着
+  var _releasedWhileStarting = false;
+  var _releasedAsCancel = false;
+  var _holdStartedMs = 0;
+
   Future<void> _holdStart() async {
     if (_busy || _phase != VoicePhase.idle) return;
     setState(() {
       _holding = true;
       _cancelHint = false;
+      _releasedWhileStarting = false;
+      _releasedAsCancel = false;
     });
+    _holdStartedMs = DateTime.now().millisecondsSinceEpoch;
     await _toggleVoice(); // idle → 开始听 / 录音
-    if (_phase == VoicePhase.idle && mounted) setState(() => _holding = false); // 没开始成（会有提示）
+    if (!mounted) return;
+    if (_phase == VoicePhase.idle) {
+      setState(() => _holding = false); // 没开始成（会有提示）
+      return;
+    }
+    if (_releasedWhileStarting) {
+      _releasedWhileStarting = false;
+      setState(() => _holding = false);
+      // 按了不到半秒就松开：多半是误触，当取消；否则照常停止并发送
+      final tooShort = DateTime.now().millisecondsSinceEpoch - _holdStartedMs < 500;
+      if (_releasedAsCancel || tooShort) {
+        await _voice.cancel(onPhase: _setPhase);
+        _input.clear();
+      } else {
+        await _toggleVoice();
+      }
+    }
   }
 
   Future<void> _holdEnd({required bool cancel}) async {
     if (!_holding) return;
     final reallyCancel = cancel || _cancelHint;
+    if (_phase == VoicePhase.idle) {
+      // 引擎还没起来：留给 _holdStart 收尾
+      _releasedWhileStarting = true;
+      _releasedAsCancel = reallyCancel;
+      setState(() => _cancelHint = false);
+      return;
+    }
     setState(() {
       _holding = false;
       _cancelHint = false;
     });
-    if (_phase == VoicePhase.idle) return;
     if (reallyCancel) {
       await _voice.cancel(onPhase: _setPhase);
       _input.clear();
@@ -391,6 +501,11 @@ class _ChatPageState extends State<ChatPage> {
     });
     final r = await app.say(text);
     if (!mounted) return;
+    if (r.error == null && r.query == null && r.drafts.isEmpty) {
+      // 不是账、不是问账：陪聊
+      await _companionReply(app, text);
+      return;
+    }
     final noModel = r.result.notes.any((n) => n.contains('no model configured'));
     final meta = r.result.modelUsed != null
         ? '规则 + ${r.result.modelUsed}'
@@ -445,7 +560,16 @@ class _ChatPageState extends State<ChatPage> {
     if (!_speak) return;
     try {
       await _tts.setLanguage('zh-CN');
-      await _tts.speak(text);
+      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
+    } catch (_) {}
+  }
+
+  /// 单条朗读：不看全局开关。
+  Future<void> _speakOnce(String text) async {
+    try {
+      await _tts.stop();
+      await _tts.setLanguage('zh-CN');
+      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
     } catch (_) {}
   }
 
@@ -578,7 +702,7 @@ class _ChatPageState extends State<ChatPage> {
                               children: [
                                 PersonaAvatar(app.persona, size: 56),
                                 const SizedBox(height: 16),
-                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"',
+                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}',
                                     textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
                               ],
                             ),
@@ -710,17 +834,34 @@ class _ChatPageState extends State<ChatPage> {
           ),
         );
       case _TextMsg():
-        return withAvatar(Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-                color: y.cardFill,
-                borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(18), bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
-                border: Border.all(color: y.cardBorder, width: 0.6)),
-            child: Text(m.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15)),
-          ),
+        return withAvatar(Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                        color: y.cardFill,
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(18), bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
+                        border: Border.all(color: y.cardBorder, width: 0.6)),
+                    child: Text(m.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15)),
+                  ),
+                ),
+                // 点一下听它说（不用开全局朗读）
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _speakOnce(m.text),
+                  child: Padding(padding: const EdgeInsets.fromLTRB(4, 6, 2, 6), child: Icon(Icons.volume_up_outlined, size: 16, color: y.muted)),
+                ),
+              ],
+            ),
+            if (m.meta != null) Padding(padding: const EdgeInsets.only(top: 3, left: 4), child: Text(m.meta!, style: theme.textTheme.bodySmall?.copyWith(fontSize: 11))),
+          ],
         ));
       case _ImageMsg():
         return Align(

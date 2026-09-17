@@ -60,14 +60,36 @@ const packageAccountHints = <String, String>{
   'com.yitong.mbank.psbc': '邮储',
   'com.cmbchina.ccd.pluto.cmbActivity': '招行信用卡',
   'com.jd.jrapp': '京东',
+};
+
+/// 购物 / 出行 / 外卖平台：它们的通知是「支付成功 ¥xx」，钱其实从微信 / 支付宝 / 银行卡走，
+/// 所以不给账户线索（落到默认账户，收件箱里改），只认方向和金额。
+const shoppingPackages = <String, String>{
+  'com.taobao.taobao': '淘宝',
+  'com.tmall.wireless': '天猫',
+  'com.jingdong.app.mall': '京东',
+  'com.xunmeng.pinduoduo': '拼多多',
   'com.sankuai.meituan': '美团',
+  'com.sankuai.meituan.takeoutnew': '美团外卖',
+  'me.ele': '饿了么',
+  'com.ss.android.ugc.aweme': '抖音',
+  'com.xingin.xhs': '小红书',
+  'com.sdu.didi.psnger': '滴滴',
+  'com.MobileTicket': '12306',
+  'ctrip.android.view': '携程',
+  'com.dianping.v1': '大众点评',
+  'com.achievo.vipshop': '唯品会',
+  'com.suning.mobile.ebuy': '苏宁',
+  'com.wudaokou.hippo': '盒马',
+  'com.dmall.dmall': '多点',
+  'com.unionpay': '云闪付',
 };
 
 /// 与交易无关的通知：验证码、营销、红包提醒等。
-final _ignoreRe = RegExp('验证码|优惠券|领取|活动|推荐|会员日|红包待领|积分|广告|通知权限|账单日|还款提醒|待还|限时|立减');
+final _ignoreRe = RegExp('验证码|优惠券|领取|活动|推荐|会员日|红包待领|积分|广告|通知权限|账单日|还款提醒|待还|限时|立减|已发货|已签收|派送中|运输中|待评价|物流|快递|包裹|好评|开始配送|骑手|已接单|预计送达|订单已完成');
 
 final _amountRe = RegExp(r'(?:¥|￥|RMB|CNY|人民币)?\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*(?:元|¥|￥)?');
-final _expenseRe = RegExp('支付成功|已支付|付款成功|扣款|消费|支出|已付|支付了|付款|已扣');
+final _expenseRe = RegExp('支付成功|已支付|付款成功|扣款|消费|支出|已付|支付了|付款|已扣|实付|成功购买|下单成功|购买成功');
 final _incomeRe = RegExp('收款|到账|入账|收入|已收|转入|退款到|退回');
 final _transferRe = RegExp('转账成功|已转出|转出|提现');
 
@@ -108,6 +130,21 @@ final builtinTemplates = <NotificationTemplate>[
     direction: 'income',
     accountHint: '支付宝',
     confidence: 0.85,
+  ),
+  // 购物 / 外卖 / 出行平台："支付成功 ¥86.00" / "您已成功支付86元" / "订单支付成功，实付¥86.00"
+  NotificationTemplate(
+    id: 'shop_pay',
+    packages: shoppingPackages.keys.toSet(),
+    textRe: RegExp(r'(?:支付成功|付款成功|已支付|成功支付|实付|支付了|已付款|购买成功|下单成功)[^\d¥￥]{0,14}[¥￥]?\s*(?<amount>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*元?(?:[，,\s]*(?:商户|商家|店铺|向|在)[:：]?\s*(?<merchant>[^，,。\s]{1,20}))?|[¥￥]\s*(?<amount2>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)[^。]{0,10}(?:支付成功|付款成功|已支付)'),
+    direction: 'expense',
+    confidence: 0.75,
+  ),
+  NotificationTemplate(
+    id: 'shop_refund',
+    packages: shoppingPackages.keys.toSet(),
+    textRe: RegExp(r'(?:退款|退回|退还)[^\d¥￥]{0,14}[¥￥]?\s*(?<amount>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*元?'),
+    direction: 'income',
+    confidence: 0.7,
   ),
   // 银行 App：文案里通常有"支出/收入 + 金额 + 余额"
   NotificationTemplate(

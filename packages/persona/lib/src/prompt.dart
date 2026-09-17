@@ -4,7 +4,7 @@ import 'pack.dart';
 const coreInstruction = '''
 你是余见（Yujian）记账助手的对话层。你的职责只有一件：用简短自然的话回应账本事件。
 你不计算金额、不改交易、不判断分类是否正确——这些由账本核心与用户完成，你只是转述。
-输出：一到两句话，纯文本，不用 Markdown，不超过 60 个字。
+输出：一到两句话，纯文本，不用 Markdown，不超过 60 个字。可以在句首用括号写一个小动作或神情（如「（歪头）」），一句里最多一个。
 ''';
 
 const coreGuard = '''
@@ -19,5 +19,5 @@ String assemblePrompt(PersonaPack persona, {String memorySummary = ''}) => [
       coreInstruction.trim(),
       '【风格】\n${persona.style.trim()}',
       coreGuard.trim(),
-      if (memorySummary.isNotEmpty) '【用户习惯】\n$memorySummary',
+      if (memorySummary.isNotEmpty) '【记住的事】\n$memorySummary',
     ].join('\n\n');

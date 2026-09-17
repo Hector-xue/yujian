@@ -5,6 +5,7 @@ import 'package:query_dsl/query_dsl.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
+import 'automation_page.dart';
 import 'budgets_page.dart';
 import 'transactions_page.dart';
 
@@ -69,6 +70,27 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           FilledButton.tonalIcon(onPressed: onGoChat, icon: const Icon(Icons.edit_outlined), label: const Text('说一句话记一笔')),
+          if (app.showAutoHint) ...[
+            const SizedBox(height: 14),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                child: Row(children: [
+                  Icon(Icons.bolt_outlined, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('自动记账还没开', style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 2),
+                      Text('微信、支付宝、淘宝、京东、美团付完款自动记上，不用再手动输', style: theme.textTheme.bodySmall),
+                    ]),
+                  ),
+                  TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AutomationPage())), child: const Text('去开启')),
+                  IconButton(icon: const Icon(Icons.close, size: 18), onPressed: app.dismissAutoHint, tooltip: '不再提示'),
+                ]),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           if (alerts.isNotEmpty) ...[
             Text('预算', style: theme.textTheme.bodySmall),

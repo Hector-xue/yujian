@@ -15,6 +15,11 @@ abstract class NotificationSource {
   Future<void> openAppInfo();
   Future<List<NotificationEvent>> drain();
   Stream<NotificationEvent> get live;
+
+  // 支付页识别（无障碍服务）：系统里是否已打开 / 去系统无障碍设置 / 余见侧开关（关了服务就什么都不做）
+  Future<bool> isScreenEnabled();
+  Future<void> openScreenSettings();
+  Future<void> setScreenWanted(bool v);
 }
 
 class AndroidNotificationSource implements NotificationSource {
@@ -47,6 +52,32 @@ class AndroidNotificationSource implements NotificationSource {
   }
 
   @override
+  Future<bool> isScreenEnabled() async {
+    if (!supported) return false;
+    try {
+      return await _m.invokeMethod<bool>('isScreenEnabled') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> openScreenSettings() async {
+    if (!supported) return;
+    await _m.invokeMethod<void>('openAccessibilitySettings');
+  }
+
+  @override
+  Future<void> setScreenWanted(bool v) async {
+    if (!supported) return;
+    try {
+      await _m.invokeMethod<void>('setScreenWanted', v);
+    } on PlatformException {
+      // 旧原生层没有这个方法：忽略
+    }
+  }
+
+  @override
   Future<List<NotificationEvent>> drain() async {
     if (!supported) return const [];
     try {
@@ -65,6 +96,8 @@ class AndroidNotificationSource implements NotificationSource {
 
 class FakeNotificationSource implements NotificationSource {
   bool enabled;
+  bool screenEnabled = false;
+  bool screenWanted = false;
   final List<NotificationEvent> queue = [];
   final StreamController<NotificationEvent> _ctl = StreamController.broadcast();
   FakeNotificationSource({this.enabled = false});
@@ -76,6 +109,12 @@ class FakeNotificationSource implements NotificationSource {
   Future<void> openSettings() async => enabled = true;
   @override
   Future<void> openAppInfo() async {}
+  @override
+  Future<bool> isScreenEnabled() async => screenEnabled;
+  @override
+  Future<void> openScreenSettings() async => screenEnabled = true;
+  @override
+  Future<void> setScreenWanted(bool v) async => screenWanted = v;
   @override
   Future<List<NotificationEvent>> drain() async {
     final out = [...queue];

@@ -33,6 +33,17 @@ object NotificationBridge {
                     result.success(null)
                 }
                 "drain" -> result.success(YujianNotificationListener.drain(ctx))
+                // 支付页识别（无障碍）
+                "isScreenEnabled" -> result.success(PaymentScreenService.isEnabled(ctx))
+                "setScreenWanted" -> {
+                    PaymentScreenService.setWanted(ctx, call.arguments as? Boolean ?: false)
+                    result.success(null)
+                }
+                "openAccessibilitySettings" -> {
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

@@ -60,6 +60,17 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!-- 支付页识别（无障碍）：用户在系统无障碍设置里打开后才绑定；只看名单里的支付 / 购物 App 的「支付成功」页 -->
+        <service
+            android:name=".PaymentScreenService"
+            android:label="余见 · 支付页识别"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/payment_screen_service" />
+        </service>
         <!-- 桌面小部件：本月支出 / 收入 / 余额 + 记一笔 -->
         <receiver android:name=".SummaryWidget" android:exported="true" android:label="余见 · 本月">
             <intent-filter>
@@ -72,6 +83,12 @@
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_compact_info"/>
+        </receiver>
+        <receiver android:name=".LargeWidget" android:exported="true" android:label="余见 · 今日">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_large_info"/>
         </receiver>
         <receiver android:name=".MiniWidget" android:exported="true" android:label="余见 · 记一笔">
             <intent-filter>

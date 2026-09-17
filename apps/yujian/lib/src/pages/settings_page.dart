@@ -293,6 +293,34 @@ class _SettingsPageState extends State<SettingsPage> {
             label: Text(app.settings.customPersona == null ? '导入自定义人格包（JSON）' : '替换自定义人格包'),
           ),
           const SizedBox(height: 20),
+          Row(children: [
+            Expanded(child: Text('它记住的事', style: theme.textTheme.titleMedium)),
+            if (app.memory.items.isNotEmpty)
+              TextButton(
+                  onPressed: () async {
+                    await app.memory.clear();
+                    if (mounted) setState(() {});
+                  },
+                  child: const Text('全部忘掉')),
+          ]),
+          const SizedBox(height: 4),
+          Text('聊天里你主动说过的、关于你自己的事（称呼、习惯、家人宠物、目标）。只存本机，会带进之后的对话；不想让它记的点 × 删掉。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 4),
+          if (app.memory.items.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(app.companion == null ? '配好模型后，聊着聊着它就会记住你。' : '还没记住什么，去对话里聊聊。', style: theme.textTheme.bodySmall)),
+          for (final m in app.memory.items.reversed)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(m.text),
+              subtitle: m.atMs == 0 ? null : Text(DateTime.fromMillisecondsSinceEpoch(m.atMs).toIso8601String().substring(0, 10), style: theme.textTheme.bodySmall),
+              trailing: IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () async {
+                    await app.memory.remove(m.text);
+                    if (mounted) setState(() {});
+                  }),
+            ),
+          const SizedBox(height: 20),
           Text('外观', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('主题管质感和形状，强调色跟人格走。点了就生效。', style: theme.textTheme.bodySmall),

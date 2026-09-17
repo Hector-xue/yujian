@@ -11,16 +11,19 @@ class PersonaReplier {
   final PersonaPack persona;
   final ChatProvider? provider;
   final Duration timeout;
+  /// 记住的关于用户的事（陪聊层攒的），事件回复也带上，语气才连得起来。
+  final List<String> Function()? memory;
 
-  PersonaReplier(this.persona, {this.provider, this.timeout = const Duration(seconds: 8)});
+  PersonaReplier(this.persona, {this.provider, this.timeout = const Duration(seconds: 8), this.memory});
 
   Future<String> reply(PersonaEvent event, {int n = 0, String label = '', Map<String, Object?> data = const {}}) async {
     final fallback = template(event, n: n, label: label);
     final p = provider;
     if (p == null) return fallback;
     try {
+      final mem = memory?.call() ?? const <String>[];
       final r = await p.complete(
-        system: assemblePrompt(persona),
+        system: assemblePrompt(persona, memorySummary: mem.map((m) => '- $m').join('\n')),
         user: '事件：${event.name}\n事件数据：${jsonEncode({'n': n, 'label': label, ...data})}\n请用你的风格回应。',
         timeout: timeout,
       );

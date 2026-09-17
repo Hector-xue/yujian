@@ -14,6 +14,7 @@ class AutomationPage extends StatefulWidget {
 
 class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObserver {
   bool? systemEnabled;
+  bool? screenEnabled;
   final testText = TextEditingController();
   String? testResult;
 
@@ -36,8 +37,15 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   }
 
   Future<void> _refresh() async {
-    final v = await AppScope.of(context).notifications.isEnabled();
-    if (mounted) setState(() => systemEnabled = v);
+    final n = AppScope.of(context).notifications;
+    final v = await n.isEnabled();
+    final sc = await n.isScreenEnabled();
+    if (mounted) {
+      setState(() {
+        systemEnabled = v;
+        screenEnabled = sc;
+      });
+    }
   }
 
   Future<void> _addTemplate(BuildContext context) async {
@@ -119,8 +127,38 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('读取支付类通知（微信、支付宝、银行 App）生成记录。只读通知，不读短信；关掉随时生效。', style: theme.textTheme.bodySmall),
+          Text('两条路，建议都开：微信 / 支付宝付款时 App 在前台，系统不弹通知，只有「支付页识别」能抓到；银行、购物平台的到账 / 支付通知则由「通知自动记账」读。都只在本机处理，不读短信，关掉随时生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('支付页识别'),
+            subtitle: Text(
+              !supported
+                  ? '仅 Android 支持'
+                  : screenEnabled == false
+                      ? '在微信、支付宝、淘宝、京东、美团等出现「支付成功」页面时读金额和商户。需要在系统「无障碍」里打开「余见 · 支付页识别」'
+                      : '系统已授权。只看支付 / 购物 App，只在支付成功那一刻读一次',
+              style: theme.textTheme.bodySmall,
+            ),
+            value: s.screenWanted,
+            onChanged: !supported
+                ? null
+                : (v) async {
+                    await app.saveSettings(s.copyWith(screenWanted: v));
+                    await app.notifications.setScreenWanted(v);
+                    if (v && screenEnabled != true) await app.notifications.openScreenSettings();
+                    if (v) await app.startNotifications();
+                    _refresh();
+                  },
+          ),
+          if (supported && s.screenWanted && screenEnabled == false) ...[
+            Text('系统设置 → 无障碍 → 已下载的应用（或「更多已下载的服务」）→ 余见 · 支付页识别 → 打开。小米 / HyperOS 点不动或提示「受限制的设置」的话，先到应用信息页右上角 ⋮ →「允许受限设置」，再回来开。', style: theme.textTheme.bodySmall),
+            Row(children: [
+              TextButton.icon(onPressed: () => app.notifications.openScreenSettings(), icon: const Icon(Icons.accessibility_new, size: 18), label: const Text('去无障碍设置')),
+              TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('应用信息页')),
+            ]),
+          ],
+          const SizedBox(height: 4),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('通知自动记账'),

@@ -9,7 +9,8 @@
 - **AI 负责理解，账本核心负责事实，用户负责授权。** 模型只能提议（`propose`），提交（`commit`）由用户在收件箱完成。
 - **Local-first。** 账本核心是一个纯 Dart 包，随 App 运行；服务端是可选外围（同步 / 备份 / MCP）。
 - **BYOM。** OpenAI-compatible、Anthropic、Ollama、Gemini，能力按模型实测，不按厂商猜。
-- **人格只改语气。** 触不到金额、时间、余额、权限与确认流程。
+- **人格只改语气。** 触不到金额、时间、余额、权限与确认流程。陪聊时它只能引用 App 给的几行汇总数字，记住的事只存本机、可删。
+- **自动记账两条路都要你在系统里显式授权。** 通知监听只读支付类通知；支付页识别（无障碍）只看名单 App 的「支付成功」页，读到的内容不出本机。
 
 ## 仓库结构
 
@@ -18,7 +19,7 @@ packages/ledger_core   账本核心：账户 / 交易 + posting 轻复式 / 草�
 packages/interpreter   自然语言 → 草稿 / 查询 / 修改意图（规则优先，LLM 兜底，可插拔）
 packages/query_dsl     查询 DSL（模型只出 JSON，引擎在账本上执行并给依据）
 packages/providers     模型 Provider 抽象、OpenAI-compatible 实现、能力实测
-packages/persona       人格包：五段分层提示词，人格只能改风格段
+packages/persona       人格包：五段分层提示词，人格只能改风格段；陪聊层（CompanionReplier）+ 记忆
 packages/notification_templates  支付类通知 → 金额/方向/商户（Android 自动记账用）
 packages/mcp_server    MCP Server（stdio）：只读 + propose 工具，给任何 agent 用
 apps/yujian            Flutter App                                  [Phase 1]

@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:notification_templates/notification_templates.dart';
 import 'package:persona/persona.dart';
+import 'package:providers/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
@@ -78,6 +79,43 @@ void main() {
     await state.saveSettings(const Settings(personaId: 'catgirl', baseUrl: 'http://127.0.0.1:1/v1', model: 'm', apiKey: 'k'));
     expect(state.hasModel, isTrue);
     expect(state.interpreter.llm, isNotNull);
+  });
+
+  testWidgets('chat: small talk goes to the companion; memory is kept and shown in settings', (tester) async {
+    await tester.pumpWidget(YujianApp(state: state));
+    await tester.tap(find.text('对话'));
+    await tester.pumpAndSettle();
+    // 没模型：直说去配，不再是「没听懂」
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('先在「更多 → 模型与人格」配一个模型'), findsOneWidget);
+    expect(state.inbox, isEmpty);
+
+    // 有模型（假的）：走陪聊，回复带模型名，记住的事落盘
+    state.companion = CompanionReplier(state.persona, _FakeChat('{"reply":"你好呀，今天过得怎么样？","sticker":"🌱","remember":["用户叫小雪"]}'));
+    await tester.enterText(find.byType(TextField), '我叫小雪');
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pumpAndSettle();
+    expect(find.text('你好呀，今天过得怎么样？'), findsOneWidget);
+    expect(find.text('🌱'), findsOneWidget);
+    expect(find.text('fake-model · 陪聊'), findsOneWidget);
+    expect(state.memory.lines, ['用户叫小雪']);
+    expect(state.inbox, isEmpty);
+    // 记账的话仍然走草稿，不会被陪聊吃掉
+    await tester.enterText(find.byType(TextField), '打车 36');
+    await tester.tap(find.byIcon(Icons.arrow_upward));
+    await tester.pumpAndSettle();
+    expect(state.inbox.length, 1);
+  });
+
+  test('ledger brief only states real numbers', () {
+    expect(state.ledgerBrief(), contains('账本还是空的'));
+    state.addManual({'type': 'expense', 'amount_minor': 1380, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'description': '麻辣烫', 'occurred_at': OccurredAt.fromLocal(DateTime.now()).toIso8601String()});
+    final b = state.ledgerBrief();
+    expect(b, contains('今天支出 ¥13.80（1 笔）'));
+    expect(b, contains('麻辣烫'));
+    expect(b, isNot(contains('账本还是空的')));
   });
 
   testWidgets('import bill csv lands in inbox with mapped category/account; re-import dedupes', (tester) async {
@@ -169,6 +207,24 @@ void main() {
       expect(st.inbox.single.missingFields, isEmpty);
     });
 
+    test('screen recognition alone drains the same queue; shopping app lands on default account', () async {
+      final src = FakeNotificationSource(enabled: false)
+        ..queue.addAll([
+          NotificationEvent(packageName: 'com.tencent.mm', title: '微信支付 支付成功页', text: '支付成功 ¥13.80 商户：杨国福麻辣烫', postedAtMs: DateTime.now().millisecondsSinceEpoch, key: 'screen:com.tencent.mm:13.80:1', source: 'screen'),
+          NotificationEvent(packageName: 'com.jingdong.app.mall', title: '京东 支付成功页', text: '支付成功 ¥199.00', postedAtMs: DateTime.now().millisecondsSinceEpoch, key: 'screen:com.jingdong.app.mall:199.00:1', source: 'screen'),
+        ]);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(screenWanted: true));
+      expect(await st.startNotifications(), 2);
+      final mlt = st.inbox.firstWhere((d) => d.payload['amount_minor'] == 1380);
+      expect(mlt.payload['account_id'], 'wechat');
+      expect(mlt.payload['category_id'], 'food');
+      expect(((mlt.payload['metadata'] as Map)['notification'] as Map)['source'], 'screen');
+      final jd = st.inbox.firstWhere((d) => d.payload['amount_minor'] == 19900);
+      expect(jd.payload['account_id'], 'wechat', reason: '购物平台不知道走哪个渠道，落默认账户');
+      expect(st.showAutoHint, isFalse);
+    });
+
     test('notifications off → nothing ingested', () async {
       final src = FakeNotificationSource(enabled: true)..queue.add(wechat('已支付¥1.00', key: 'z'));
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
@@ -237,4 +293,16 @@ void main() {
     expect(state.hasModel, isTrue);
     expect(state.settings.redact, isTrue);
   });
+}
+
+class _FakeChat extends ChatProvider {
+  final String out;
+  _FakeChat(this.out);
+  @override
+  String get name => 'fake';
+  @override
+  String get model => 'fake-model';
+  @override
+  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
+      ChatResult(text: out, model: model, latency: Duration.zero);
 }

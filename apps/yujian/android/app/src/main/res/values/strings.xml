@@ -7,4 +7,6 @@
     <string name="widget_description">本月支出、收入、余额，一键记一笔（4×2）</string>
     <string name="widget_compact_description">余额 + 记一笔（2×1）</string>
     <string name="widget_mini_description">记一笔按钮（1×1）</string>
+    <string name="widget_large_description">今日支出 + 本月 + 记一笔（2×2）</string>
+    <string name="screen_service_description">在微信、支付宝、淘宝、京东、美团等 App 出现「支付成功」页面时读取金额和商户，自动记进余见。只看这几个 App，只在支付成功那一刻读一次，读到的内容不离开手机。可随时在余见「自动记账」里关闭。</string>
 </resources>

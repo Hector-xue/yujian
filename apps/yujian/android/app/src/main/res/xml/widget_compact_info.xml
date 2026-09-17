@@ -6,6 +6,8 @@
     android:targetCellHeight="1"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_compact"
+    android:previewLayout="@layout/widget_compact"
+    android:previewImage="@drawable/widget_preview_compact"
     android:resizeMode="horizontal"
     android:widgetCategory="home_screen"
     android:description="@string/widget_compact_description"/>
