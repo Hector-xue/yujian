@@ -14,8 +14,9 @@ class FakeServer {
   Future<void> start() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((req) async {
-      final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map<String, Object?>;
-      requests.add({'path': req.uri.path, 'auth': req.headers.value('authorization'), 'body': body});
+      final raw = await utf8.decoder.bind(req).join();
+      final body = raw.isEmpty ? <String, Object?>{} : jsonDecode(raw) as Map<String, Object?>;
+      requests.add({'path': req.uri.path, 'method': req.method, 'auth': req.headers.value('authorization'), 'x-api-key': req.headers.value('x-api-key'), 'body': body});
       final reply = handler?.call(body) ?? {'error': 'no handler'};
       req.response.statusCode = status;
       req.response.headers.contentType = ContentType.json;
@@ -178,5 +179,33 @@ void main() {
     expect(isLocalEndpoint('http://10.0.0.5/v1'), isTrue);
     expect(isLocalEndpoint('https://api.openai.com/v1'), isFalse);
     expect(isLocalEndpoint('https://openrouter.ai/api/v1'), isFalse);
+  });
+
+  test('error message is pulled out of the vendor JSON envelope', () async {
+    s.handler = (_) => {'error': {'message': 'The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed X.', 'type': 'invalid_request_error'}};
+    s.status = 400;
+    await expectLater(
+      OpenAICompatProvider(cfg()).complete(system: 's', user: 'u'),
+      throwsA(isA<ProviderException>().having((e) => e.message, 'message', 'The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed X.').having((e) => e.status, 'status', 400)),
+    );
+    expect(providerErrorMessage('{"message":"bad key"}'), 'bad key');
+    expect(providerErrorMessage('{"error":"plain"}'), 'plain');
+    expect(providerErrorMessage('<html>502</html>'), '<html>502</html>');
+  });
+
+  test('listModels reads /models for openai-compat and anthropic', () async {
+    s.handler = (_) => {'object': 'list', 'data': [{'id': 'deepseek-v4-pro'}, {'id': 'deepseek-flash'}, {'id': 'deepseek-flash'}]};
+    expect(await listModels(cfg()), ['deepseek-flash', 'deepseek-v4-pro']);
+    expect(s.requests.last['method'], 'GET');
+    expect(s.requests.last['path'], '/v1/models');
+    expect(s.requests.last['auth'], 'Bearer k');
+    final a = ProviderConfig(name: 'a', type: ProviderType.anthropic, baseUrl: s.baseUrl, apiKey: 'ak', model: 'm');
+    s.handler = (_) => {'data': [{'id': 'claude-x', 'type': 'model'}]};
+    expect(await listModels(a), ['claude-x']);
+    expect(s.requests.last['x-api-key'], 'ak');
+    expect(s.requests.last['auth'], isNull);
+    s.handler = (_) => {'error': {'message': 'nope'}};
+    s.status = 404;
+    await expectLater(listModels(cfg()), throwsA(isA<ProviderException>().having((e) => e.message, 'message', 'nope')));
   });
 }

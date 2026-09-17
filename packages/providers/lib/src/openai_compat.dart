@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'models.dart';
 import 'provider.dart';
 
 /// OpenAI-compatible `/chat/completions`。覆盖 OpenAI、DeepSeek、各类中转、Ollama(/v1)、LM Studio、vLLM。
@@ -116,7 +117,7 @@ class OpenAICompatProvider implements ChatProvider {
     }
     final text = utf8.decode(resp.bodyBytes, allowMalformed: true);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw ProviderException(_short(text), status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
+      throw ProviderException(providerErrorMessage(text), status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
     }
     final Map<String, Object?> json;
     try {

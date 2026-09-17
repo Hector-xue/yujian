@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'models.dart';
 import 'provider.dart';
 
 /// Anthropic Messages API（/v1/messages）。JSON 模式靠提示词约束（Anthropic 没有 response_format）。
@@ -63,7 +64,7 @@ class AnthropicProvider implements ChatProvider {
     }
     final text = utf8.decode(resp.bodyBytes, allowMalformed: true);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw ProviderException(text.length > 300 ? text.substring(0, 300) : text, status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
+      throw ProviderException(providerErrorMessage(text), status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
     }
     final json = jsonDecode(text) as Map<String, Object?>;
     final parts = (json['content'] as List? ?? const []).cast<Map>();

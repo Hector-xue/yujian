@@ -2,6 +2,7 @@ package com.ivyea.yujian
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -22,6 +23,12 @@ object NotificationBridge {
                 "isEnabled" -> result.success(YujianNotificationListener.isEnabled(ctx))
                 "openSettings" -> {
                     val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                    result.success(null)
+                }
+                // 应用信息页：小米/HyperOS 等对「未知来源」App 拒绝敏感权限，要在这页右上角「允许受限设置」
+                "openAppInfo" -> {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     ctx.startActivity(intent)
                     result.success(null)
                 }

@@ -137,6 +137,14 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                     _refresh();
                   },
           ),
+          if (supported && systemEnabled == false) ...[
+            const SizedBox(height: 4),
+            Text('系统弹「已拒绝此应用获取敏感权限 / 未知来源应用」？这是小米、HyperOS 等对非商店安装 App 的限制：先到应用信息页，右上角 ⋮ →「允许受限设置」，再回来打开。', style: theme.textTheme.bodySmall),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('打开应用信息页')),
+            ),
+          ],
           const SizedBox(height: 16),
           Text('模式', style: theme.textTheme.titleMedium),
           RadioGroup<AutomationMode>(

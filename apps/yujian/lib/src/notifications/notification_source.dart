@@ -10,6 +10,9 @@ abstract class NotificationSource {
   bool get supported;
   Future<bool> isEnabled();
   Future<void> openSettings();
+
+  /// 系统的「应用信息」页（权限 / 允许受限设置都在那）。
+  Future<void> openAppInfo();
   Future<List<NotificationEvent>> drain();
   Stream<NotificationEvent> get live;
 }
@@ -35,6 +38,12 @@ class AndroidNotificationSource implements NotificationSource {
   Future<void> openSettings() async {
     if (!supported) return;
     await _m.invokeMethod<void>('openSettings');
+  }
+
+  @override
+  Future<void> openAppInfo() async {
+    if (!supported) return;
+    await _m.invokeMethod<void>('openAppInfo');
   }
 
   @override
@@ -65,6 +74,8 @@ class FakeNotificationSource implements NotificationSource {
   Future<bool> isEnabled() async => enabled;
   @override
   Future<void> openSettings() async => enabled = true;
+  @override
+  Future<void> openAppInfo() async {}
   @override
   Future<List<NotificationEvent>> drain() async {
     final out = [...queue];

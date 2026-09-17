@@ -4,6 +4,7 @@ library;
 export 'src/anthropic.dart';
 export 'src/capability_probe.dart';
 export 'src/config.dart';
+export 'src/models.dart';
 export 'src/openai_compat.dart';
 export 'src/provider.dart';
 export 'src/redact.dart';

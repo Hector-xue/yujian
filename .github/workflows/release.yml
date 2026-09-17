@@ -50,6 +50,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create --platforms=windows --project-name yujian --org com.ivyea .
+      - run: Copy-Item branding\app_icon.ico windows\runner\resources\app_icon.ico -Force
       - run: flutter pub get
       - run: flutter build windows --release
       - name: mcp server bundle

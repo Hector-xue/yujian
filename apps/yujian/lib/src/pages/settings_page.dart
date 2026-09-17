@@ -44,6 +44,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
 
+  static bool _looksLikeBadModel(String err) => RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
+
   Future<void> _probe() async {
     final cfg = _draft().providerConfig;
     if (cfg == null) {
@@ -60,9 +62,44 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       probing = false;
       probeResult = c.error != null
-          ? '连不上：${c.error}'
+          ? '连不上：${c.error}${_looksLikeBadModel(c.error!) ? '\n→ 点模型名右侧的列表图标选一个端点认的名字' : ''}'
           : '对话 ${c.chat ? '✓' : '✗'} · JSON ${c.jsonOutput ? '✓' : '✗（解析会退回规则）'} · 看图 ${c.vision == true ? '✓' : '✗'} · ${c.latency?.inMilliseconds ?? '-'} ms';
     });
+  }
+
+  var listingModels = false;
+
+  /// 从端点拉模型列表让用户点选，省得手打错模型名（DeepSeek 这类名字和产品名对不上）。
+  Future<void> _pickModel(TextEditingController target) async {
+    final base = baseUrl.text.trim();
+    if (base.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('先填 Base URL')));
+      return;
+    }
+    setState(() => listingModels = true);
+    List<String> ids;
+    try {
+      ids = await listModels(ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: base, apiKey: apiKey.text.trim(), model: '-'));
+    } on ProviderException catch (e) {
+      if (mounted) {
+        setState(() => listingModels = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('拿不到模型列表：${e.message}。手填模型名也行')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => listingModels = false);
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('端点返回了空列表，手填模型名')));
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => _ModelPicker(ids: ids, current: target.text.trim()),
+    );
+    if (picked != null && mounted) setState(() => target.text = picked);
   }
 
   Future<void> _importPersona(BuildContext context) async {
@@ -125,9 +162,25 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(controller: model, decoration: const InputDecoration(labelText: '模型名', hintText: 'deepseek-chat')),
+          TextField(
+            controller: model,
+            decoration: InputDecoration(
+              labelText: '模型名',
+              hintText: 'deepseek-chat',
+              helperText: '点右侧列表从端点拉可用模型，别手猜名字',
+              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(model), icon: listingModels ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.list_alt_outlined)),
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: visionModel, decoration: const InputDecoration(labelText: '看图模型名（可选）', hintText: '识别截图/小票用；留空则用上面的模型', helperText: '如 qwen3-vl、gpt-4o-mini；文本模型不支持看图时填这个')),
+          TextField(
+            controller: visionModel,
+            decoration: InputDecoration(
+              labelText: '看图模型名（可选）',
+              hintText: '识别截图/小票用；留空则用上面的模型',
+              helperText: '如 qwen3-vl、gpt-4o-mini；文本模型不支持看图时填这个',
+              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(visionModel), icon: const Icon(Icons.list_alt_outlined)),
+            ),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -188,6 +241,55 @@ class _SettingsPageState extends State<SettingsPage> {
             child: const Text('保存'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 模型列表底部弹层：可过滤，当前值高亮。
+class _ModelPicker extends StatefulWidget {
+  final List<String> ids;
+  final String current;
+  const _ModelPicker({required this.ids, required this.current});
+  @override
+  State<_ModelPicker> createState() => _ModelPickerState();
+}
+
+class _ModelPickerState extends State<_ModelPicker> {
+  var filter = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shown = widget.ids.where((id) => id.toLowerCase().contains(filter.toLowerCase())).toList();
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.7,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: TextField(autofocus: false, onChanged: (v) => setState(() => filter = v), decoration: InputDecoration(hintText: '过滤 ${widget.ids.length} 个模型', prefixIcon: const Icon(Icons.search))),
+            ),
+            Expanded(
+              child: shown.isEmpty
+                  ? Center(child: Text('没有匹配的', style: theme.textTheme.bodySmall))
+                  : ListView.builder(
+                      itemCount: shown.length,
+                      itemBuilder: (ctx, i) {
+                        final id = shown[i];
+                        final selected = id == widget.current;
+                        return ListTile(
+                          dense: true,
+                          title: Text(id, style: selected ? TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w600) : null),
+                          trailing: selected ? Icon(Icons.check, color: theme.colorScheme.primary, size: 18) : null,
+                          onTap: () => Navigator.pop(ctx, id),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

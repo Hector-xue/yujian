@@ -61,14 +61,33 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
+  static const _micPermissionText = '没有麦克风权限。系统设置 → 应用 → 余见 → 权限 里打开麦克风；小米 / HyperOS 提示「未知来源应用」的话，先在应用信息页右上角 ⋮ →「允许受限设置」。';
+
   /// 平台错误码（Android error_* / 浏览器 SpeechRecognition）翻成人话。
   static String _speechErrorText(String code) => switch (code) {
         'error_no_match' || 'no-speech' || 'error_speech_timeout' => '没听清，再说一遍',
-        'error_permission' || 'error_audio_error' || 'not-allowed' || 'audio-capture' => '没有麦克风权限，或麦克风被占用',
+        'error_permission' || 'error_audio_error' || 'not-allowed' || 'audio-capture' => _micPermissionText,
         'error_network' || 'error_network_timeout' || 'network' => '语音识别要联网（系统识别服务走云端）',
         'error_busy' || 'aborted' => '识别被打断了，再按一次',
         _ => '语音识别出错：$code',
       };
+
+  /// 麦克风问题只提示一次，别每按一下就刷一行；权限类的顺手给「打开应用设置」。
+  void _micProblem(String text) {
+    if (!mounted) return;
+    final last = _msgs.isEmpty ? null : _msgs.last;
+    setState(() {
+      _listening = false;
+      if (last is! _TextMsg || last.text != text) _msgs.add(_TextMsg(text));
+    });
+    if (text == _micPermissionText && !kIsWeb) {
+      final app = AppScope.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('麦克风权限没开'),
+        action: SnackBarAction(label: '打开应用设置', onPressed: () => app.notifications.openAppInfo()),
+      ));
+    }
+  }
 
   /// 麦克风：按一下开始听，识别到完整一句就直接发出去（草稿仍要在收件箱确认，听错了不会入账）；再按一下停。
   Future<void> _toggleListen() async {
@@ -82,16 +101,10 @@ class _ChatPageState extends State<ChatPage> {
         onStatus: (st) {
           if ((st == 'done' || st == 'notListening') && mounted) setState(() => _listening = false);
         },
-        onError: (e) {
-          if (!mounted) return;
-          setState(() {
-            _listening = false;
-            _msgs.add(_TextMsg(_speechErrorText(e.errorMsg)));
-          });
-        },
+        onError: (e) => _micProblem(_speechErrorText(e.errorMsg)),
       );
       if (!ok) {
-        if (mounted) setState(() => _msgs.add(_TextMsg(kIsWeb ? '这个浏览器不支持语音识别（试试 Chrome）' : '没有麦克风权限，或这台设备没有语音识别服务')));
+        _micProblem(kIsWeb ? '这个浏览器不支持语音识别（试试 Chrome）' : (await _speech.hasPermission) ? '这台设备没有语音识别服务（需要系统自带或 Google 的语音服务）' : _micPermissionText);
         return;
       }
       for (final l in await _speech.locales()) {
@@ -100,6 +113,11 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
+    }
+    if (!mounted) return;
+    if (!kIsWeb && !await _speech.hasPermission) {
+      _micProblem(_micPermissionText);
+      return;
     }
     if (!mounted) return;
     setState(() => _listening = true);
