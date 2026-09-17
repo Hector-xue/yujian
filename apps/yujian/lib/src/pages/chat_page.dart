@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
+import '../voice/offline_asr_sheet.dart';
 import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
@@ -175,8 +177,13 @@ class _ChatPageState extends State<ChatPage> {
     final app = AppScope.of(context);
     if (_phase == VoicePhase.transcribing) return;
     if (_phase != VoicePhase.idle) {
-      final text = await _voice.stop(onPhase: _setPhase);
-      if (text != null) _voiceFinal(text);
+      try {
+        final text = await _voice.stop(onPhase: _setPhase);
+        if (text != null) _voiceFinal(text);
+      } catch (e) {
+        _setPhase(VoicePhase.idle);
+        _notice('识别出错：$e');
+      }
       return;
     }
     if (!await _voice.hasPermission()) {
@@ -203,23 +210,38 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /// 三条路都不通：聊天里写一次原因，SnackBar 每次都弹（别让人以为按钮坏了），长按麦克风看诊断。
+  /// 几条路都不通：聊天里写一次原因，SnackBar 每次都弹（别让人以为按钮坏了），能装离线包就直接给按钮。
   void _voiceFailed(String reason) {
-    final noCloud = _voice.transcriber == null;
-    _notice(noCloud ? '这台手机没有可用的系统语音识别（$reason）。两个办法：① 在「模型与人格」里填一个「语音转写模型」，余见就自己录音再转文字；② 用输入法键盘上的麦克风。长按麦克风看诊断。' : '语音识别都没走通：$reason。长按麦克风看诊断。');
+    final canOffline = LocalAsr.supported;
+    _notice(canOffline ? '这台手机的系统语音识别不能用（$reason）。装一个离线语音包（约 ${LocalAsr.approxMb} MB，下载一次）就不再依赖系统；或者在「模型与人格」里填「语音转写模型」走云端。长按麦克风看诊断。' : '语音识别都没走通：$reason。长按麦克风看诊断。');
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(noCloud ? '系统语音不可用，配一个语音转写模型就能用' : '语音识别没走通，长按麦克风看诊断'),
-        action: noCloud ? SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))) : null,
+        duration: const Duration(seconds: 8),
+        content: Text(canOffline ? '系统语音不可用。装离线语音包（${LocalAsr.approxMb} MB）就能用' : '语音识别没走通，长按麦克风看诊断'),
+        action: canOffline
+            ? SnackBarAction(label: '下载离线包', onPressed: _installOffline)
+            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))),
       ));
+  }
+
+  /// 下载离线语音包（带进度），装完直接开始听。
+  Future<void> _installOffline() async {
+    if (!mounted) return;
+    final ok = await showOfflineAsrDownload(context);
+    if (ok && mounted) {
+      _voice.broken.clear();
+      await _toggleVoice();
+    }
   }
 
   Future<void> _voiceDiagnostics() async {
     final app = AppScope.of(context);
     final r = _voice.lastReport;
     final cloud = app.settings.transcribeModel;
+    final offline = await LocalAsr.installed();
+    if (!mounted) return;
     String line(String k, String label) => '$label：${r[k] ?? (k == 'cloud' ? (cloud == null || cloud.isEmpty ? '没配「语音转写模型」' : '已配 $cloud，还没用到') : '还没试过')}';
     await showDialog<void>(
       context: context,
@@ -231,23 +253,32 @@ class _ChatPageState extends State<ChatPage> {
           children: [
             Text('麦克风权限：${_voice.broken.isEmpty && r.isEmpty ? '未检查' : '已检查'}', style: Theme.of(d).textTheme.bodySmall),
             const SizedBox(height: 8),
+            Text('⓪ 离线识别：${r['local'] ?? (offline ? '已安装，还没用到' : '未安装（约 ${LocalAsr.approxMb} MB）')}'),
+            const SizedBox(height: 6),
             Text('① ${line('system', '系统语音识别')}'),
             const SizedBox(height: 6),
             Text('② ${line('intent', '系统语音弹窗')}'),
             const SizedBox(height: 6),
             Text('③ ${line('cloud', '云端转写')}'),
             const SizedBox(height: 10),
-            Text('①② 由手机系统提供，小米 / HyperOS 等没有 Google 语音服务时常常不可用；③ 只要模型端点支持 /audio/transcriptions 就一定能用。', style: Theme.of(d).textTheme.bodySmall),
+            Text('⓪ 装了就优先走，完全不依赖手机系统；①② 由手机系统提供，小米 / HyperOS 等常常不可用；③ 模型端点支持 /audio/transcriptions 就能用。', style: Theme.of(d).textTheme.bodySmall),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d), child: const Text('关闭')),
-          FilledButton(
+          if (LocalAsr.supported && !offline)
+            FilledButton(
+                onPressed: () {
+                  Navigator.pop(d);
+                  _installOffline();
+                },
+                child: const Text('下载离线语音包')),
+          TextButton(
               onPressed: () {
                 Navigator.pop(d);
                 Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
               },
-              child: const Text('去配置转写模型')),
+              child: const Text('去设置')),
         ],
       ),
     );

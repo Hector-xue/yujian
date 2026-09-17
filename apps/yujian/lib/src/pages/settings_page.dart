@@ -7,6 +7,8 @@ import 'package:providers/providers.dart';
 import '../app_state.dart';
 import '../settings_store.dart';
 import '../theme.dart';
+import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
+import '../voice/offline_asr_sheet.dart';
 import '../widgets/persona_avatar.dart';
 
 /// 模型与人格（§9 配置中心是一等功能）。能力按实测：点"测试连接"真发请求。
@@ -185,6 +187,34 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
+          if (LocalAsr.supported) ...[
+            FutureBuilder<bool>(
+              future: LocalAsr.installed(),
+              builder: (ctx, snap) {
+                final on = snap.data == true;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(on ? Icons.offline_pin : Icons.download_for_offline_outlined, color: theme.colorScheme.primary),
+                  title: const Text('离线语音包'),
+                  subtitle: Text(on ? '已安装。说话在本机识别，不联网、不看手机系统' : '约 ${LocalAsr.approxMb} MB，下载一次；手机系统语音不可用时的正解', style: theme.textTheme.bodySmall),
+                  trailing: on
+                      ? TextButton(
+                          onPressed: () async {
+                            await LocalAsr.uninstall();
+                            if (mounted) setState(() {});
+                          },
+                          child: const Text('删除'))
+                      : FilledButton.tonal(
+                          onPressed: () async {
+                            await showOfflineAsrDownload(context);
+                            if (mounted) setState(() {});
+                          },
+                          child: const Text('下载')),
+                );
+              },
+            ),
+            const SizedBox(height: 4),
+          ],
           TextField(
             controller: transcribeModel,
             decoration: InputDecoration(

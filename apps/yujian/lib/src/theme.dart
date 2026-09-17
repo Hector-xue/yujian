@@ -92,6 +92,7 @@ ThemeData _base({
   required Color soft,
   required YujianColors y,
   bool transparentScaffold = false,
+  Widget Function(BuildContext, Color)? background,
   double titleWeight = 600,
   BorderSide? cardSide,
   Color? navIndicator,
@@ -143,7 +144,7 @@ ThemeData _base({
     dialogTheme: DialogThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: r)),
     snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius))),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: y.chromeFill,
+      backgroundColor: y.glass ? const Color(0x8CFFFFFF) : y.chromeFill,
       surfaceTintColor: Colors.transparent,
       indicatorColor: navIndicator ?? accent.withValues(alpha: 0.14),
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
@@ -151,8 +152,22 @@ ThemeData _base({
       elevation: 0,
     ),
     textTheme: _text(ink: ink, soft: soft, titleWeight: titleWeight),
+    // 透明 Scaffold 的主题：每条路由自己垫背景，推入 / 返回 / 手势预览时不会两页透叠
+    pageTransitionsTheme: transparentScaffold && background != null
+        ? PageTransitionsTheme(builders: {for (final p in TargetPlatform.values) p: _BackedTransitions(background: (ctx) => background(ctx, accent))})
+        : const PageTransitionsTheme(),
     extensions: [y],
   );
+}
+
+class _BackedTransitions extends PageTransitionsBuilder {
+  final Widget Function(BuildContext) background;
+  const _BackedTransitions({required this.background});
+  @override
+  Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
+    final backed = route.isFirst ? child : Stack(fit: StackFit.expand, children: [Positioned.fill(child: background(context)), child]);
+    return const FadeForwardsPageTransitionsBuilder().buildTransitions(route, context, animation, secondaryAnimation, backed);
+  }
 }
 
 // ------------------------------------------------------------------ 主题
@@ -173,11 +188,11 @@ final _glass = AppThemeSpec(
       hairline: Color(0x66FFFFFF),
       cardFill: Color(0xB8FFFFFF),
       cardBorder: Color(0xA6FFFFFF),
-      chromeFill: Color(0xB3F7F8FA),
+      chromeFill: Color(0x00FFFFFF),
       radius: 20,
       glass: true,
     );
-    return _base(accent: accent, surface: const Color(0xFFF4F6F9), ink: const Color(0xFF1C2430), soft: const Color(0xFF6C7580), y: y, transparentScaffold: true, buttonRadius: 14);
+    return _base(accent: accent, surface: const Color(0xFFF4F6F9), ink: const Color(0xFF1C2430), soft: const Color(0xFF6C7580), y: y, transparentScaffold: true, background: (ctx, a) => _GlassBackdrop(accent: a), buttonRadius: 14, titleWeight: 700);
   },
   background: (context, accent) => _GlassBackdrop(accent: accent),
 );
@@ -226,15 +241,17 @@ final _fresh = AppThemeSpec(
       radius: 16,
       glass: false,
     );
-    return _base(accent: accent, surface: const Color(0xFFF2FAF9), ink: const Color(0xFF243447), soft: const Color(0xFF7A8794), y: y, transparentScaffold: true, titleWeight: 500, buttonRadius: 14);
+    return _base(accent: accent, surface: const Color(0xFFF2FAF9), ink: const Color(0xFF243447), soft: const Color(0xFF7A8794), y: y, transparentScaffold: true, background: _freshBg, titleWeight: 500, buttonRadius: 14);
   },
-  background: (context, accent) => const DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFEAF8F3), Color(0xFFF2FAF9), Color(0xFFEAF2FB)]),
-    ),
-    child: SizedBox.expand(),
-  ),
+  background: _freshBg,
 );
+
+Widget _freshBg(BuildContext context, Color accent) => const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFEAF8F3), Color(0xFFF2FAF9), Color(0xFFEAF2FB)]),
+      ),
+      child: SizedBox.expand(),
+    );
 
 /// 卡通：奶油底、粗描边、硬阴影、圆滚滚，字重厚。
 final _cartoon = AppThemeSpec(
@@ -281,13 +298,15 @@ final _sakura = AppThemeSpec(
       radius: 20,
       glass: false,
     );
-    return _base(accent: accent, surface: const Color(0xFFFFF5F8), ink: const Color(0xFF3A2E3B), soft: const Color(0xFF8C7A8E), y: y, transparentScaffold: true, titleWeight: 600, buttonRadius: 16);
+    return _base(accent: accent, surface: const Color(0xFFFFF5F8), ink: const Color(0xFF3A2E3B), soft: const Color(0xFF8C7A8E), y: y, transparentScaffold: true, background: _sakuraBg, titleWeight: 600, buttonRadius: 16);
   },
-  background: (context, accent) => const DecoratedBox(
-    decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFEEF3), Color(0xFFFFF7F9), Color(0xFFF7EEFF)])),
-    child: SizedBox.expand(),
-  ),
+  background: _sakuraBg,
 );
+
+Widget _sakuraBg(BuildContext context, Color accent) => const DecoratedBox(
+      decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFEEF3), Color(0xFFFFF7F9), Color(0xFFF7EEFF)])),
+      child: SizedBox.expand(),
+    );
 
 final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura];
 
@@ -333,8 +352,14 @@ class Frosted extends StatelessWidget {
   const Frosted({super.key, required this.child});
   @override
   Widget build(BuildContext context) {
-    if (!YujianColors.of(context).glass) return child;
-    return ClipRect(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: child));
+    final y = YujianColors.of(context);
+    if (!y.glass) return child;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0x33FFFFFF), width: 0.6))), child: child),
+      ),
+    );
   }
 }
 

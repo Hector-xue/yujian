@@ -147,16 +147,26 @@ void main() {
       expect(st.inbox.single.payload['amount_minor'], 6600); // 没商户没分类 → 收件箱
     });
 
-    test('silent mode commits anything complete; unusable text lands in inbox with raw text', () async {
+    test('silent mode commits with 其他 when category is unknown; text without an amount is dropped', () async {
       final src = FakeNotificationSource(enabled: true);
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
       await st.saveSettings(const Settings(notificationsWanted: true, automationMode: AutomationMode.silent));
-      src.queue.addAll([wechat('已支付¥66.00', key: 'b'), NotificationEvent(packageName: 'com.eg.android.AlipayGphone', title: '支付宝', text: '你有一笔新的交易，点击查看', postedAtMs: 1, key: 'c')]);
+      src.queue.addAll([wechat('已支付¥66.00', key: 'b'), NotificationEvent(packageName: 'com.eg.android.AlipayGphone', title: '支付宝', text: '你有一笔新的交易，点击查看', postedAtMs: 1, key: 'c'), wechat('【微信】验证码 999999，请勿泄露', key: 'd')]);
       await st.startNotifications();
-      expect(st.ledger.listTransactions().length, 0); // 66 没分类 → 缺字段 → 不能自动
-      expect(st.inbox.length, 2);
-      expect(st.inbox.every((d) => d.missingFields.isNotEmpty), isTrue);
-      expect((st.inbox.last.payload['metadata'] as Map)['notification'], isNotNull);
+      final tx = st.ledger.listTransactions().single; // 66 猜不出分类 → 其他 → 静默模式照样入账
+      expect(tx.amountMinor, 6600);
+      expect(tx.categoryId, 'other_expense');
+      expect(st.inbox, isEmpty); // 没金额的通知不是账，不进收件箱
+    });
+
+    test('smart mode does not auto-commit a fallback category', () async {
+      final src = FakeNotificationSource(enabled: true)..queue.add(wechat('已支付¥66.00', key: 'b'));
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(notificationsWanted: true, automationMode: AutomationMode.smart));
+      await st.startNotifications();
+      expect(st.ledger.listTransactions(), isEmpty);
+      expect(st.inbox.single.payload['category_id'], 'other_expense');
+      expect(st.inbox.single.missingFields, isEmpty);
     });
 
     test('notifications off → nothing ingested', () async {

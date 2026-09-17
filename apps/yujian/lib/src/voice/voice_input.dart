@@ -6,13 +6,15 @@ import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import 'audio_bytes_native.dart' if (dart.library.js_interop) 'audio_bytes_web.dart' as audio;
+import 'local_asr_native.dart' if (dart.library.js_interop) 'local_asr_web.dart';
 
-/// 语音输入走三条路，按顺序自动降级，用户只看到一个麦克风按钮：
-///  1. system  系统 SpeechRecognizer（流式，免费）——国产 ROM 常常没有或 ERROR_AUDIO
+/// 语音输入走四条路，按顺序自动降级，用户只看到一个麦克风按钮：
+///  0. local   App 内录音 → 离线模型（sherpa-onnx Paraformer，下载一次 78 MB）——装了就永远走这条，不看手机系统脸色
+///  1. system  系统 SpeechRecognizer（流式，免费）——国产 ROM 常常没有或秒退
 ///  2. intent  系统「语音识别」弹窗（RecognizerIntent）——厂商助手/输入法常有
 ///  3. cloud   App 内录音 → 用户配置的模型端点 /audio/transcriptions
 /// 一条路失败就在同一次点击里换下一条，不让用户反复按。
-enum VoiceEngine { system, intent, cloud }
+enum VoiceEngine { local, system, intent, cloud }
 
 enum VoicePhase { idle, listening, recording, transcribing }
 
@@ -60,9 +62,15 @@ class VoiceInput {
 
   /// 开始一次语音输入。onPartial 只有 system 引擎会给；onFinal 拿到最终文本（可能为空串）；onPhase 通知 UI 换状态。
   /// 抛 VoiceUnavailable 表示三条路都走不通，reason 是给用户看的原因。
-  Future<void> start({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(VoicePhase) onPhase, required void Function(String) onNotice, void Function(String reason)? onFailed}) async {
+  Future<void> start(
+      {required void Function(String) onPartial,
+      required void Function(String) onFinal,
+      required void Function(VoicePhase) onPhase,
+      required void Function(String) onNotice,
+      void Function(String reason)? onFailed}) async {
     if (phase != VoicePhase.idle) return;
     final order = [
+      if (await LocalAsr.installed()) VoiceEngine.local,
       VoiceEngine.system,
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) VoiceEngine.intent,
       if (transcriber != null) VoiceEngine.cloud,
@@ -76,9 +84,11 @@ class VoiceInput {
       }
       try {
         final ok = await switch (e) {
-          VoiceEngine.system => _startSystem(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice, onBroken: (why) => _fallback(e, why, onPartial, onFinal, onPhase, onNotice, onFailed)),
+          VoiceEngine.local => _startRecord(VoiceEngine.local, onPhase: onPhase),
+          VoiceEngine.system =>
+            _startSystem(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice, onBroken: (why) => _fallback(e, why, onPartial, onFinal, onPhase, onNotice, onFailed)),
           VoiceEngine.intent => _startIntent(onFinal: onFinal, onPhase: onPhase),
-          VoiceEngine.cloud => _startCloud(onPhase: onPhase),
+          VoiceEngine.cloud => _startRecord(VoiceEngine.cloud, onPhase: onPhase),
         };
         if (ok) {
           active = e;
@@ -95,7 +105,8 @@ class VoiceInput {
   }
 
   /// system 引擎在 listen 之后才报错（ERROR_AUDIO/CLIENT 之类）：标坏，同一次点击里接着试下一条。
-  Future<void> _fallback(VoiceEngine failed, String why, void Function(String) onPartial, void Function(String) onFinal, void Function(VoicePhase) onPhase, void Function(String) onNotice, void Function(String)? onFailed) async {
+  Future<void> _fallback(VoiceEngine failed, String why, void Function(String) onPartial, void Function(String) onFinal, void Function(VoicePhase) onPhase, void Function(String) onNotice,
+      void Function(String)? onFailed) async {
     broken[failed] = why;
     phase = VoicePhase.idle;
     active = null;
@@ -107,7 +118,7 @@ class VoiceInput {
     }
   }
 
-  static String _name(VoiceEngine e) => switch (e) { VoiceEngine.system => '系统语音识别', VoiceEngine.intent => '系统语音弹窗', VoiceEngine.cloud => '云端转写' };
+  static String _name(VoiceEngine e) => switch (e) { VoiceEngine.local => '离线识别', VoiceEngine.system => '系统语音识别', VoiceEngine.intent => '系统语音弹窗', VoiceEngine.cloud => '云端转写' };
 
   // system 引擎的回调：initialize 只跑一次，但每次 listen 的回调不同，所以存成字段每次覆盖，别让第一次的闭包吃掉后面的事件
   var _finished = false;
@@ -225,19 +236,31 @@ class VoiceInput {
       phase = VoicePhase.idle;
       onPhase(phase);
     }
-    onFinal(text ?? '');
+    if (text == null) {
+      // 弹窗出来了但没给结果（取消或它自己报错）：下次别再走这条
+      lastReport['intent'] = '系统语音弹窗没有返回结果（被取消或它自己出错）';
+      broken[VoiceEngine.intent] = 'no-result';
+      onFinal('');
+      return true;
+    }
+    lastReport['intent'] = '识别成功';
+    onFinal(text);
     return true;
   }
 
-  Future<bool> _startCloud({required void Function(VoicePhase) onPhase}) async {
+  /// local / cloud 都是先录音：离线要 16k 单声道 WAV，云端用 AAC 省流量。
+  Future<bool> _startRecord(VoiceEngine e, {required void Function(VoicePhase) onPhase}) async {
+    final key = e == VoiceEngine.local ? 'local' : 'cloud';
     if (!await _recorder.hasPermission()) {
-      lastReport['cloud'] = '没有麦克风权限';
+      lastReport[key] = '没有麦克风权限';
       throw VoiceUnavailable('没有麦克风权限');
     }
-    lastReport['cloud'] = '录音中';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1), path: await audio.recordingPath());
-    phase = VoicePhase.recording;
-    onPhase(phase);
+    final wav = e == VoiceEngine.local;
+    await _recorder.start(
+      RecordConfig(encoder: wav ? AudioEncoder.wav : AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1),
+      path: await audio.recordingPath(ext: wav ? 'wav' : 'm4a'),
+    );
+    lastReport[key] = '录音中';
     return true;
   }
 
@@ -248,6 +271,28 @@ class VoiceInput {
         _userStopped = true;
         await _speech.stop();
         return null;
+      case VoiceEngine.local:
+        final path = await _recorder.stop();
+        active = null;
+        if (path == null) {
+          phase = VoicePhase.idle;
+          onPhase(phase);
+          return '';
+        }
+        phase = VoicePhase.transcribing;
+        onPhase(phase);
+        try {
+          final text = await LocalAsr.transcribeWav(path);
+          lastReport['local'] = text.isEmpty ? '识别为空（没录到声音？）' : '识别成功';
+          return text;
+        } catch (e) {
+          lastReport['local'] = '离线识别出错：$e';
+          rethrow;
+        } finally {
+          await audio.deleteRecording(path);
+          phase = VoicePhase.idle;
+          onPhase(phase);
+        }
       case VoiceEngine.cloud:
         final path = await _recorder.stop();
         active = null;
@@ -261,7 +306,12 @@ class VoiceInput {
         try {
           final bytes = await audio.readRecording(path);
           if (bytes.length < 2000) return ''; // 没录到东西
-          return await transcriber!(bytes, kIsWeb ? 'voice.webm' : 'voice.m4a', kIsWeb ? 'audio/webm' : 'audio/mp4');
+          final text = await transcriber!(bytes, kIsWeb ? 'voice.webm' : 'voice.m4a', kIsWeb ? 'audio/webm' : 'audio/mp4');
+          lastReport['cloud'] = '转写成功';
+          return text;
+        } catch (e) {
+          lastReport['cloud'] = '云端转写出错：$e';
+          rethrow;
         } finally {
           phase = VoicePhase.idle;
           onPhase(phase);

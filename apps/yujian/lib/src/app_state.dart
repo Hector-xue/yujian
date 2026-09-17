@@ -220,11 +220,14 @@ class AppState extends ChangeNotifier {
     var n = 0;
     for (final e in events) {
       final x = matcher.extract(e);
-      if (x.ignored) continue;
+      // 认不出金额/方向的（验证码、聊天消息之类）不进收件箱：那不是账
+      if (x.ignored || !x.usable) continue;
       final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
       final type = x.direction == 'income' ? 'income' : (x.direction == 'transfer' ? 'transfer' : 'expense');
       final kind = type == 'income' ? 'income' : 'expense';
-      final categoryId = type == 'transfer' ? null : rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind);
+      final guessed = type == 'transfer' ? null : rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind);
+      // 猜不出分类落到「其他」，照样能记；智能模式仍要求真猜中才自动入账
+      final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
       final payload = <String, Object?>{
         'type': type,
         'amount_minor': x.amountMinor,
@@ -247,7 +250,7 @@ class AppState extends ChangeNotifier {
       final d = drafts.single;
       final auto = switch (settings.automationMode) {
         AutomationMode.confirm => false,
-        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && categoryId != null && x.accountHint != null,
+        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && guessed != null && x.accountHint != null,
         AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
       };
       if (auto) {
