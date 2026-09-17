@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import 'category_icon.dart';
 import 'draft_edit_sheet.dart';
 import 'fmt.dart';
 
@@ -30,10 +31,7 @@ class DraftGroupCard extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  if (pending.any((d) => d.missingFields.isNotEmpty))
-                    Expanded(child: Text('还缺字段，点条目补全后再确认', style: theme.textTheme.bodySmall))
-                  else
-                    const Spacer(),
+                  if (pending.any((d) => d.missingFields.isNotEmpty)) Expanded(child: Text('还缺字段，点条目补全后再确认', style: theme.textTheme.bodySmall)) else const Spacer(),
                   TextButton(
                     onPressed: () {
                       app.dismissGroup(drafts.first.groupId);
@@ -123,6 +121,10 @@ class _DraftRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           children: [
+            if (draft.kind == DraftKind.create) ...[
+              CategoryIcon(category: p['category_id'] is String ? app.ledger.category(p['category_id'] as String) : null, size: 36, fallback: p['type'] == 'transfer' ? '🔁' : null),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,8 +135,10 @@ class _DraftRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (done) Icon(draft.status == DraftStatus.committed ? Icons.check : Icons.close, size: 18, color: theme.textTheme.bodySmall?.color)
-            else Icon(Icons.chevron_right, size: 18, color: YujianColors.of(context).muted),
+            if (done)
+              Icon(draft.status == DraftStatus.committed ? Icons.check : Icons.close, size: 18, color: theme.textTheme.bodySmall?.color)
+            else
+              Icon(Icons.chevron_right, size: 18, color: YujianColors.of(context).muted),
           ],
         ),
       ),

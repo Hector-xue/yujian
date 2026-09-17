@@ -3,7 +3,9 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/category_icon.dart';
 import '../widgets/fmt.dart';
+import '../widgets/manual_entry_sheet.dart';
 import '../widgets/transaction_edit_sheet.dart';
 
 /// 交易记录：按日分组；点开看详情、改分类、作废。
@@ -21,7 +23,7 @@ class TransactionsPage extends StatelessWidget {
     }
     final today = todayLocal();
     return Scaffold(
-      appBar: AppBar(title: const Text('记录')),
+      appBar: AppBar(title: const Text('记录'), actions: [IconButton(tooltip: '手动记一笔', onPressed: () => showManualEntrySheet(context), icon: const Icon(Icons.add))]),
       body: txs.isEmpty
           ? Center(child: Text('还没有记录', style: theme.textTheme.bodySmall))
           : ListView(
@@ -66,6 +68,7 @@ class TransactionTile extends StatelessWidget {
         : '${app.categoryName(tx.categoryId)} · ${app.accountName(tx.accountId)}${tx.source != Source.manual ? ' · ${_sourceLabel(tx.source)}' : ''}';
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      leading: TransactionIcon(tx: tx),
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(sub, style: theme.textTheme.bodySmall),
       trailing: Text(fmtSigned(tx), style: theme.textTheme.titleMedium?.copyWith(color: amountColor(context, tx.type.db))),

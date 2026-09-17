@@ -147,7 +147,12 @@ class Ledger implements ValidationContext {
   void seedDefaultCategories() {
     _db.transaction(() {
       for (final c in defaultCategories) {
-        if (category(c.id) != null) continue;
+        final existing = category(c.id);
+        if (existing != null) {
+          // 老库里种的默认分类没有图标：补上（用户改过的不动）
+          if (existing.icon == null && c.icon != null) _db.execute('UPDATE categories SET icon = ? WHERE id = ? AND icon IS NULL', [c.icon, c.id]);
+          continue;
+        }
         _db.execute(
           'INSERT INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,1,?)',
           [c.id, c.parentId, c.kind.db, c.name, c.icon, c.sortOrder],

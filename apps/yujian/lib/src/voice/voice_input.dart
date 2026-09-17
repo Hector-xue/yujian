@@ -321,6 +321,28 @@ class VoiceInput {
     }
   }
 
+  /// 上滑取消：丢掉这次录音 / 识别，不出结果。
+  Future<void> cancel({required void Function(VoicePhase) onPhase}) async {
+    final e = active;
+    active = null;
+    try {
+      switch (e) {
+        case VoiceEngine.system:
+          _userStopped = true;
+          _finished = true;
+          await _speech.cancel();
+        case VoiceEngine.local:
+        case VoiceEngine.cloud:
+          final path = await _recorder.stop();
+          if (path != null) await audio.deleteRecording(path);
+        default:
+          break;
+      }
+    } catch (_) {}
+    phase = VoicePhase.idle;
+    onPhase(phase);
+  }
+
   void dispose() {
     if (phase == VoicePhase.listening) _speech.stop();
     _recorder.dispose();

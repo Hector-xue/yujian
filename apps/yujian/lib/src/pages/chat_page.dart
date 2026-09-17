@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
@@ -15,8 +16,11 @@ import '../voice/offline_asr_sheet.dart';
 import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
+import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
+import 'budgets_page.dart';
 import 'settings_page.dart';
+import 'stats_page.dart';
 
 sealed class _Msg {
   Map<String, Object?> toJson();
@@ -27,6 +31,7 @@ sealed class _Msg {
         'text' => _TextMsg(j['text'] as String),
         'draft' => _DraftMsg(j['group'] as String, (j['meta'] as String?) ?? ''),
         'query' => _QueryMsg(QueryResult.fromJson((j['result'] as Map).cast<String, Object?>()), (j['meta'] as String?) ?? ''),
+        'sticker' => _StickerMsg(j['text'] as String),
         _ => null,
       };
 }
@@ -61,6 +66,14 @@ class _TextMsg extends _Msg {
   Map<String, Object?> toJson() => {'t': 'text', 'text': text};
 }
 
+/// 人格甩出来的表情包（大 emoji）。
+class _StickerMsg extends _Msg {
+  final String text;
+  _StickerMsg(this.text);
+  @override
+  Map<String, Object?> toJson() => {'t': 'sticker', 'text': text};
+}
+
 /// 对话页：说一句话 → 草稿卡（确认后落账）/ 查询结果。
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -76,6 +89,12 @@ class _ChatPageState extends State<ChatPage> {
   final _voice = VoiceInput();
   var _phase = VoicePhase.idle;
   var _historyLoaded = false;
+  var _voiceMode = false; // 输入栏：键盘 / 按住说话
+  var _holding = false;
+  var _cancelHint = false; // 手指上滑到取消区
+  final _tts = FlutterTts();
+  var _speak = false;
+  var _stickerCount = 0;
 
   @override
   void initState() {
@@ -86,6 +105,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _voice.dispose();
+    _tts.stop().catchError((_) => null);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -98,6 +118,9 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _loadHistory() async {
     try {
       final p = await SharedPreferences.getInstance();
+      _voiceMode = p.getBool('chat_voice_mode') ?? false;
+      _speak = p.getBool('chat_speak') ?? false;
+      _stickerCount = p.getInt('chat_sticker_n') ?? 0;
       final raw = p.getString(_historyKey);
       if (raw != null && raw.isNotEmpty) {
         final list = (jsonDecode(raw) as List).cast<Map>().map((m) => _Msg.fromJson(m.cast<String, Object?>())).whereType<_Msg>().toList();
@@ -288,6 +311,29 @@ class _ChatPageState extends State<ChatPage> {
     if (mounted) setState(() => _phase = p);
   }
 
+  // 按住说话（微信式）：按下开始，松开就发，上滑取消
+  Future<void> _holdStart() async {
+    if (_busy || _phase != VoicePhase.idle) return;
+    setState(() {
+      _holding = true;
+      _cancelHint = false;
+    });
+    await _toggleVoice(); // idle → 开始听 / 录音
+    if (_phase == VoicePhase.idle && mounted) setState(() => _holding = false); // 没开始成（会有提示）
+  }
+
+  Future<void> _holdEnd({required bool cancel}) async {
+    if (!_holding) return;
+    setState(() => _holding = false);
+    if (_phase == VoicePhase.idle) return;
+    if (cancel) {
+      await _voice.cancel(onPhase: _setPhase);
+      _input.clear();
+      return;
+    }
+    await _toggleVoice(); // listening/recording → 停止并发送
+  }
+
   void _voiceFinal(String text) {
     if (!mounted) return;
     final t = text.trim();
@@ -336,6 +382,7 @@ class _ChatPageState extends State<ChatPage> {
       reply = await app.replier.reply(PersonaEvent.notUnderstood);
     }
     if (!mounted) return;
+    final stickerEvent = r.query != null ? PersonaEvent.queryAnswered : null;
     setState(() {
       _busy = false;
       if (r.query != null) {
@@ -344,9 +391,44 @@ class _ChatPageState extends State<ChatPage> {
         _msgs.add(_DraftMsg(r.drafts.first.groupId, meta));
       }
       _msgs.add(_TextMsg(reply));
+      if (stickerEvent != null) _maybeSticker(app, stickerEvent);
     });
+    _say(reply);
     _saveHistory();
     _jumpToEnd();
+  }
+
+  /// 人格偶尔甩一个表情包（在 setState 里调用）。
+  void _maybeSticker(AppState app, PersonaEvent event) {
+    final st = app.persona.sticker(event, _stickerCount++);
+    if (st != null) _msgs.add(_StickerMsg(st));
+    SharedPreferences.getInstance().then((p) => p.setInt('chat_sticker_n', _stickerCount));
+  }
+
+  /// 朗读回复（用户开了才读；没有 TTS 引擎就静默）。
+  Future<void> _say(String text) async {
+    if (!_speak) return;
+    try {
+      await _tts.setLanguage('zh-CN');
+      await _tts.speak(text);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleSpeak() async {
+    setState(() => _speak = !_speak);
+    if (!_speak) {
+      try {
+        await _tts.stop();
+      } catch (_) {}
+    }
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('chat_speak', _speak);
+  }
+
+  Future<void> _toggleVoiceMode() async {
+    setState(() => _voiceMode = !_voiceMode);
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('chat_voice_mode', _voiceMode);
   }
 
   static String _fieldName(String f) => switch (f) {
@@ -390,8 +472,13 @@ class _ChatPageState extends State<ChatPage> {
     final app = AppScope.of(context);
     final reply = await app.replier.reply(PersonaEvent.recorded, n: n);
     if (!mounted) return;
-    setState(() => _msgs.add(_TextMsg(reply)));
+    setState(() {
+      _msgs.add(_TextMsg(reply));
+      _maybeSticker(app, PersonaEvent.recorded);
+    });
+    _say(reply);
     _saveHistory();
+    _jumpToEnd();
   }
 
   Future<void> _consumeShare(AppState app) async {
@@ -463,46 +550,70 @@ class _ChatPageState extends State<ChatPage> {
                     itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
                   ),
           ),
-          const Divider(),
+          // 快捷操作：手动记 / 本月 / 预算
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
+                _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
+                _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
+                if (app.vision != null) _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
+                _chip(_speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', _toggleSpeak),
+              ],
+            ),
+          ),
+          if (_holding)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: _HoldBanner(phase: _phase, cancel: _cancelHint, partial: _input.text),
+            ),
           SafeArea(
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
               child: Row(
                 children: [
-                  if (app.vision != null) IconButton(onPressed: _busy ? null : _pickImage, icon: const Icon(Icons.image_outlined), tooltip: '识别截图 / 小票'),
                   if (VoiceInput.platformSupported)
                     GestureDetector(
                       onLongPress: _voiceDiagnostics,
                       child: IconButton(
-                        onPressed: _busy || _phase == VoicePhase.transcribing ? null : _toggleVoice,
-                        icon: switch (_phase) {
-                          VoicePhase.idle => const Icon(Icons.mic_none),
-                          VoicePhase.listening => Icon(Icons.mic, color: theme.colorScheme.primary),
-                          VoicePhase.recording => Icon(Icons.stop_circle_outlined, color: YujianColors.of(context).danger),
-                          VoicePhase.transcribing => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                        },
-                        tooltip: _phase == VoicePhase.idle ? '语音输入' : '停止',
+                        onPressed: _busy || _phase != VoicePhase.idle ? null : _toggleVoiceMode,
+                        icon: Icon(_voiceMode ? Icons.keyboard_alt_outlined : Icons.mic_none),
+                        tooltip: _voiceMode ? '切到键盘' : '切到语音（长按看诊断）',
                       ),
                     ),
                   Expanded(
-                    child: TextField(
-                      controller: _input,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
-                      decoration: InputDecoration(
-                        hintText: switch (_phase) {
-                          VoicePhase.idle => '记一笔，或问问账本',
-                          VoicePhase.listening => '在听…说完停 3 秒自动发出',
-                          VoicePhase.recording => '录音中…说完再按一下红色按钮',
-                          VoicePhase.transcribing => '转写中…',
-                        },
-                      ),
-                    ),
+                    child: _voiceMode
+                        ? _HoldToTalk(
+                            phase: _phase,
+                            holding: _holding,
+                            onStart: _holdStart,
+                            onEnd: (cancel) => _holdEnd(cancel: cancel),
+                            onMove: (up) {
+                              if (up != _cancelHint) setState(() => _cancelHint = up);
+                            },
+                          )
+                        : TextField(
+                            controller: _input,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _send(),
+                            decoration: InputDecoration(
+                              hintText: switch (_phase) {
+                                VoicePhase.idle => '记一笔，或问问账本',
+                                VoicePhase.listening => '在听…',
+                                VoicePhase.recording => '录音中…',
+                                VoicePhase.transcribing => '转写中…',
+                              },
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 6),
-                  IconButton.filled(
-                      onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
+                  if (!_voiceMode)
+                    IconButton.filled(
+                        onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
                 ],
               ),
             ),
@@ -512,33 +623,142 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  Widget _chip(IconData icon, String label, VoidCallback? onTap) => Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: ActionChip(avatar: Icon(icon, size: 16), label: Text(label), onPressed: onTap, visualDensity: VisualDensity.compact),
+      );
+
   Widget _buildMsg(_Msg m, AppState app, ThemeData theme) {
+    final y = YujianColors.of(context);
+    Widget withAvatar(Widget child) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PersonaAvatar(app.persona, size: 30),
+            const SizedBox(width: 8),
+            Expanded(child: child),
+          ],
+        );
     switch (m) {
       case _UserMsg():
         return Align(
           alignment: Alignment.centerRight,
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 320),
+            constraints: const BoxConstraints(maxWidth: 300),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(14)),
-            child: Text(m.text),
+            decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18), bottomLeft: Radius.circular(18), bottomRight: Radius.circular(6))),
+            child: Text(m.text, style: TextStyle(color: theme.colorScheme.onPrimary, fontSize: 15, height: 1.4)),
           ),
         );
       case _TextMsg():
-        return Align(alignment: Alignment.centerLeft, child: Text(m.text, style: theme.textTheme.bodyMedium));
+        return withAvatar(Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 300),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+                color: y.cardFill,
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(18), bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
+                border: Border.all(color: y.cardBorder, width: 0.6)),
+            child: Text(m.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15)),
+          ),
+        ));
+      case _StickerMsg():
+        return withAvatar(Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(top: 2), child: Text(m.text, style: const TextStyle(fontSize: 44, height: 1.1)))));
       case _DraftMsg():
         final drafts = app.ledger.listDrafts(groupId: m.groupId);
-        if (drafts.isEmpty) return Align(alignment: Alignment.centerLeft, child: Text('（这组草稿已处理）· ${m.meta}', style: theme.textTheme.bodySmall));
-        return Column(
+        if (drafts.isEmpty) return withAvatar(Text('（这组草稿已处理）· ${m.meta}', style: theme.textTheme.bodySmall));
+        return withAvatar(Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             DraftGroupCard(drafts: drafts, onChanged: () => setState(() {}), onCommitted: _afterCommit),
             Padding(padding: const EdgeInsets.only(top: 4, left: 4), child: Text(m.meta, style: theme.textTheme.bodySmall)),
           ],
-        );
+        ));
       case _QueryMsg():
-        return _QueryCard(result: m.result, meta: m.meta);
+        return withAvatar(_QueryCard(result: m.result, meta: m.meta));
     }
+  }
+}
+
+/// 按住说话的大按钮。
+class _HoldToTalk extends StatelessWidget {
+  final VoicePhase phase;
+  final bool holding;
+  final VoidCallback onStart;
+  final void Function(bool cancel) onEnd;
+  final void Function(bool up) onMove;
+  const _HoldToTalk({required this.phase, required this.holding, required this.onStart, required this.onEnd, required this.onMove});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final y = YujianColors.of(context);
+    final active = holding && phase != VoicePhase.idle;
+    final label = switch (phase) {
+      VoicePhase.transcribing => '识别中…',
+      _ => active ? '松开 发送' : '按住 说话',
+    };
+    return GestureDetector(
+      onLongPressStart: (_) => onStart(),
+      onLongPressMoveUpdate: (d) => onMove(d.localOffsetFromOrigin.dy < -60),
+      onLongPressEnd: (d) => onEnd(d.localPosition.dy < -60),
+      onLongPressCancel: () => onEnd(true),
+      onTap: () => ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('按住说话，松开发送，上滑取消'), duration: Duration(seconds: 2))),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        height: 46,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? theme.colorScheme.primary.withValues(alpha: 0.18) : y.cardFill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? theme.colorScheme.primary : y.cardBorder, width: active ? 1.4 : 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (phase == VoicePhase.transcribing)
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            else
+              Icon(active ? Icons.graphic_eq : Icons.mic, size: 18, color: active ? theme.colorScheme.primary : null),
+            const SizedBox(width: 8),
+            Text(label, style: theme.textTheme.titleMedium?.copyWith(color: active ? theme.colorScheme.primary : null)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 按住时输入栏上方的状态条：在听 / 录音中 / 上滑取消，系统识别有片段会实时显示。
+class _HoldBanner extends StatelessWidget {
+  final VoicePhase phase;
+  final bool cancel;
+  final String partial;
+  const _HoldBanner({required this.phase, required this.cancel, required this.partial});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final y = YujianColors.of(context);
+    final text = cancel
+        ? '松开取消'
+        : partial.isNotEmpty
+            ? partial
+            : switch (phase) { VoicePhase.listening => '在听…', VoicePhase.recording => '录音中…说完松开', VoicePhase.transcribing => '识别中…', VoicePhase.idle => '准备中…' };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: cancel ? y.danger.withValues(alpha: 0.12) : theme.colorScheme.primary.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(14)),
+      child: Row(children: [
+        Icon(cancel ? Icons.delete_outline : Icons.mic, size: 18, color: cancel ? y.danger : theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: cancel ? y.danger : null), maxLines: 2, overflow: TextOverflow.ellipsis)),
+        if (!cancel) Text('上滑取消', style: theme.textTheme.bodySmall),
+      ]),
+    );
   }
 }
 

@@ -7,6 +7,7 @@ const _common = {
 const builtinPersonas = <PersonaPack>[
   PersonaPack(
     id: 'minimalist',
+    stickers: {'recorded': ['✅'], 'queryAnswered': ['📊']},
     emoji: '◎',
     accent: 0x2F6B4F,
     name: '极简助手',
@@ -27,6 +28,7 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'catgirl',
+    stickers: {'recorded': ['😸✨', '🐾💕', '🍣😻'], 'dismissed': ['😿'], 'queryAnswered': ['🐱📊'], 'greeting': ['🐱🌸']},
     emoji: '🐱',
     accent: 0xC2617A,
     name: '猫娘',
@@ -48,6 +50,7 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'coach',
+    stickers: {'recorded': ['💪', '🏁', '📈'], 'dismissed': ['🧐'], 'queryAnswered': ['🎯']},
     emoji: '🏃',
     accent: 0x2E6DB4,
     name: '财务教练',
@@ -68,6 +71,7 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'auditor',
+    stickers: {'recorded': ['🧾✔️'], 'queryAnswered': ['📋']},
     emoji: '🧾',
     accent: 0x5A5F66,
     name: '严谨审计员',
@@ -88,6 +92,7 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'companion',
+    stickers: {'recorded': ['🌿', '🍵', '🌙'], 'dismissed': ['🍃'], 'queryAnswered': ['🌤️'], 'greeting': ['🌱']},
     emoji: '🌿',
     accent: 0x6E8B3D,
     name: '温和陪伴者',

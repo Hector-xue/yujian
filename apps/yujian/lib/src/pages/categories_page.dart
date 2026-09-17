@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/category_icon.dart';
 
 class CategoriesPage extends StatelessWidget {
   const CategoriesPage({super.key});
@@ -29,6 +30,7 @@ class CategoriesPage extends StatelessWidget {
     final app = AppScope.of(context);
     final name = TextEditingController(text: existing?.name ?? '');
     String? parentId = existing?.parentId;
+    String? icon = existing?.icon;
     final parents = app.ledger.listCategories(kind: kind).where((c) => c.parentId == null && c.id != existing?.id).toList();
     final result = await showDialog<String>(
       context: context,
@@ -38,7 +40,20 @@ class CategoriesPage extends StatelessWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: '名称'), autofocus: existing == null),
+              Row(
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () async {
+                      final v = await pickCategoryIcon(d, current: icon);
+                      if (v != null) setState(() => icon = v.isEmpty ? null : v);
+                    },
+                    child: CategoryIcon(category: Category(id: existing?.id ?? name.text, kind: kind, name: name.text, icon: icon), size: 44),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(controller: name, decoration: const InputDecoration(labelText: '名称'), autofocus: existing == null)),
+                ],
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
                 initialValue: parentId,
@@ -62,9 +77,9 @@ class CategoriesPage extends StatelessWidget {
         app.ledger.deleteCategory(existing!.id);
       } else if (existing == null) {
         if (name.text.trim().isEmpty) return;
-        app.ledger.createCategory(name: name.text.trim(), kind: kind, parentId: parentId);
+        app.ledger.createCategory(name: name.text.trim(), kind: kind, parentId: parentId, icon: icon);
       } else {
-        app.ledger.updateCategory(existing.id, name: name.text.trim(), parentId: parentId, clearParent: parentId == null);
+        app.ledger.updateCategory(existing.id, name: name.text.trim(), parentId: parentId, clearParent: parentId == null, icon: icon);
       }
       app.touch();
     } on InvalidStateException catch (e) {
@@ -100,11 +115,11 @@ class _List extends StatelessWidget {
     return ListView(
       children: [
         for (final c in cats.where((c) => c.parentId == null)) ...[
-          ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20), title: Text(c.name), trailing: c.isDefault ? null : Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color), onTap: () => onTap(c)),
+          ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20), leading: CategoryIcon(category: c, size: 36), title: Text(c.name), trailing: Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color), onTap: () => onTap(c)),
           for (final s in children[c.id] ?? const <Category>[])
-            ListTile(contentPadding: const EdgeInsets.only(left: 40, right: 20), dense: true, title: Text(s.name), onTap: () => onTap(s)),
+            ListTile(contentPadding: const EdgeInsets.only(left: 40, right: 20), dense: true, leading: CategoryIcon(category: s, size: 28), title: Text(s.name), onTap: () => onTap(s)),
         ],
-        Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 24), child: Text('点一个分类改名、换上级或删除；内置分类只能改上级。', style: theme.textTheme.bodySmall)),
+        Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 24), child: Text('点一个分类改名、换图标、换上级或删除；内置分类不能删。', style: theme.textTheme.bodySmall)),
       ],
     );
   }
