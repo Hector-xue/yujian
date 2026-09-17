@@ -178,8 +178,8 @@ class AppState extends ChangeNotifier {
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
       final balance = ledger.balances().values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
-      final last = ledger.listTransactions(limit: 1);
-      final recent = last.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${last.first.description ?? categoryName(last.first.categoryId)} ${fmtSigned(last.first)} · ${last.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
+      final latest = ledger.listTransactions(limit: 1);
+      final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${latest.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
       await w.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月', recent: recent);
     } catch (_) {}
   }
