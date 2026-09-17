@@ -51,7 +51,7 @@ class MorePage extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-            child: SelectableText('余见 0.3.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 0.4.0 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

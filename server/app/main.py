@@ -137,7 +137,7 @@ class PushBody(BaseModel):
 def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None, upstream_client: Optional[httpx.AsyncClient] = None) -> FastAPI:
     tok = token if token is not None else _token()
     store = Store((data_dir or _data_dir()) / "sync.db")
-    app = FastAPI(title="Yujian Server", version="0.3.0")
+    app = FastAPI(title="Yujian Server", version="0.4.0")
     # AI 代理（可选）：密钥放服务端，多设备共用；App 里 Base URL 填 <server>/api/v1/ai，API Key 填同步 token
     ai_upstream = os.environ.get("YUJIAN_AI_UPSTREAM", "").rstrip("/")
     ai_key = os.environ.get("YUJIAN_AI_KEY", "")
@@ -150,7 +150,7 @@ def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None, ups
 
     @app.get("/healthz")
     def healthz() -> dict[str, Any]:
-        return {"ok": True, "version": "0.3.0"}
+        return {"ok": True, "version": "0.4.0"}
 
     @app.post("/api/v1/sync/push", dependencies=[Depends(auth)])
     def push(body: PushBody) -> dict[str, Any]:
