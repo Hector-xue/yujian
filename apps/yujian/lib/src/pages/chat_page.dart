@@ -14,6 +14,7 @@ import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
 import '../widgets/persona_avatar.dart';
+import 'settings_page.dart';
 
 sealed class _Msg {
   Map<String, Object?> toJson();
@@ -195,12 +196,61 @@ class _ChatPageState extends State<ChatPage> {
         onFinal: _voiceFinal,
         onPhase: _setPhase,
         onNotice: _notice,
+        onFailed: _voiceFailed,
       );
     } on VoiceUnavailable catch (e) {
-      _notice(_voice.transcriber == null
-          ? '这台手机没有可用的系统语音识别（${e.reason}）。两个办法：① 在「模型与人格」里填一个「语音转写模型」，余见就自己录音再转文字；② 用输入法键盘上的麦克风。'
-          : '语音识别都没走通：${e.reason}');
+      _voiceFailed(e.reason);
     }
+  }
+
+  /// 三条路都不通：聊天里写一次原因，SnackBar 每次都弹（别让人以为按钮坏了），长按麦克风看诊断。
+  void _voiceFailed(String reason) {
+    final noCloud = _voice.transcriber == null;
+    _notice(noCloud ? '这台手机没有可用的系统语音识别（$reason）。两个办法：① 在「模型与人格」里填一个「语音转写模型」，余见就自己录音再转文字；② 用输入法键盘上的麦克风。长按麦克风看诊断。' : '语音识别都没走通：$reason。长按麦克风看诊断。');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(noCloud ? '系统语音不可用，配一个语音转写模型就能用' : '语音识别没走通，长按麦克风看诊断'),
+        action: noCloud ? SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))) : null,
+      ));
+  }
+
+  Future<void> _voiceDiagnostics() async {
+    final app = AppScope.of(context);
+    final r = _voice.lastReport;
+    final cloud = app.settings.transcribeModel;
+    String line(String k, String label) => '$label：${r[k] ?? (k == 'cloud' ? (cloud == null || cloud.isEmpty ? '没配「语音转写模型」' : '已配 $cloud，还没用到') : '还没试过')}';
+    await showDialog<void>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('语音诊断'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('麦克风权限：${_voice.broken.isEmpty && r.isEmpty ? '未检查' : '已检查'}', style: Theme.of(d).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            Text('① ${line('system', '系统语音识别')}'),
+            const SizedBox(height: 6),
+            Text('② ${line('intent', '系统语音弹窗')}'),
+            const SizedBox(height: 6),
+            Text('③ ${line('cloud', '云端转写')}'),
+            const SizedBox(height: 10),
+            Text('①② 由手机系统提供，小米 / HyperOS 等没有 Google 语音服务时常常不可用；③ 只要模型端点支持 /audio/transcriptions 就一定能用。', style: Theme.of(d).textTheme.bodySmall),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('关闭')),
+          FilledButton(
+              onPressed: () {
+                Navigator.pop(d);
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+              },
+              child: const Text('去配置转写模型')),
+        ],
+      ),
+    );
   }
 
   void _setPhase(VoicePhase p) {
@@ -347,7 +397,13 @@ class _ChatPageState extends State<ChatPage> {
         title: InkWell(
           onTap: _renameAssistant,
           borderRadius: BorderRadius.circular(8),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [PersonaAvatar(app.persona, size: 30), const SizedBox(width: 10), Text(app.settings.assistantName ?? app.persona.name), const SizedBox(width: 6), Icon(Icons.edit_outlined, size: 14, color: theme.textTheme.bodySmall?.color)]),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            PersonaAvatar(app.persona, size: 30),
+            const SizedBox(width: 10),
+            Text(app.settings.assistantName ?? app.persona.name),
+            const SizedBox(width: 6),
+            Icon(Icons.edit_outlined, size: 14, color: theme.textTheme.bodySmall?.color)
+          ]),
         ),
         actions: [if (_msgs.isNotEmpty) IconButton(tooltip: '清空对话', onPressed: _clearHistory, icon: const Icon(Icons.delete_sweep_outlined))],
       ),
@@ -363,7 +419,8 @@ class _ChatPageState extends State<ChatPage> {
                         children: [
                           PersonaAvatar(app.persona, size: 56),
                           const SizedBox(height: 16),
-                          Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                          Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"',
+                              textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
                         ],
                       ),
                     ),
@@ -384,15 +441,18 @@ class _ChatPageState extends State<ChatPage> {
                 children: [
                   if (app.vision != null) IconButton(onPressed: _busy ? null : _pickImage, icon: const Icon(Icons.image_outlined), tooltip: '识别截图 / 小票'),
                   if (VoiceInput.platformSupported)
-                    IconButton(
-                      onPressed: _busy || _phase == VoicePhase.transcribing ? null : _toggleVoice,
-                      icon: switch (_phase) {
-                        VoicePhase.idle => const Icon(Icons.mic_none),
-                        VoicePhase.listening => Icon(Icons.mic, color: theme.colorScheme.primary),
-                        VoicePhase.recording => Icon(Icons.stop_circle_outlined, color: YujianColors.of(context).danger),
-                        VoicePhase.transcribing => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      },
-                      tooltip: _phase == VoicePhase.idle ? '语音输入' : '停止',
+                    GestureDetector(
+                      onLongPress: _voiceDiagnostics,
+                      child: IconButton(
+                        onPressed: _busy || _phase == VoicePhase.transcribing ? null : _toggleVoice,
+                        icon: switch (_phase) {
+                          VoicePhase.idle => const Icon(Icons.mic_none),
+                          VoicePhase.listening => Icon(Icons.mic, color: theme.colorScheme.primary),
+                          VoicePhase.recording => Icon(Icons.stop_circle_outlined, color: YujianColors.of(context).danger),
+                          VoicePhase.transcribing => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                        },
+                        tooltip: _phase == VoicePhase.idle ? '语音输入' : '停止',
+                      ),
                     ),
                   Expanded(
                     child: TextField(
@@ -410,7 +470,8 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  IconButton.filled(onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
+                  IconButton.filled(
+                      onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
                 ],
               ),
             ),

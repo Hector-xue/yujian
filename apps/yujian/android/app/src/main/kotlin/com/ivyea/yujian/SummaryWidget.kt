@@ -36,6 +36,7 @@ class SummaryWidget : AppWidgetProvider() {
             v.setTextViewText(R.id.widget_expense, p.getString("expense", "¥ 0.00"))
             v.setTextViewText(R.id.widget_income, p.getString("income", "¥ 0.00"))
             v.setTextViewText(R.id.widget_month, p.getString("month", ""))
+            v.setTextViewText(R.id.widget_recent, p.getString("recent", ""))
             v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
             v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
             return v

@@ -14,7 +14,7 @@ object WidgetBridge {
                 "update" -> {
                     val args = call.arguments as? Map<*, *>
                     val p = ctx.getSharedPreferences(SummaryWidget.PREFS, Context.MODE_PRIVATE).edit()
-                    for (k in listOf("balance", "expense", "income", "month")) p.putString(k, args?.get(k) as? String ?: "")
+                    for (k in listOf("balance", "expense", "income", "month", "recent")) p.putString(k, args?.get(k) as? String ?: "")
                     p.apply()
                     SummaryWidget.refreshAll(ctx)
                     result.success(null)

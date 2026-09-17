@@ -10,10 +10,10 @@ class HomeWidgetBridge {
   /// 只在 Android 上给实例，别的平台 null。
   static HomeWidgetBridge? ifSupported() => supported ? HomeWidgetBridge() : null;
 
-  Future<void> update({required String balance, required String expense, required String income, required String month}) async {
+  Future<void> update({required String balance, required String expense, required String income, required String month, String recent = ''}) async {
     if (!supported) return;
     try {
-      await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month});
+      await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month, 'recent': recent});
     } on PlatformException {
       // 没装小部件或系统不给，都不影响 App
     }

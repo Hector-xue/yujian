@@ -5,8 +5,12 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:gravity="center_vertical"
     android:background="@drawable/widget_bg"
-    android:padding="14dp">
+    android:paddingLeft="18dp"
+    android:paddingRight="18dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="14dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -36,7 +40,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="¥ 0.00"
-        android:textSize="26sp"
+        android:textSize="30sp"
         android:textColor="#1B6BC7"
         android:textStyle="bold"
         android:layout_marginTop="2dp"/>
@@ -45,7 +49,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="10dp">
         <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="支出" android:textSize="11sp" android:textColor="#6C7580"/>
             <TextView android:id="@+id/widget_expense" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#1C2430" android:textStyle="bold"/>
@@ -69,4 +73,15 @@
             android:textSize="13sp"
             android:textStyle="bold"/>
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_recent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text=""
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="#6C7580"/>
 </LinearLayout>

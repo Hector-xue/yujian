@@ -40,7 +40,13 @@ class VoiceInput {
   /// 有云转写就把它当兜底；null = 没配。
   Transcriber? transcriber;
 
-  static bool get platformSupported => kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows || defaultTargetPlatform == TargetPlatform.linux;
+  static bool get platformSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux;
 
   /// 麦克风权限（任一引擎都要）。
   Future<bool> hasPermission() async {
@@ -54,7 +60,7 @@ class VoiceInput {
 
   /// 开始一次语音输入。onPartial 只有 system 引擎会给；onFinal 拿到最终文本（可能为空串）；onPhase 通知 UI 换状态。
   /// 抛 VoiceUnavailable 表示三条路都走不通，reason 是给用户看的原因。
-  Future<void> start({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(VoicePhase) onPhase, required void Function(String) onNotice}) async {
+  Future<void> start({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(VoicePhase) onPhase, required void Function(String) onNotice, void Function(String reason)? onFailed}) async {
     if (phase != VoicePhase.idle) return;
     final order = [
       VoiceEngine.system,
@@ -62,6 +68,7 @@ class VoiceInput {
       if (transcriber != null) VoiceEngine.cloud,
     ];
     final reasons = <String>[];
+    if (transcriber == null) lastReport['cloud'] = '没配「语音转写模型」';
     for (final e in order) {
       if (broken.containsKey(e)) {
         reasons.add('${_name(e)}：${broken[e]}');
@@ -69,7 +76,7 @@ class VoiceInput {
       }
       try {
         final ok = await switch (e) {
-          VoiceEngine.system => _startSystem(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice, onBroken: (why) => _fallback(e, why, onPartial, onFinal, onPhase, onNotice)),
+          VoiceEngine.system => _startSystem(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice, onBroken: (why) => _fallback(e, why, onPartial, onFinal, onPhase, onNotice, onFailed)),
           VoiceEngine.intent => _startIntent(onFinal: onFinal, onPhase: onPhase),
           VoiceEngine.cloud => _startCloud(onPhase: onPhase),
         };
@@ -88,15 +95,15 @@ class VoiceInput {
   }
 
   /// system 引擎在 listen 之后才报错（ERROR_AUDIO/CLIENT 之类）：标坏，同一次点击里接着试下一条。
-  Future<void> _fallback(VoiceEngine failed, String why, void Function(String) onPartial, void Function(String) onFinal, void Function(VoicePhase) onPhase, void Function(String) onNotice) async {
+  Future<void> _fallback(VoiceEngine failed, String why, void Function(String) onPartial, void Function(String) onFinal, void Function(VoicePhase) onPhase, void Function(String) onNotice, void Function(String)? onFailed) async {
     broken[failed] = why;
     phase = VoicePhase.idle;
     active = null;
     try {
-      await start(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice);
+      await start(onPartial: onPartial, onFinal: onFinal, onPhase: onPhase, onNotice: onNotice, onFailed: onFailed);
       if (active != null) onNotice('系统语音识别不可用（$why），已切到${_name(active!)}');
     } on VoiceUnavailable catch (e) {
-      onNotice(e.reason);
+      (onFailed ?? onNotice)(e.reason);
     }
   }
 
@@ -104,13 +111,24 @@ class VoiceInput {
 
   // system 引擎的回调：initialize 只跑一次，但每次 listen 的回调不同，所以存成字段每次覆盖，别让第一次的闭包吃掉后面的事件
   var _finished = false;
+  var _gotPartial = false;
+  var _userStopped = false;
+  int _listenStartedMs = 0;
+
+  /// 最近一次每条路的结论，给诊断面板看。
+  final lastReport = <String, String>{};
   void Function(String)? _sysPartial;
   void Function(String)? _sysFinal;
   void Function(VoicePhase)? _sysPhase;
   void Function(String)? _sysNotice;
   void Function(String)? _sysBroken;
 
-  Future<bool> _startSystem({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(VoicePhase) onPhase, required void Function(String) onNotice, required void Function(String why) onBroken}) async {
+  Future<bool> _startSystem(
+      {required void Function(String) onPartial,
+      required void Function(String) onFinal,
+      required void Function(VoicePhase) onPhase,
+      required void Function(String) onNotice,
+      required void Function(String why) onBroken}) async {
     _sysPartial = onPartial;
     _sysFinal = onFinal;
     _sysPhase = onPhase;
@@ -121,8 +139,15 @@ class VoiceInput {
       final ok = await _speech.initialize(
         onStatus: (st) {
           if ((st == 'done' || st == 'notListening') && phase == VoicePhase.listening && !_finished) {
-            // 系统说结束了但没给 final：拿最近识别到的当结果
             _finished = true;
+            final elapsed = DateTime.now().millisecondsSinceEpoch - _listenStartedMs;
+            if (!_gotPartial && !_userStopped && elapsed < 2500) {
+              // 一开始就被系统结束、一个字没听到：这台机器的识别服务是坏的（小米等常见），换下一条路
+              lastReport['system'] = '开始 ${elapsed}ms 后被系统结束（$st），没有任何识别结果';
+              _sysBroken?.call('ended-immediately');
+              return;
+            }
+            // 系统说结束了但没给 final：拿最近识别到的当结果
             phase = VoicePhase.idle;
             _sysPhase?.call(phase);
             _sysFinal?.call(_speech.lastRecognizedWords);
@@ -139,10 +164,14 @@ class VoiceInput {
             return;
           }
           // 权限/音频/客户端/服务端错误：这条路在这台机器上不通
+          lastReport['system'] = '系统识别报错 $code';
           _sysBroken?.call(code);
         },
       );
-      if (!ok) throw VoiceUnavailable('系统没有语音识别服务');
+      if (!ok) {
+        lastReport['system'] = '系统没有语音识别服务（initialize=false）';
+        throw VoiceUnavailable('系统没有语音识别服务');
+      }
       _speechInit = true;
       for (final l in await _speech.locales()) {
         if (l.localeId.toLowerCase().startsWith('zh')) {
@@ -153,9 +182,13 @@ class VoiceInput {
     }
     phase = VoicePhase.listening;
     onPhase(phase);
+    _gotPartial = false;
+    _userStopped = false;
+    _listenStartedMs = DateTime.now().millisecondsSinceEpoch;
     await _speech.listen(
       onResult: (r) {
         if (_finished) return;
+        if (r.recognizedWords.isNotEmpty) _gotPartial = true;
         _sysPartial?.call(r.recognizedWords);
         if (r.finalResult) {
           _finished = true;
@@ -166,12 +199,23 @@ class VoiceInput {
       },
       listenOptions: SpeechListenOptions(partialResults: true, cancelOnError: true, localeId: _locale, pauseFor: const Duration(seconds: 3), listenFor: const Duration(seconds: 30)),
     );
+    if (!_speech.isListening && !_finished) {
+      // listen() 返回了但没真的开始听（平台层 started=false）
+      _finished = true;
+      lastReport['system'] = '系统识别没有开始听（listen 未启动）';
+      throw VoiceUnavailable('系统识别没有开始听');
+    }
+    lastReport['system'] = '在听';
     return true;
   }
 
   Future<bool> _startIntent({required void Function(String) onFinal, required void Function(VoicePhase) onPhase}) async {
     final available = await _intent.invokeMethod<bool>('intentAvailable') ?? false;
-    if (!available) throw VoiceUnavailable('系统没有语音弹窗');
+    if (!available) {
+      lastReport['intent'] = '系统没有「语音识别」弹窗（没有应用响应 RECOGNIZE_SPEECH）';
+      throw VoiceUnavailable('系统没有语音弹窗');
+    }
+    lastReport['intent'] = '可用';
     phase = VoicePhase.listening;
     onPhase(phase);
     String? text;
@@ -186,7 +230,11 @@ class VoiceInput {
   }
 
   Future<bool> _startCloud({required void Function(VoicePhase) onPhase}) async {
-    if (!await _recorder.hasPermission()) throw VoiceUnavailable('没有麦克风权限');
+    if (!await _recorder.hasPermission()) {
+      lastReport['cloud'] = '没有麦克风权限';
+      throw VoiceUnavailable('没有麦克风权限');
+    }
+    lastReport['cloud'] = '录音中';
     await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1), path: await audio.recordingPath());
     phase = VoicePhase.recording;
     onPhase(phase);
@@ -197,6 +245,7 @@ class VoiceInput {
   Future<String?> stop({required void Function(VoicePhase) onPhase}) async {
     switch (active) {
       case VoiceEngine.system:
+        _userStopped = true;
         await _speech.stop();
         return null;
       case VoiceEngine.cloud:
