@@ -623,10 +623,29 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _chip(IconData icon, String label, VoidCallback? onTap) => Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: ActionChip(avatar: Icon(icon, size: 16), label: Text(label), onPressed: onTap, visualDensity: VisualDensity.compact),
-      );
+  Widget _chip(IconData icon, String label, VoidCallback? onTap) {
+    final theme = Theme.of(context);
+    final y = YujianColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: y.cardFill,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: y.cardBorder, width: 0.6)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 16, color: onTap == null ? y.muted : theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13, color: onTap == null ? y.muted : null)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildMsg(_Msg m, AppState app, ThemeData theme) {
     final y = YujianColors.of(context);
