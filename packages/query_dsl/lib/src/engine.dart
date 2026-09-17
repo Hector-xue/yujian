@@ -28,6 +28,15 @@ class QueryRow {
         'count': count,
         if (topTransactionId != null) 'transaction_id': topTransactionId,
       };
+
+  factory QueryRow.fromJson(Map<String, Object?> j) => QueryRow(
+        key: j['key'] as String,
+        label: j['label'] as String,
+        currency: j['currency'] as String,
+        valueMinor: (j['value_minor'] as num).toInt(),
+        count: (j['count'] as num?)?.toInt() ?? 0,
+        topTransactionId: j['transaction_id'] as String?,
+      );
 }
 
 /// 查询结果 + 依据：模型据此组织回答，不能凭上下文报数。
@@ -52,6 +61,19 @@ class QueryResult {
         if (compareRows != null) 'compare_rows': compareRows!.map((r) => r.toJson()).toList(),
         'evidence': {'transaction_ids': evidenceTransactionIds, 'matched_count': matchedCount},
       };
+
+  /// toJson 的逆（对话历史落盘用）。
+  factory QueryResult.fromJson(Map<String, Object?> j) {
+    List<QueryRow> rows(Object? v) => (v as List? ?? const []).cast<Map>().map((m) => QueryRow.fromJson(m.cast<String, Object?>())).toList();
+    final ev = (j['evidence'] as Map?)?.cast<String, Object?>() ?? const {};
+    return QueryResult(
+      query: QueryDsl.fromJson((j['query'] as Map).cast<String, Object?>()),
+      rows: rows(j['rows']),
+      compareRows: j['compare_rows'] == null ? null : rows(j['compare_rows']),
+      evidenceTransactionIds: (ev['transaction_ids'] as List? ?? const []).cast<String>(),
+      matchedCount: (ev['matched_count'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 class QueryEngine {

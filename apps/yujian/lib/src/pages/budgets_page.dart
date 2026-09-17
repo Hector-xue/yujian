@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../widgets/fmt.dart';
 
 class BudgetsPage extends StatelessWidget {
@@ -93,7 +94,8 @@ class BudgetBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final s = status;
-    final color = s.exceeded ? const Color(0xFFB4562E) : (s.overAlert ? const Color(0xFFC98A1B) : theme.colorScheme.primary);
+    final y = YujianColors.of(context);
+    final color = s.exceeded ? y.danger : (s.overAlert ? y.warning : theme.colorScheme.primary);
     return InkWell(
       onLongPress: onLongPress,
       child: Padding(

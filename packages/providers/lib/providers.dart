@@ -2,6 +2,7 @@
 library;
 
 export 'src/anthropic.dart';
+export 'src/audio.dart';
 export 'src/capability_probe.dart';
 export 'src/config.dart';
 export 'src/models.dart';

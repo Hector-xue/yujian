@@ -9,7 +9,14 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         NotificationBridge.register(applicationContext, flutterEngine)
         ShareBridge.register(flutterEngine)
+        SpeechBridge.register(this, flutterEngine)
         ShareBridge.handle(this, intent)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (SpeechBridge.onActivityResult(requestCode, resultCode, data)) return
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onNewIntent(intent: Intent) {

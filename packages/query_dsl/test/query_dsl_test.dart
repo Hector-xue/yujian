@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:query_dsl/query_dsl.dart';
@@ -130,5 +132,15 @@ void main() {
     // 空账本不报
     final empty = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
     expect(detectAnomalies(empty, from: '2026-09-01', to: '2026-09-30'), isEmpty);
+  });
+
+  test('QueryResult round-trips through JSON', () {
+    final r = QueryEngine(ledger).run(QueryDsl(metric: Metric.sum, groupBy: GroupBy.category, timeRange: DateRange('2026-09-01', '2026-09-30'), compareTo: DateRange('2026-08-01', '2026-08-31')));
+    final back = QueryResult.fromJson(jsonDecode(jsonEncode(r.toJson())) as Map<String, Object?>);
+    expect(back.rows.map((x) => [x.key, x.label, x.valueMinor, x.count]).toList(), r.rows.map((x) => [x.key, x.label, x.valueMinor, x.count]).toList());
+    expect(back.compareRows?.length, r.compareRows?.length);
+    expect(back.matchedCount, r.matchedCount);
+    expect(back.query.groupBy, GroupBy.category);
+    expect(back.query.timeRange?.from, '2026-09-01');
   });
 }

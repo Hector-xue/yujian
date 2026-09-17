@@ -6,6 +6,7 @@ import 'package:providers/providers.dart';
 
 import '../app_state.dart';
 import '../settings_store.dart';
+import '../theme.dart';
 import '../widgets/persona_avatar.dart';
 
 /// 模型与人格（§9 配置中心是一等功能）。能力按实测：点"测试连接"真发请求。
@@ -20,6 +21,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController apiKey;
   late final TextEditingController model;
   late final TextEditingController visionModel;
+  late final TextEditingController transcribeModel;
   late String personaId;
   late String providerType;
   late bool localOnly;
@@ -36,13 +38,14 @@ class _SettingsPageState extends State<SettingsPage> {
     apiKey = TextEditingController(text: s.apiKey ?? '');
     model = TextEditingController(text: s.model ?? '');
     visionModel = TextEditingController(text: s.visionModel ?? '');
+    transcribeModel = TextEditingController(text: s.transcribeModel ?? '');
     personaId = s.personaId;
     providerType = s.providerType;
     localOnly = s.localOnly;
     redact = s.redact;
   }
 
-  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
+  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim(), transcribeModel: transcribeModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
 
   static bool _looksLikeBadModel(String err) => RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
 
@@ -182,6 +185,17 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
+          TextField(
+            controller: transcribeModel,
+            decoration: InputDecoration(
+              labelText: '语音转写模型（可选）',
+              hintText: '如 whisper-1、FunAudioLLM/SenseVoiceSmall',
+              helperText: '手机没有系统语音识别时的兜底：余见自己录音，发到同一端点的 /audio/transcriptions 转成文字',
+              helperMaxLines: 3,
+              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(transcribeModel), icon: const Icon(Icons.list_alt_outlined)),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               OutlinedButton(onPressed: probing ? null : _probe, child: Text(probing ? '测试中…' : '测试连接')),
@@ -229,6 +243,20 @@ class _SettingsPageState extends State<SettingsPage> {
             onPressed: () => _importPersona(context),
             icon: const Icon(Icons.add, size: 18),
             label: Text(app.settings.customPersona == null ? '导入自定义人格包（JSON）' : '替换自定义人格包'),
+          ),
+          const SizedBox(height: 20),
+          Text('外观', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text('主题管质感和形状，强调色跟人格走。点了就生效。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 118,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: appThemes.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (ctx, i) => _ThemeCard(spec: appThemes[i], accent: theme.colorScheme.primary, selected: app.settings.themeId == appThemes[i].id, onTap: () => app.saveSettings(app.settings.copyWith(themeId: appThemes[i].id))),
+            ),
           ),
           const SizedBox(height: 20),
           FilledButton(
@@ -288,6 +316,64 @@ class _ModelPickerState extends State<_ModelPicker> {
                       },
                     ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 主题预览卡：用该主题自己的 ThemeData 画一个小样，所见即所得。
+class _ThemeCard extends StatelessWidget {
+  final AppThemeSpec spec;
+  final Color accent;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ThemeCard({required this.spec, required this.accent, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = spec.build(accent);
+    final y = t.extension<YujianColors>()!;
+    final outer = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 132,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: selected ? outer.colorScheme.primary : outer.dividerTheme.color ?? Colors.black12, width: selected ? 2 : 0.8),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Positioned.fill(child: spec.background?.call(context, accent) ?? ColoredBox(color: t.scaffoldBackgroundColor)),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(color: y.cardFill, borderRadius: BorderRadius.circular(y.radius / 2), border: Border.all(color: y.cardBorder, width: spec.id == 'cartoon' ? 1.5 : 0.6)),
+                    alignment: Alignment.centerLeft,
+                    child: Text('¥ 1,280', style: t.textTheme.titleMedium?.copyWith(color: y.balance, fontSize: 13)),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Container(width: 22, height: 8, decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(4))),
+                    const SizedBox(width: 4),
+                    Container(width: 14, height: 8, decoration: BoxDecoration(color: y.income, borderRadius: BorderRadius.circular(4))),
+                  ]),
+                  const Spacer(),
+                  Text(spec.name, style: t.textTheme.titleMedium?.copyWith(fontSize: 13)),
+                  Text(spec.tagline, style: t.textTheme.bodySmall?.copyWith(fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            if (selected) Positioned(top: 6, right: 6, child: Icon(Icons.check_circle, size: 16, color: outer.colorScheme.primary)),
           ],
         ),
       ),

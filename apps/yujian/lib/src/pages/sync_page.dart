@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:sync_client/sync_client.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 
 /// 同步与云备份（§4.5 可选服务端）。服务端只存变更日志和密文，看不到账本。
 class SyncPage extends StatefulWidget {
@@ -114,7 +115,7 @@ class _SyncPageState extends State<SyncPage> {
               ),
               const SizedBox(width: 12),
               OutlinedButton(
-                style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFB4562E)),
+                style: OutlinedButton.styleFrom(foregroundColor: YujianColors.of(context).danger),
                 onPressed: busy
                     ? null
                     : () async {

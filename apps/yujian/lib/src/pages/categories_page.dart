@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 
 class CategoriesPage extends StatelessWidget {
   const CategoriesPage({super.key});
@@ -48,7 +49,7 @@ class CategoriesPage extends StatelessWidget {
             ],
           ),
           actions: [
-            if (existing != null && !existing.isDefault) TextButton(style: TextButton.styleFrom(foregroundColor: const Color(0xFFB4562E)), onPressed: () => Navigator.pop(d, 'delete'), child: const Text('删除')),
+            if (existing != null && !existing.isDefault) TextButton(style: TextButton.styleFrom(foregroundColor: YujianColors.of(context).danger), onPressed: () => Navigator.pop(d, 'delete'), child: const Text('删除')),
             TextButton(onPressed: () => Navigator.pop(d, null), child: const Text('取消')),
             FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: Text(existing == null ? '添加' : '保存')),
           ],

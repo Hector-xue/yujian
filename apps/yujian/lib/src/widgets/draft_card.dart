@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import 'draft_edit_sheet.dart';
 import 'fmt.dart';
 
@@ -128,12 +129,12 @@ class _DraftRow extends StatelessWidget {
                 children: [
                   Text(title, style: theme.textTheme.titleMedium?.copyWith(color: done ? theme.textTheme.bodySmall?.color : null)),
                   Text(subtitle, style: theme.textTheme.bodySmall),
-                  if (flags.isNotEmpty) Text(flags.join(' · '), style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFFB4562E))),
+                  if (flags.isNotEmpty) Text(flags.join(' · '), style: theme.textTheme.bodySmall?.copyWith(color: YujianColors.of(context).danger)),
                 ],
               ),
             ),
             if (done) Icon(draft.status == DraftStatus.committed ? Icons.check : Icons.close, size: 18, color: theme.textTheme.bodySmall?.color)
-            else const Icon(Icons.chevron_right, size: 18, color: Color(0xFFB0B7B3)),
+            else Icon(Icons.chevron_right, size: 18, color: YujianColors.of(context).muted),
           ],
         ),
       ),

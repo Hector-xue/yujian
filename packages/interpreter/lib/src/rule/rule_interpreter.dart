@@ -151,7 +151,13 @@ class RuleInterpreter implements Interpreter {
         if (m.accountId != null && accounts.isEmpty) accountId = m.accountId; // 记忆里的默认账户
         conf += 0.25;
       } else {
-        missing.add('category_id');
+        // 认不出就落到「其他」，不加分：能记上，但置信度够不到阈值，混合模式仍会请模型再分一次
+        categoryId = ctx.fallbackCategoryId(kind);
+        if (categoryId == null) {
+          missing.add('category_id');
+        } else {
+          notes.add('category: fallback');
+        }
       }
     }
 

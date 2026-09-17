@@ -70,5 +70,8 @@
         <intent>
             <action android:name="android.speech.RecognitionService"/>
         </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH"/>
+        </intent>
     </queries>
 </manifest>

@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../db/open_db.dart';
+import '../theme.dart';
 import 'accounts_page.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
@@ -24,7 +25,7 @@ class MorePage extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 20),
           leading: Icon(icon, color: theme.colorScheme.primary),
           title: Text(title),
-          trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0B7B3)),
+          trailing: Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page)),
         );
     return Scaffold(
@@ -46,7 +47,7 @@ class MorePage extends StatelessWidget {
             leading: Icon(Icons.tune, color: theme.colorScheme.primary),
             title: const Text('模型与人格'),
             subtitle: Text(app.hasModel ? '${app.settings.model} · ${app.persona.name}' : '未配置模型（规则解析） · ${app.persona.name}', style: theme.textTheme.bodySmall),
-            trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0B7B3)),
+            trailing: Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
             onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
           ),
           Padding(

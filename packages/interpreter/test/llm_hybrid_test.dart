@@ -67,16 +67,22 @@ void main() {
       expect(r.modelUsed, 'm');
     });
 
-    test('unknown ids become null + missing instead of guesses', () {
+    test('unknown ids: account stays missing, category falls back to 其他 (or missing when no 其他)', () {
       final r = LLMInterpreter.parseModelJson({
         'intent': 'propose_transactions',
         'transactions': [{'type': 'expense', 'amount': 28, 'category_id': 'snacks', 'account_id': 'paypal'}],
       }, InterpretContext(now: ctx.now, tzOffsetMinutes: 480, categories: ctx.categories, accounts: ctx.accounts));
       final d = r.drafts.single;
-      expect(d.payload['category_id'], isNull);
+      expect(d.payload['category_id'], 'other_expense');
       expect(d.payload['account_id'], isNull);
-      expect(d.missing, containsAll(['category_id', 'account_id']));
+      expect(d.missing, ['account_id']);
       expect(d.payload['amount_minor'], 2800);
+      final noOther = LLMInterpreter.parseModelJson({
+        'intent': 'propose_transactions',
+        'transactions': [{'type': 'expense', 'amount': 28, 'category_id': 'snacks'}],
+      }, InterpretContext(now: ctx.now, tzOffsetMinutes: 480, categories: ctx.categories.where((c) => c.id != 'other_expense').toList(), accounts: ctx.accounts));
+      expect(noOther.drafts.single.payload['category_id'], isNull);
+      expect(noOther.drafts.single.missing, contains('category_id'));
     });
 
     test('bad amount is reported, not silently dropped', () {

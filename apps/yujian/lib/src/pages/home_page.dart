@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:query_dsl/query_dsl.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../widgets/fmt.dart';
 import 'budgets_page.dart';
 import 'transactions_page.dart';
@@ -16,6 +17,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final y = YujianColors.of(context);
     final now = DateTime.now();
     final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
     final last = DateTime(now.year, now.month + 1, 0).day;
@@ -35,17 +37,33 @@ class HomePage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
         children: [
-          Text('支出', style: theme.textTheme.bodySmall),
-          Text(fmtMoney(sumCny(expense.rows), 'CNY'), style: theme.textTheme.headlineMedium),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(child: _Stat(label: '收入', value: fmtMoney(sumCny(income.rows), 'CNY'))),
-              Expanded(child: _Stat(label: '结余', value: fmtMoney(sumCny(income.rows) - sumCny(expense.rows), 'CNY'))),
-              Expanded(child: _Stat(label: '账户合计', value: fmtMoney(totalBalance, 'CNY'))),
-            ],
+          // 余额是第一眼要看的：单独的颜色、最大的字
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Icon(Icons.account_balance_wallet_outlined, size: 16, color: y.balance),
+                    const SizedBox(width: 6),
+                    Text('余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text(fmtMoney(totalBalance, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(child: _Stat(label: '本月支出', value: fmtMoney(sumCny(expense.rows), 'CNY'), color: y.expense)),
+                      Expanded(child: _Stat(label: '本月收入', value: fmtMoney(sumCny(income.rows), 'CNY'), color: y.income)),
+                      Expanded(child: _Stat(label: '结余', value: fmtMoney(sumCny(income.rows) - sumCny(expense.rows), 'CNY'), color: (sumCny(income.rows) - sumCny(expense.rows)) < 0 ? y.danger : theme.colorScheme.onSurface)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
           FilledButton.tonalIcon(onPressed: onGoChat, icon: const Icon(Icons.edit_outlined), label: const Text('说一句话记一笔')),
           const SizedBox(height: 24),
           if (alerts.isNotEmpty) ...[
@@ -92,13 +110,14 @@ class HomePage extends StatelessWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
-  const _Stat({required this.label, required this.value});
+  final Color? color;
+  const _Stat({required this.label, required this.value, this.color});
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [Text(label, style: theme.textTheme.bodySmall), Text(value, style: theme.textTheme.titleMedium)],
+      children: [Text(label, style: theme.textTheme.bodySmall), Text(value, style: theme.textTheme.titleMedium?.copyWith(color: color, fontFeatures: const [FontFeature.tabularFigures()]))],
     );
   }
 }

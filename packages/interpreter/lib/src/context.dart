@@ -58,4 +58,16 @@ class InterpretContext {
 
   /// 当前墙上时间（UTC 实例承载）。
   DateTime get wallNow => now.toUtc().add(Duration(minutes: tzOffsetMinutes));
+
+  /// 分类认不出时的兜底：该 kind 下的「其他」（内置 id 或名字叫其他）。没有就返回 null，仍然报缺。
+  String? fallbackCategoryId(String kind) {
+    final builtin = kind == 'income' ? 'other_income' : 'other_expense';
+    for (final c in categories) {
+      if (c.kind == kind && c.id == builtin) return c.id;
+    }
+    for (final c in categories) {
+      if (c.kind == kind && c.parentId == null && (c.name == '其他' || c.name.toLowerCase() == 'other')) return c.id;
+    }
+    return null;
+  }
 }

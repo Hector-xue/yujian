@@ -36,12 +36,20 @@ class YujianApp extends StatelessWidget {
       state: state,
       child: ListenableBuilder(
         listenable: state,
-        builder: (context, _) => MaterialApp(
-          title: '余见',
-          theme: buildTheme(accent: Color(0xFF000000 | state.persona.accent)),
-          debugShowCheckedModeBanner: false,
-          home: const Shell(),
-        ),
+        builder: (context, _) {
+          final accent = Color(0xFF000000 | state.persona.accent);
+          final spec = themeById(state.settings.themeId);
+          return MaterialApp(
+            title: '余见',
+            theme: spec.build(accent),
+            debugShowCheckedModeBanner: false,
+            // 全局背景层：玻璃/清新/樱花的渐变放在所有页面下面，页面 Scaffold 透明
+            builder: (context, child) => spec.background == null
+                ? child!
+                : Stack(children: [Positioned.fill(child: spec.background!(context, accent)), if (child != null) child]),
+            home: const Shell(),
+          );
+        },
       ),
     );
   }
@@ -60,33 +68,36 @@ class _ShellState extends State<Shell> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final inboxCount = app.inbox.length;
-    if (app.pendingShare != null && _index != 1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = 1));
+    // 对话放正中间：首页 · 收件箱 · 对话 · 记录 · 更多
+    const chatIndex = 2;
+    if (app.pendingShare != null && _index != chatIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = chatIndex));
     }
     final pages = [
-      HomePage(onGoChat: () => setState(() => _index = 1)),
-      const ChatPage(),
+      HomePage(onGoChat: () => setState(() => _index = chatIndex)),
       const InboxPage(),
+      const ChatPage(),
       const TransactionsPage(),
       const MorePage(),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: Frosted(
+          child: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
           const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '首页'),
-          const NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: '对话'),
           NavigationDestination(
             icon: Badge(isLabelVisible: inboxCount > 0, label: Text('$inboxCount'), child: const Icon(Icons.inbox_outlined)),
             selectedIcon: Badge(isLabelVisible: inboxCount > 0, label: Text('$inboxCount'), child: const Icon(Icons.inbox)),
             label: '收件箱',
           ),
+          const NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: '对话'),
           const NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: '记录'),
           const NavigationDestination(icon: Icon(Icons.more_horiz), label: '更多'),
         ],
-      ),
+      )),
     );
   }
 }

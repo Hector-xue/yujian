@@ -24,7 +24,10 @@ class Settings {
   final String providerType; // openai | anthropic
   final bool localOnly; // 仅本地模型：端点不在本机/内网就不调
   final bool redact; // 发送前脱敏
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true});
+  final String? assistantName; // 对话页显示名，空 = 人格名
+  final String themeId; // 外观主题
+  final String? transcribeModel; // 语音转写模型（/audio/transcriptions），空 = 不用云转写
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
@@ -35,7 +38,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -51,6 +54,9 @@ class Settings {
         providerType: providerType ?? this.providerType,
         localOnly: localOnly ?? this.localOnly,
         redact: redact ?? this.redact,
+        assistantName: assistantName ?? this.assistantName,
+        themeId: themeId ?? this.themeId,
+        transcribeModel: transcribeModel ?? this.transcribeModel,
       );
 }
 
@@ -91,6 +97,9 @@ class PlatformSettingsStore implements SettingsStore {
       providerType: p.getString('provider_type') ?? 'openai',
       localOnly: p.getBool('local_only') ?? false,
       redact: p.getBool('redact') ?? true,
+      assistantName: _emptyToNull(p.getString('assistant_name')),
+      themeId: p.getString('theme_id') ?? 'glass',
+      transcribeModel: _emptyToNull(p.getString('transcribe_model')),
     );
   }
 
@@ -109,6 +118,9 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('provider_type', s.providerType);
     await p.setBool('local_only', s.localOnly);
     await p.setBool('redact', s.redact);
+    await p.setString('assistant_name', s.assistantName ?? '');
+    await p.setString('theme_id', s.themeId);
+    await p.setString('transcribe_model', s.transcribeModel ?? '');
     try {
       for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
         if (e.value == null || e.value!.isEmpty) {
@@ -147,3 +159,5 @@ class MemorySettingsStore implements SettingsStore {
   @override
   Future<void> save(Settings s) async => current = s;
 }
+
+String? _emptyToNull(String? v) => v == null || v.isEmpty ? null : v;

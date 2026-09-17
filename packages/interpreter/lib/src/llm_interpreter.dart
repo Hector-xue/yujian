@@ -156,7 +156,7 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
           'currency': currency,
           'account_id': accId(t['account_id']) ?? ctx.defaultAccountId,
           if (type == 'transfer') 'to_account_id': accId(t['to_account_id']),
-          if (type == 'expense' || type == 'income') 'category_id': catId(t['category_id']),
+          if (type == 'expense' || type == 'income') 'category_id': catId(t['category_id']) ?? ctx.fallbackCategoryId(type),
           if (t['merchant'] is String && (t['merchant'] as String).isNotEmpty) 'merchant': t['merchant'],
           'description': t['description'],
           'occurred_at': when(t['occurred_at']) ?? _nowIso(ctx),

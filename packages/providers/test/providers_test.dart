@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:providers/providers.dart';
 import 'package:test/test.dart';
@@ -15,7 +16,12 @@ class FakeServer {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((req) async {
       final raw = await utf8.decoder.bind(req).join();
-      final body = raw.isEmpty ? <String, Object?>{} : jsonDecode(raw) as Map<String, Object?>;
+      Map<String, Object?> body;
+      try {
+        body = raw.isEmpty ? <String, Object?>{} : jsonDecode(raw) as Map<String, Object?>;
+      } on FormatException {
+        body = {'raw': raw, 'content-type': req.headers.contentType?.toString()};
+      }
       requests.add({'path': req.uri.path, 'method': req.method, 'auth': req.headers.value('authorization'), 'x-api-key': req.headers.value('x-api-key'), 'body': body});
       final reply = handler?.call(body) ?? {'error': 'no handler'};
       req.response.statusCode = status;
@@ -207,5 +213,22 @@ void main() {
     s.handler = (_) => {'error': {'message': 'nope'}};
     s.status = 404;
     await expectLater(listModels(cfg()), throwsA(isA<ProviderException>().having((e) => e.message, 'message', 'nope')));
+  });
+
+  test('transcribeAudio posts multipart to /audio/transcriptions and returns text', () async {
+    s.handler = (_) => {'text': ' 午饭花了二十八 '};
+    final t = await transcribeAudio(cfg(), Uint8List.fromList([1, 2, 3, 4]), filename: 'a.m4a', mime: 'audio/mp4', model: 'whisper-1');
+    expect(t, '午饭花了二十八');
+    final req = s.requests.last;
+    expect(req['path'], '/v1/audio/transcriptions');
+    expect(req['auth'], 'Bearer k');
+    expect((req['body'] as Map)['content-type'], startsWith('multipart/form-data'));
+    final raw = (req['body'] as Map)['raw'] as String;
+    expect(raw, contains('name="model"'));
+    expect(raw, contains('whisper-1'));
+    expect(raw, contains('filename="a.m4a"'));
+    expect(raw, contains('name="language"'));
+    final anth = ProviderConfig(name: 'a', type: ProviderType.anthropic, baseUrl: s.baseUrl, apiKey: 'ak', model: 'm');
+    await expectLater(transcribeAudio(anth, Uint8List(1), filename: 'a', mime: 'audio/mp4', model: 'x'), throwsA(isA<ProviderException>()));
   });
 }

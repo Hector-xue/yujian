@@ -120,7 +120,7 @@ class TransactionTile extends StatelessWidget {
                   ),
                   const Spacer(),
                   TextButton(
-                    style: TextButton.styleFrom(foregroundColor: const Color(0xFFB4562E)),
+                    style: TextButton.styleFrom(foregroundColor: YujianColors.of(ctx).danger),
                     onPressed: () async {
                       final reason = TextEditingController(text: '记错了');
                       final ok = await showDialog<bool>(

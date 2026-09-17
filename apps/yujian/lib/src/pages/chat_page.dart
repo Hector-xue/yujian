@@ -1,37 +1,61 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
+import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
+import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
 import '../widgets/persona_avatar.dart';
 
-sealed class _Msg {}
+sealed class _Msg {
+  Map<String, Object?> toJson();
+
+  /// 历史里认不出的条目丢掉（比如以后加的类型），别让整段历史读不出来。
+  static _Msg? fromJson(Map<String, Object?> j) => switch (j['t']) {
+        'user' => _UserMsg(j['text'] as String),
+        'text' => _TextMsg(j['text'] as String),
+        'draft' => _DraftMsg(j['group'] as String, (j['meta'] as String?) ?? ''),
+        'query' => _QueryMsg(QueryResult.fromJson((j['result'] as Map).cast<String, Object?>()), (j['meta'] as String?) ?? ''),
+        _ => null,
+      };
+}
 
 class _UserMsg extends _Msg {
   final String text;
   _UserMsg(this.text);
+  @override
+  Map<String, Object?> toJson() => {'t': 'user', 'text': text};
 }
 
 class _DraftMsg extends _Msg {
   final String groupId;
   final String meta;
   _DraftMsg(this.groupId, this.meta);
+  @override
+  Map<String, Object?> toJson() => {'t': 'draft', 'group': groupId, 'meta': meta};
 }
 
 class _QueryMsg extends _Msg {
   final QueryResult result;
   final String meta;
   _QueryMsg(this.result, this.meta);
+  @override
+  Map<String, Object?> toJson() => {'t': 'query', 'result': result.toJson(), 'meta': meta};
 }
 
 class _TextMsg extends _Msg {
   final String text;
   _TextMsg(this.text);
+  @override
+  Map<String, Object?> toJson() => {'t': 'text', 'text': text};
 }
 
 /// 对话页：说一句话 → 草稿卡（确认后落账）/ 查询结果。
@@ -46,93 +70,152 @@ class _ChatPageState extends State<ChatPage> {
   final _scroll = ScrollController();
   final _msgs = <_Msg>[];
   var _busy = false;
-  final _speech = SpeechToText();
-  var _listening = false;
-  String? _speechLocale;
+  final _voice = VoiceInput();
+  var _phase = VoicePhase.idle;
+  var _historyLoaded = false;
 
-  /// 系统语音识别只有这几个平台有；桌面 Linux/Windows 没有，按钮不出现。
-  static bool get _speechPlatform => kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS;
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
 
   @override
   void dispose() {
-    if (_listening) _speech.stop();
+    _voice.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
+  // ------------------------------------------------------------- 历史落盘
+  static const _historyKey = 'chat_history_v1';
+  static const _historyMax = 200;
+
+  Future<void> _loadHistory() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_historyKey);
+      if (raw != null && raw.isNotEmpty) {
+        final list = (jsonDecode(raw) as List).cast<Map>().map((m) => _Msg.fromJson(m.cast<String, Object?>())).whereType<_Msg>().toList();
+        if (mounted) setState(() => _msgs.addAll(list));
+      }
+    } catch (_) {
+      // 历史坏了就从空开始，不影响记账
+    }
+    if (mounted) setState(() => _historyLoaded = true);
+    _jumpToEnd(animate: false);
+  }
+
+  Future<void> _saveHistory() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final keep = _msgs.length > _historyMax ? _msgs.sublist(_msgs.length - _historyMax) : _msgs;
+      await p.setString(_historyKey, jsonEncode(keep.map((m) => m.toJson()).toList()));
+    } catch (_) {}
+  }
+
+  Future<void> _clearHistory() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('清空对话？'),
+        content: const Text('只清掉这里的聊天记录，账本不动。'),
+        actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('清空'))],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _msgs.clear());
+    await _saveHistory();
+  }
+
+  void _jumpToEnd({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final end = _scroll.position.maxScrollExtent;
+      animate ? _scroll.animateTo(end, duration: const Duration(milliseconds: 200), curve: Curves.easeOut) : _scroll.jumpTo(end);
+    });
+  }
+
+  // ------------------------------------------------------------- 名字
+  Future<void> _renameAssistant() async {
+    final app = AppScope.of(context);
+    final ctl = TextEditingController(text: app.settings.assistantName ?? '');
+    final v = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('给它起个名字'),
+        content: TextField(controller: ctl, autofocus: true, decoration: InputDecoration(hintText: app.persona.name, helperText: '留空就用人格名'), onSubmitted: (x) => Navigator.pop(d, x)),
+        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: const Text('好'))],
+      ),
+    );
+    if (v == null || !mounted) return;
+    await app.saveSettings(app.settings.copyWith(assistantName: v.trim().isEmpty ? '' : v.trim()));
+  }
+
+  // ------------------------------------------------------------- 语音
   static const _micPermissionText = '没有麦克风权限。系统设置 → 应用 → 余见 → 权限 里打开麦克风；小米 / HyperOS 提示「未知来源应用」的话，先在应用信息页右上角 ⋮ →「允许受限设置」。';
 
-  /// 平台错误码（Android error_* / 浏览器 SpeechRecognition）翻成人话。
-  static String _speechErrorText(String code) => switch (code) {
-        'error_no_match' || 'no-speech' || 'error_speech_timeout' => '没听清，再说一遍',
-        'error_permission' || 'error_audio_error' || 'not-allowed' || 'audio-capture' => _micPermissionText,
-        'error_network' || 'error_network_timeout' || 'network' => '语音识别要联网（系统识别服务走云端）',
-        'error_busy' || 'aborted' => '识别被打断了，再按一次',
-        _ => '语音识别出错：$code',
-      };
-
-  /// 麦克风问题只提示一次，别每按一下就刷一行；权限类的顺手给「打开应用设置」。
-  void _micProblem(String text) {
+  /// 提示只出一次，别每按一下就刷一行；权限类的顺手给「打开应用设置」。
+  void _notice(String text) {
     if (!mounted) return;
     final last = _msgs.isEmpty ? null : _msgs.last;
-    setState(() {
-      _listening = false;
-      if (last is! _TextMsg || last.text != text) _msgs.add(_TextMsg(text));
-    });
+    if (last is! _TextMsg || last.text != text) {
+      setState(() => _msgs.add(_TextMsg(text)));
+      _saveHistory();
+    }
     if (text == _micPermissionText && !kIsWeb) {
       final app = AppScope.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('麦克风权限没开'),
-        action: SnackBarAction(label: '打开应用设置', onPressed: () => app.notifications.openAppInfo()),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('麦克风权限没开'), action: SnackBarAction(label: '打开应用设置', onPressed: () => app.notifications.openAppInfo())));
     }
   }
 
-  /// 麦克风：按一下开始听，识别到完整一句就直接发出去（草稿仍要在收件箱确认，听错了不会入账）；再按一下停。
-  Future<void> _toggleListen() async {
-    if (_listening) {
-      await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+  Future<void> _toggleVoice() async {
+    final app = AppScope.of(context);
+    if (_phase == VoicePhase.transcribing) return;
+    if (_phase != VoicePhase.idle) {
+      final text = await _voice.stop(onPhase: _setPhase);
+      if (text != null) _voiceFinal(text);
       return;
     }
-    if (!_speech.isAvailable) {
-      final ok = await _speech.initialize(
-        onStatus: (st) {
-          if ((st == 'done' || st == 'notListening') && mounted) setState(() => _listening = false);
+    if (!await _voice.hasPermission()) {
+      _notice(_micPermissionText);
+      return;
+    }
+    // 云转写：用用户配的模型端点 + 转写模型名
+    final cfg = app.settings.providerConfig;
+    final tm = app.settings.transcribeModel;
+    _voice.transcriber = cfg != null && tm != null && tm.isNotEmpty ? (bytes, name, mime) => transcribeAudio(cfg, bytes, filename: name, mime: mime, model: tm) : null;
+    try {
+      await _voice.start(
+        onPartial: (t) {
+          _input.text = t;
+          _input.selection = TextSelection.collapsed(offset: t.length);
         },
-        onError: (e) => _micProblem(_speechErrorText(e.errorMsg)),
+        onFinal: _voiceFinal,
+        onPhase: _setPhase,
+        onNotice: _notice,
       );
-      if (!ok) {
-        _micProblem(kIsWeb ? '这个浏览器不支持语音识别（试试 Chrome）' : (await _speech.hasPermission) ? '这台设备没有语音识别服务（需要系统自带或 Google 的语音服务）' : _micPermissionText);
-        return;
-      }
-      for (final l in await _speech.locales()) {
-        if (l.localeId.toLowerCase().startsWith('zh')) {
-          _speechLocale = l.localeId;
-          break;
-        }
-      }
+    } on VoiceUnavailable catch (e) {
+      _notice(_voice.transcriber == null
+          ? '这台手机没有可用的系统语音识别（${e.reason}）。两个办法：① 在「模型与人格」里填一个「语音转写模型」，余见就自己录音再转文字；② 用输入法键盘上的麦克风。'
+          : '语音识别都没走通：${e.reason}');
     }
+  }
+
+  void _setPhase(VoicePhase p) {
+    if (mounted) setState(() => _phase = p);
+  }
+
+  void _voiceFinal(String text) {
     if (!mounted) return;
-    if (!kIsWeb && !await _speech.hasPermission) {
-      _micProblem(_micPermissionText);
+    final t = text.trim();
+    if (t.isEmpty) {
+      _notice('没听清，再说一遍');
       return;
     }
-    if (!mounted) return;
-    setState(() => _listening = true);
-    await _speech.listen(
-      onResult: (r) {
-        if (!mounted) return;
-        _input.text = r.recognizedWords;
-        _input.selection = TextSelection.collapsed(offset: _input.text.length);
-        if (r.finalResult) {
-          setState(() => _listening = false);
-          if (r.recognizedWords.trim().isNotEmpty) _send();
-        }
-      },
-      listenOptions: SpeechListenOptions(partialResults: true, cancelOnError: true, localeId: _speechLocale, pauseFor: const Duration(seconds: 3)),
-    );
+    _input.text = t;
+    _send();
   }
 
   Future<void> _send() async {
@@ -181,9 +264,8 @@ class _ChatPageState extends State<ChatPage> {
       }
       _msgs.add(_TextMsg(reply));
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-    });
+    _saveHistory();
+    _jumpToEnd();
   }
 
   static String _fieldName(String f) => switch (f) {
@@ -219,6 +301,8 @@ class _ChatPageState extends State<ChatPage> {
       final reply = await app.replier.reply(PersonaEvent.draftsProposed, n: r.drafts.length);
       if (mounted) setState(() => _msgs.add(_TextMsg(reply)));
     }
+    _saveHistory();
+    _jumpToEnd();
   }
 
   Future<void> _afterCommit(int n) async {
@@ -226,6 +310,7 @@ class _ChatPageState extends State<ChatPage> {
     final reply = await app.replier.reply(PersonaEvent.recorded, n: n);
     if (!mounted) return;
     setState(() => _msgs.add(_TextMsg(reply)));
+    _saveHistory();
   }
 
   Future<void> _consumeShare(AppState app) async {
@@ -246,6 +331,8 @@ class _ChatPageState extends State<ChatPage> {
         _msgs.add(r.error != null ? _TextMsg(r.error!) : _DraftMsg(r.drafts.first.groupId, '截图识别 · ${r.modelUsed}'));
       });
     }
+    _saveHistory();
+    _jumpToEnd();
   }
 
   @override
@@ -257,12 +344,17 @@ class _ChatPageState extends State<ChatPage> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Row(children: [PersonaAvatar(app.persona, size: 30), const SizedBox(width: 10), Text(app.persona.name)]),
+        title: InkWell(
+          onTap: _renameAssistant,
+          borderRadius: BorderRadius.circular(8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [PersonaAvatar(app.persona, size: 30), const SizedBox(width: 10), Text(app.settings.assistantName ?? app.persona.name), const SizedBox(width: 6), Icon(Icons.edit_outlined, size: 14, color: theme.textTheme.bodySmall?.color)]),
+        ),
+        actions: [if (_msgs.isNotEmpty) IconButton(tooltip: '清空对话', onPressed: _clearHistory, icon: const Icon(Icons.delete_sweep_outlined))],
       ),
       body: Column(
         children: [
           Expanded(
-            child: _msgs.isEmpty
+            child: _msgs.isEmpty && _historyLoaded
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
@@ -291,18 +383,30 @@ class _ChatPageState extends State<ChatPage> {
               child: Row(
                 children: [
                   if (app.vision != null) IconButton(onPressed: _busy ? null : _pickImage, icon: const Icon(Icons.image_outlined), tooltip: '识别截图 / 小票'),
-                  if (_speechPlatform)
+                  if (VoiceInput.platformSupported)
                     IconButton(
-                      onPressed: _busy ? null : _toggleListen,
-                      icon: Icon(_listening ? Icons.mic : Icons.mic_none, color: _listening ? theme.colorScheme.primary : null),
-                      tooltip: _listening ? '停止' : '语音输入',
+                      onPressed: _busy || _phase == VoicePhase.transcribing ? null : _toggleVoice,
+                      icon: switch (_phase) {
+                        VoicePhase.idle => const Icon(Icons.mic_none),
+                        VoicePhase.listening => Icon(Icons.mic, color: theme.colorScheme.primary),
+                        VoicePhase.recording => Icon(Icons.stop_circle_outlined, color: YujianColors.of(context).danger),
+                        VoicePhase.transcribing => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                      },
+                      tooltip: _phase == VoicePhase.idle ? '语音输入' : '停止',
                     ),
                   Expanded(
                     child: TextField(
                       controller: _input,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
-                      decoration: InputDecoration(hintText: _listening ? '在听…说完停 3 秒自动发出' : '记一笔，或问问账本'),
+                      decoration: InputDecoration(
+                        hintText: switch (_phase) {
+                          VoicePhase.idle => '记一笔，或问问账本',
+                          VoicePhase.listening => '在听…说完停 3 秒自动发出',
+                          VoicePhase.recording => '录音中…说完再按一下红色按钮',
+                          VoicePhase.transcribing => '转写中…',
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -332,6 +436,7 @@ class _ChatPageState extends State<ChatPage> {
         return Align(alignment: Alignment.centerLeft, child: Text(m.text, style: theme.textTheme.bodyMedium));
       case _DraftMsg():
         final drafts = app.ledger.listDrafts(groupId: m.groupId);
+        if (drafts.isEmpty) return Align(alignment: Alignment.centerLeft, child: Text('（这组草稿已处理）· ${m.meta}', style: theme.textTheme.bodySmall));
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

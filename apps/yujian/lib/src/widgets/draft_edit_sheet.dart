@@ -45,6 +45,32 @@ class _EditFormState extends State<_EditForm> {
     toAccountId = p['to_account_id'] as String?;
   }
 
+  static const _newCategory = '__new__';
+
+  /// 就地新建分类，省得先去分类页再回来改草稿。
+  Future<String?> _createCategory(BuildContext context, CategoryKind kind) async {
+    final app = AppScope.of(context);
+    final ctl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(kind == CategoryKind.income ? '新建收入分类' : '新建支出分类'),
+        content: TextField(controller: ctl, autofocus: true, decoration: const InputDecoration(hintText: '分类名'), onSubmitted: (v) => Navigator.pop(d, v.trim())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(d, ctl.text.trim()), child: const Text('新建')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return null;
+    try {
+      return app.addCategory(name: name, kind: kind).id;
+    } on LedgerException catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -62,10 +88,21 @@ class _EditFormState extends State<_EditForm> {
           const SizedBox(height: 12),
           if (type == 'expense' || type == 'income')
             DropdownButtonFormField<String>(
+              key: ValueKey('cat-${cats.length}-$categoryId'),
               initialValue: categoryId,
               decoration: const InputDecoration(labelText: '分类'),
-              items: [for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name))],
-              onChanged: (v) => setState(() => categoryId = v),
+              items: [
+                for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name)),
+                const DropdownMenuItem(value: _newCategory, child: Text('＋ 新建分类…')),
+              ],
+              onChanged: (v) async {
+                if (v != _newCategory) {
+                  setState(() => categoryId = v);
+                  return;
+                }
+                final created = await _createCategory(context, kind);
+                if (mounted) setState(() => categoryId = created ?? categoryId);
+              },
             ),
           if (type == 'expense' || type == 'income') const SizedBox(height: 12),
           DropdownButtonFormField<String>(
