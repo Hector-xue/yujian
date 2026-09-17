@@ -65,7 +65,12 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 DropdownButtonFormField<String>(
                   initialValue: direction,
                   decoration: const InputDecoration(labelText: '方向'),
-                  items: const [DropdownMenuItem(value: 'expense', child: Text('支出')), DropdownMenuItem(value: 'income', child: Text('收入')), DropdownMenuItem(value: 'transfer', child: Text('转账')), DropdownMenuItem(value: '', child: Text('按关键词判'))],
+                  items: const [
+                    DropdownMenuItem(value: 'expense', child: Text('支出')),
+                    DropdownMenuItem(value: 'income', child: Text('收入')),
+                    DropdownMenuItem(value: 'transfer', child: Text('转账')),
+                    DropdownMenuItem(value: '', child: Text('按关键词判'))
+                  ],
                   onChanged: (v) => setState(() => direction = v ?? ''),
                 ),
                 const SizedBox(height: 12),
@@ -191,7 +196,10 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               subtitle: Text('${t['text_re']} → ${t['direction'] ?? '按关键词'}${t['account_hint'] != null ? ' · ${t['account_hint']}' : ''}', style: theme.textTheme.bodySmall),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, size: 20),
-                onPressed: () => app.saveSettings(s.copyWith(userTemplates: [for (final x in s.userTemplates) if (x['id'] != t['id']) x])),
+                onPressed: () => app.saveSettings(s.copyWith(userTemplates: [
+                  for (final x in s.userTemplates)
+                    if (x['id'] != t['id']) x
+                ])),
               ),
             ),
           const SizedBox(height: 24),

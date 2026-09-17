@@ -136,9 +136,7 @@ class _DataPageState extends State<DataPage> {
               return;
             }
             final r = app.importBillCsv(text);
-            setState(() => status = r.error != null
-                ? '导入失败：${r.error}'
-                : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}');
+            setState(() => status = r.error != null ? '导入失败：${r.error}' : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}');
           }),
           if (status != null) Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 0), child: Text(status!, style: theme.textTheme.bodyMedium)),
         ],

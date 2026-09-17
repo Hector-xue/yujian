@@ -7,6 +7,7 @@ import '../widgets/category_icon.dart';
 import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import '../widgets/transaction_edit_sheet.dart';
+import 'calendar_page.dart';
 
 /// 交易记录：按日分组；点开看详情、改分类、作废。
 class TransactionsPage extends StatelessWidget {
@@ -23,7 +24,10 @@ class TransactionsPage extends StatelessWidget {
     }
     final today = todayLocal();
     return Scaffold(
-      appBar: AppBar(title: const Text('记录'), actions: [IconButton(tooltip: '手动记一笔', onPressed: () => showManualEntrySheet(context), icon: const Icon(Icons.add))]),
+      appBar: AppBar(title: const Text('记录'), actions: [
+        IconButton(tooltip: '日历', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage())), icon: const Icon(Icons.calendar_month_outlined)),
+        IconButton(tooltip: '手动记一笔', onPressed: () => showManualEntrySheet(context), icon: const Icon(Icons.add))
+      ]),
       body: txs.isEmpty
           ? Center(child: Text('还没有记录', style: theme.textTheme.bodySmall))
           : ListView(
@@ -48,8 +52,8 @@ class TransactionsPage extends StatelessWidget {
   }
 
   String _daySum(List<Transaction> ts) {
-    final out = ts.where((t) => t.type == TransactionType.expense).fold<int>(0, (a, t) => a + t.amountMinor) -
-        ts.where((t) => t.type == TransactionType.refund).fold<int>(0, (a, t) => a + t.amountMinor);
+    final out =
+        ts.where((t) => t.type == TransactionType.expense).fold<int>(0, (a, t) => a + t.amountMinor) - ts.where((t) => t.type == TransactionType.refund).fold<int>(0, (a, t) => a + t.amountMinor);
     return out == 0 ? '' : '支出 ${fmtMoney(out, ts.first.currency)}';
   }
 }

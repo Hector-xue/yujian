@@ -19,7 +19,10 @@ class CategoriesPage extends StatelessWidget {
             bottom: const TabBar(tabs: [Tab(text: '支出'), Tab(text: '收入')]),
             actions: [IconButton(onPressed: () => _edit(context, kind: DefaultTabController.of(context).index == 0 ? CategoryKind.expense : CategoryKind.income), icon: const Icon(Icons.add))],
           ),
-          body: TabBarView(children: [_List(kind: CategoryKind.expense, onTap: (c) => _edit(context, kind: CategoryKind.expense, existing: c)), _List(kind: CategoryKind.income, onTap: (c) => _edit(context, kind: CategoryKind.income, existing: c))]),
+          body: TabBarView(children: [
+            _List(kind: CategoryKind.expense, onTap: (c) => _edit(context, kind: CategoryKind.expense, existing: c)),
+            _List(kind: CategoryKind.income, onTap: (c) => _edit(context, kind: CategoryKind.income, existing: c))
+          ]),
         ),
       ),
     );
@@ -64,7 +67,8 @@ class CategoriesPage extends StatelessWidget {
             ],
           ),
           actions: [
-            if (existing != null && !existing.isDefault) TextButton(style: TextButton.styleFrom(foregroundColor: YujianColors.of(context).danger), onPressed: () => Navigator.pop(d, 'delete'), child: const Text('删除')),
+            if (existing != null && !existing.isDefault)
+              TextButton(style: TextButton.styleFrom(foregroundColor: YujianColors.of(context).danger), onPressed: () => Navigator.pop(d, 'delete'), child: const Text('删除')),
             TextButton(onPressed: () => Navigator.pop(d, null), child: const Text('取消')),
             FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: Text(existing == null ? '添加' : '保存')),
           ],
@@ -115,7 +119,12 @@ class _List extends StatelessWidget {
     return ListView(
       children: [
         for (final c in cats.where((c) => c.parentId == null)) ...[
-          ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20), leading: CategoryIcon(category: c, size: 36), title: Text(c.name), trailing: Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color), onTap: () => onTap(c)),
+          ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              leading: CategoryIcon(category: c, size: 36),
+              title: Text(c.name),
+              trailing: Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color),
+              onTap: () => onTap(c)),
           for (final s in children[c.id] ?? const <Category>[])
             ListTile(contentPadding: const EdgeInsets.only(left: 40, right: 20), dense: true, leading: CategoryIcon(category: s, size: 28), title: Text(s.name), onTap: () => onTap(s)),
         ],

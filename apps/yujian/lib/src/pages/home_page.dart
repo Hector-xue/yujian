@@ -56,7 +56,11 @@ class HomePage extends StatelessWidget {
                     children: [
                       Expanded(child: _Stat(label: '本月支出', value: fmtMoney(sumCny(expense.rows), 'CNY'), color: y.expense)),
                       Expanded(child: _Stat(label: '本月收入', value: fmtMoney(sumCny(income.rows), 'CNY'), color: y.income)),
-                      Expanded(child: _Stat(label: '结余', value: fmtMoney(sumCny(income.rows) - sumCny(expense.rows), 'CNY'), color: (sumCny(income.rows) - sumCny(expense.rows)) < 0 ? y.danger : theme.colorScheme.onSurface)),
+                      Expanded(
+                          child: _Stat(
+                              label: '结余',
+                              value: fmtMoney(sumCny(income.rows) - sumCny(expense.rows), 'CNY'),
+                              color: (sumCny(income.rows) - sumCny(expense.rows)) < 0 ? y.danger : theme.colorScheme.onSurface)),
                     ],
                   ),
                 ],
@@ -90,7 +94,10 @@ class HomePage extends StatelessWidget {
             for (final r in upcoming)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [Expanded(child: Text(r.name)), Text('${r.nextDue.substring(5).replaceFirst('-', '/')} · ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}', style: theme.textTheme.bodySmall)]),
+                child: Row(children: [
+                  Expanded(child: Text(r.name)),
+                  Text('${r.nextDue.substring(5).replaceFirst('-', '/')} · ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}', style: theme.textTheme.bodySmall)
+                ]),
               ),
             const SizedBox(height: 16),
           ],
@@ -117,7 +124,10 @@ class _Stat extends StatelessWidget {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [Text(label, style: theme.textTheme.bodySmall), Text(value, style: theme.textTheme.titleMedium?.copyWith(color: color, fontFeatures: const [FontFeature.tabularFigures()]))],
+      children: [
+        Text(label, style: theme.textTheme.bodySmall),
+        Text(value, style: theme.textTheme.titleMedium?.copyWith(color: color, fontFeatures: const [FontFeature.tabularFigures()]))
+      ],
     );
   }
 }

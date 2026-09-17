@@ -47,9 +47,19 @@ class _SettingsPageState extends State<SettingsPage> {
     redact = s.redact;
   }
 
-  Settings _draft() => AppScope.of(context).settings.copyWith(baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), personaId: personaId, visionModel: visionModel.text.trim(), transcribeModel: transcribeModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
+  Settings _draft() => AppScope.of(context).settings.copyWith(
+      baseUrl: baseUrl.text.trim(),
+      apiKey: apiKey.text.trim(),
+      model: model.text.trim(),
+      personaId: personaId,
+      visionModel: visionModel.text.trim(),
+      transcribeModel: transcribeModel.text.trim(),
+      providerType: providerType,
+      localOnly: localOnly,
+      redact: redact);
 
-  static bool _looksLikeBadModel(String err) => RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
+  static bool _looksLikeBadModel(String err) =>
+      RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
 
   Future<void> _probe() async {
     final cfg = _draft().providerConfig;
@@ -84,7 +94,8 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => listingModels = true);
     List<String> ids;
     try {
-      ids = await listModels(ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: base, apiKey: apiKey.text.trim(), model: '-'));
+      ids =
+          await listModels(ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: base, apiKey: apiKey.text.trim(), model: '-'));
     } on ProviderException catch (e) {
       if (mounted) {
         setState(() => listingModels = false);
@@ -114,7 +125,8 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (d) => AlertDialog(
         title: const Text('人格包 JSON'),
-        content: TextField(controller: ctl, maxLines: 8, decoration: const InputDecoration(hintText: '{"id":"my","name":"…","tagline":"…","style":"风格描述","templates":{"greeting":"…","recorded":"已记 {n} 笔"}}')),
+        content: TextField(
+            controller: ctl, maxLines: 8, decoration: const InputDecoration(hintText: '{"id":"my","name":"…","tagline":"…","style":"风格描述","templates":{"greeting":"…","recorded":"已记 {n} 笔"}}')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('导入')),
@@ -155,7 +167,10 @@ class _SettingsPageState extends State<SettingsPage> {
             onSelectionChanged: (v) => setState(() => providerType = v.first),
           ),
           const SizedBox(height: 12),
-          TextField(controller: baseUrl, decoration: InputDecoration(labelText: 'Base URL', hintText: providerType == 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.deepseek.com/v1'), keyboardType: TextInputType.url),
+          TextField(
+              controller: baseUrl,
+              decoration: InputDecoration(labelText: 'Base URL', hintText: providerType == 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.deepseek.com/v1'),
+              keyboardType: TextInputType.url),
           const SizedBox(height: 12),
           TextField(
             controller: apiKey,
@@ -173,7 +188,10 @@ class _SettingsPageState extends State<SettingsPage> {
               labelText: '模型名',
               hintText: 'deepseek-chat',
               helperText: '点右侧列表从端点拉可用模型，别手猜名字',
-              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(model), icon: listingModels ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.list_alt_outlined)),
+              suffixIcon: IconButton(
+                  tooltip: '从端点拉模型列表',
+                  onPressed: listingModels ? null : () => _pickModel(model),
+                  icon: listingModels ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.list_alt_outlined)),
             ),
           ),
           const SizedBox(height: 12),
@@ -285,7 +303,11 @@ class _SettingsPageState extends State<SettingsPage> {
               scrollDirection: Axis.horizontal,
               itemCount: appThemes.length,
               separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (ctx, i) => _ThemeCard(spec: appThemes[i], accent: theme.colorScheme.primary, selected: app.settings.themeId == appThemes[i].id, onTap: () => app.saveSettings(app.settings.copyWith(themeId: appThemes[i].id))),
+              itemBuilder: (ctx, i) => _ThemeCard(
+                  spec: appThemes[i],
+                  accent: theme.colorScheme.primary,
+                  selected: app.settings.themeId == appThemes[i].id,
+                  onTap: () => app.saveSettings(app.settings.copyWith(themeId: appThemes[i].id))),
             ),
           ),
           const SizedBox(height: 20),
@@ -327,7 +349,8 @@ class _ModelPickerState extends State<_ModelPicker> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: TextField(autofocus: false, onChanged: (v) => setState(() => filter = v), decoration: InputDecoration(hintText: '过滤 ${widget.ids.length} 个模型', prefixIcon: const Icon(Icons.search))),
+              child:
+                  TextField(autofocus: false, onChanged: (v) => setState(() => filter = v), decoration: InputDecoration(hintText: '过滤 ${widget.ids.length} 个模型', prefixIcon: const Icon(Icons.search))),
             ),
             Expanded(
               child: shown.isEmpty

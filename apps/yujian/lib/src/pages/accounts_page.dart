@@ -68,7 +68,10 @@ class AccountsPage extends StatelessWidget {
                 onChanged: (v) => setState(() => type = v ?? type),
               ),
               const SizedBox(height: 12),
-              TextField(controller: initial, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: InputDecoration(labelText: '期初余额（${a.currency}）', helperText: hasPostings ? '币种已有交易，不能改' : null)),
+              TextField(
+                  controller: initial,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                  decoration: InputDecoration(labelText: '期初余额（${a.currency}）', helperText: hasPostings ? '币种已有交易，不能改' : null)),
             ],
           ),
           actions: [
@@ -121,7 +124,9 @@ class AccountsPage extends StatelessWidget {
               DropdownButtonFormField<String>(
                 initialValue: currency,
                 decoration: const InputDecoration(labelText: '币种'),
-                items: [for (final c in const ['CNY', 'USD', 'HKD', 'JPY', 'EUR', 'GBP', 'TWD', 'SGD', 'AUD', 'CAD']) DropdownMenuItem(value: c, child: Text(c))],
+                items: [
+                  for (final c in const ['CNY', 'USD', 'HKD', 'JPY', 'EUR', 'GBP', 'TWD', 'SGD', 'AUD', 'CAD']) DropdownMenuItem(value: c, child: Text(c))
+                ],
                 onChanged: (v) => setState(() => currency = v ?? currency),
               ),
               const SizedBox(height: 12),

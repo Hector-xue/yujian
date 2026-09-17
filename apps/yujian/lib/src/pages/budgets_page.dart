@@ -26,7 +26,11 @@ class BudgetsPage extends StatelessWidget {
 
   Future<void> _delete(BuildContext context, Budget b) async {
     final app = AppScope.of(context);
-    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(title: Text('删除预算「${b.name}」？'), actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('删除'))]));
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+            title: Text('删除预算「${b.name}」？'),
+            actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('删除'))]));
     if (ok == true) {
       app.ledger.budgets.delete(b.id);
       app.touch();
@@ -54,14 +58,22 @@ class BudgetsPage extends StatelessWidget {
               DropdownButtonFormField<String?>(
                 initialValue: categoryId,
                 decoration: const InputDecoration(labelText: '范围'),
-                items: [const DropdownMenuItem(value: null, child: Text('全部支出')), for (final c in app.ledger.listCategories(kind: CategoryKind.expense)) DropdownMenuItem(value: c.id, child: Text(c.name))],
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('全部支出')),
+                  for (final c in app.ledger.listCategories(kind: CategoryKind.expense)) DropdownMenuItem(value: c.id, child: Text(c.name))
+                ],
                 onChanged: (v) => setState(() => categoryId = v),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<BudgetPeriod>(
                 initialValue: period,
                 decoration: const InputDecoration(labelText: '周期'),
-                items: const [DropdownMenuItem(value: BudgetPeriod.weekly, child: Text('每周')), DropdownMenuItem(value: BudgetPeriod.monthly, child: Text('每月')), DropdownMenuItem(value: BudgetPeriod.quarterly, child: Text('每季')), DropdownMenuItem(value: BudgetPeriod.yearly, child: Text('每年'))],
+                items: const [
+                  DropdownMenuItem(value: BudgetPeriod.weekly, child: Text('每周')),
+                  DropdownMenuItem(value: BudgetPeriod.monthly, child: Text('每月')),
+                  DropdownMenuItem(value: BudgetPeriod.quarterly, child: Text('每季')),
+                  DropdownMenuItem(value: BudgetPeriod.yearly, child: Text('每年'))
+                ],
                 onChanged: (v) => setState(() => period = v ?? period),
               ),
             ],
@@ -110,9 +122,12 @@ class BudgetBar extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(value: s.ratio.clamp(0, 1), minHeight: 6, color: color, backgroundColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+            ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(value: s.ratio.clamp(0, 1), minHeight: 6, color: color, backgroundColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
             const SizedBox(height: 4),
-            Text('${s.from} 至 ${s.to} · ${s.exceeded ? '已超 ${fmtMoney(-s.remainingMinor, s.budget.currency)}' : '还剩 ${fmtMoney(s.remainingMinor, s.budget.currency)}'}', style: theme.textTheme.bodySmall),
+            Text('${s.from} 至 ${s.to} · ${s.exceeded ? '已超 ${fmtMoney(-s.remainingMinor, s.budget.currency)}' : '还剩 ${fmtMoney(s.remainingMinor, s.budget.currency)}'}',
+                style: theme.textTheme.bodySmall),
           ],
         ),
       ),

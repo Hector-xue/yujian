@@ -10,12 +10,14 @@ import android.net.Uri
 import android.widget.RemoteViews
 
 /**
- * 桌面小部件。数字由 Flutter 侧算好（账本只有一份实现）经 WidgetBridge 存进 SharedPreferences，这里只负责画。
- * 点整块 → 打开首页；点「记一笔」→ 直接进对话。
+ * 桌面小部件（三个尺寸共用一套数据）。数字由 Flutter 侧算好经 WidgetBridge 存进 SharedPreferences，这里只负责画。
+ * 点整块 → 首页；点「记一笔」→ 直接进对话。
  */
-class SummaryWidget : AppWidgetProvider() {
+open class SummaryWidget : AppWidgetProvider() {
+    open val layout: Int get() = R.layout.widget_summary
+
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        for (id in ids) manager.updateAppWidget(id, build(context))
+        for (id in ids) manager.updateAppWidget(id, build(context, layout))
     }
 
     companion object {
@@ -23,22 +25,35 @@ class SummaryWidget : AppWidgetProvider() {
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, SummaryWidget::class.java))
-            if (ids.isEmpty()) return
-            val views = build(context)
-            for (id in ids) manager.updateAppWidget(id, views)
+            for ((cls, layout) in listOf(SummaryWidget::class.java to R.layout.widget_summary, CompactWidget::class.java to R.layout.widget_compact, MiniWidget::class.java to R.layout.widget_mini)) {
+                val ids = manager.getAppWidgetIds(ComponentName(context, cls))
+                if (ids.isEmpty()) continue
+                val views = build(context, layout)
+                for (id in ids) manager.updateAppWidget(id, views)
+            }
         }
 
-        private fun build(context: Context): RemoteViews {
+        private fun build(context: Context, layout: Int): RemoteViews {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val v = RemoteViews(context.packageName, R.layout.widget_summary)
-            v.setTextViewText(R.id.widget_balance, p.getString("balance", "¥ 0.00"))
-            v.setTextViewText(R.id.widget_expense, p.getString("expense", "¥ 0.00"))
-            v.setTextViewText(R.id.widget_income, p.getString("income", "¥ 0.00"))
-            v.setTextViewText(R.id.widget_month, p.getString("month", ""))
-            v.setTextViewText(R.id.widget_recent, p.getString("recent", ""))
-            v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
-            v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
+            val v = RemoteViews(context.packageName, layout)
+            when (layout) {
+                R.layout.widget_summary -> {
+                    v.setTextViewText(R.id.widget_balance, p.getString("balance", "¥ 0.00"))
+                    v.setTextViewText(R.id.widget_expense, p.getString("expense", "¥ 0.00"))
+                    v.setTextViewText(R.id.widget_income, p.getString("income", "¥ 0.00"))
+                    v.setTextViewText(R.id.widget_month, p.getString("month", ""))
+                    v.setTextViewText(R.id.widget_recent, p.getString("recent", ""))
+                    v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
+                    v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
+                }
+                R.layout.widget_compact -> {
+                    v.setTextViewText(R.id.widget_balance, p.getString("balance", "¥ 0.00"))
+                    v.setTextViewText(R.id.widget_expense, "本月支出 " + p.getString("expense", "¥ 0.00"))
+                    v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
+                    v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
+                }
+                else -> v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
+            }
             return v
         }
 
@@ -47,4 +62,12 @@ class SummaryWidget : AppWidgetProvider() {
             return PendingIntent.getActivity(context, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
     }
+}
+
+class CompactWidget : SummaryWidget() {
+    override val layout: Int get() = R.layout.widget_compact
+}
+
+class MiniWidget : SummaryWidget() {
+    override val layout: Int get() = R.layout.widget_mini
 }

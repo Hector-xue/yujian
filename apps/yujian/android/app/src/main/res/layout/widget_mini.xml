@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 1x1：就一个记一笔按钮 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_add"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@drawable/widget_mini_bg">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="＋" android:textSize="30sp" android:textColor="#FFFFFF" android:textStyle="bold"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="记一笔" android:textSize="12sp" android:textColor="#FFFFFF" android:textStyle="bold"/>
+</LinearLayout>

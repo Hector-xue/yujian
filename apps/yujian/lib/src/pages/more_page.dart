@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'accounts_page.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
+import 'calendar_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
 import 'recurring_page.dart';
@@ -35,6 +36,7 @@ class MorePage extends StatelessWidget {
       body: ListView(
         children: [
           item(Icons.bar_chart_outlined, '月度统计', const StatsPage()),
+          item(Icons.calendar_month_outlined, '日历', const CalendarPage()),
           item(Icons.savings_outlined, '预算', const BudgetsPage()),
           item(Icons.event_repeat_outlined, '周期账单', const RecurringPage()),
           item(Icons.notifications_active_outlined, '自动记账', const AutomationPage()),
@@ -57,7 +59,9 @@ class MorePage extends StatelessWidget {
             leading: Icon(Icons.system_update_alt_outlined, color: theme.colorScheme.primary),
             title: const Text('检查更新'),
             subtitle: Text(app.availableUpdate != null ? '有新版本 ${app.availableUpdate!.version}' : '当前 $appVersion', style: theme.textTheme.bodySmall),
-            trailing: app.availableUpdate != null ? Badge(label: const Text('新'), child: Icon(Icons.chevron_right, color: YujianColors.of(context).muted)) : Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
+            trailing: app.availableUpdate != null
+                ? Badge(label: const Text('新'), child: Icon(Icons.chevron_right, color: YujianColors.of(context).muted))
+                : Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
             onTap: () async {
               final messenger = ScaffoldMessenger.of(context);
               final r = await app.checkUpdate(force: true);
@@ -95,7 +99,8 @@ class _AuditPage extends StatelessWidget {
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               title: Text('${e.action}${e.confirmedByUser ? ' ✓' : ''}'),
-              subtitle: Text('${e.at.toLocal().toIso8601String().substring(0, 19).replaceAll('T', ' ')} · ${e.actor.db}${e.modelUsed != null ? ' · ${e.modelUsed}' : ''}', style: theme.textTheme.bodySmall),
+              subtitle:
+                  Text('${e.at.toLocal().toIso8601String().substring(0, 19).replaceAll('T', ' ')} · ${e.actor.db}${e.modelUsed != null ? ' · ${e.modelUsed}' : ''}', style: theme.textTheme.bodySmall),
             ),
         ],
       ),

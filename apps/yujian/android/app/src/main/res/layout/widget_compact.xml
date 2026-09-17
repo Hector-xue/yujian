@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2x1：余额 + 记一笔 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/widget_bg"
+    android:paddingLeft="16dp"
+    android:paddingRight="12dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="余额" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold"/>
+        <TextView android:id="@+id/widget_balance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="20sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/widget_expense" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="本月支出 ¥ 0.00" android:textSize="11sp" android:textColor="#6C7580" android:maxLines="1" android:ellipsize="end"/>
+    </LinearLayout>
+    <TextView
+        android:id="@+id/widget_add"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/widget_button_bg"
+        android:paddingLeft="12dp" android:paddingRight="12dp" android:paddingTop="8dp" android:paddingBottom="8dp"
+        android:text="＋ 记一笔" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold"/>
+</LinearLayout>

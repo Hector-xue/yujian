@@ -83,11 +83,13 @@ class _SyncPageState extends State<SyncPage> {
               ),
               const SizedBox(width: 12),
               FilledButton(
-                onPressed: busy ? null : () => _run('同步', (c) async {
-                  final r = await c.sync();
-                  app.touch();
-                  return '同步完成：$r';
-                }),
+                onPressed: busy
+                    ? null
+                    : () => _run('同步', (c) async {
+                          final r = await c.sync();
+                          app.touch();
+                          return '同步完成：$r';
+                        }),
                 child: const Text('立即同步'),
               ),
             ],
@@ -106,11 +108,13 @@ class _SyncPageState extends State<SyncPage> {
           Row(
             children: [
               OutlinedButton(
-                onPressed: busy ? null : () => _run('上传备份', (c) async {
-                  if (passphrase.text.length < 6) throw SyncException('口令至少 6 位');
-                  final i = await c.uploadBackup(passphrase.text);
-                  return '已上传 ${(i.size / 1024).toStringAsFixed(1)} KB';
-                }),
+                onPressed: busy
+                    ? null
+                    : () => _run('上传备份', (c) async {
+                          if (passphrase.text.length < 6) throw SyncException('口令至少 6 位');
+                          final i = await c.uploadBackup(passphrase.text);
+                          return '已上传 ${(i.size / 1024).toStringAsFixed(1)} KB';
+                        }),
                 child: const Text('上传备份'),
               ),
               const SizedBox(width: 12),

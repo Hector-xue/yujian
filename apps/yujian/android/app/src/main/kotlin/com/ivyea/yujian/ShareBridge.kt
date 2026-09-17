@@ -22,12 +22,13 @@ object ShareBridge {
         }
     }
 
-    fun handle(activity: MainActivity, intent: Intent?) {
+    /** initial=true 是冷启动：这时 Dart 侧还没挂上 handler，直接 invoke 会丢，存起来等它来取。 */
+    fun handle(activity: MainActivity, intent: Intent?, initial: Boolean = false) {
         if (intent == null) return
         // 内部跳转（快捷方式 / 小部件）：yujian://chat 这类，交给 Flutter 切页
         if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "yujian") {
             val route = intent.data?.host ?: return
-            deliver(mapOf("kind" to "route", "text" to route))
+            deliver(mapOf("kind" to "route", "text" to route), initial)
             return
         }
         if (intent.action != Intent.ACTION_SEND) return
@@ -41,11 +42,11 @@ object ShareBridge {
             }
             else -> return
         }
-        deliver(payload)
+        deliver(payload, initial)
     }
 
-    private fun deliver(payload: Map<String, Any?>) {
+    private fun deliver(payload: Map<String, Any?>, initial: Boolean) {
         val ch = channel
-        if (ch != null) ch.invokeMethod("onShare", payload) else pending = payload
+        if (ch != null && !initial) ch.invokeMethod("onShare", payload) else pending = payload
     }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
@@ -11,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../version.dart';
+import '../voice/chat_files_native.dart' if (dart.library.js_interop) '../voice/chat_files_web.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
 import '../voice/offline_asr_sheet.dart';
 import '../voice/voice_input.dart';
@@ -19,6 +22,7 @@ import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
 import 'budgets_page.dart';
+import 'calendar_page.dart';
 import 'settings_page.dart';
 import 'stats_page.dart';
 
@@ -32,6 +36,7 @@ sealed class _Msg {
         'draft' => _DraftMsg(j['group'] as String, (j['meta'] as String?) ?? ''),
         'query' => _QueryMsg(QueryResult.fromJson((j['result'] as Map).cast<String, Object?>()), (j['meta'] as String?) ?? ''),
         'sticker' => _StickerMsg(j['text'] as String),
+        'image' => _ImageMsg(name: (j['name'] as String?) ?? '', path: j['path'] as String?),
         _ => null,
       };
 }
@@ -64,6 +69,16 @@ class _TextMsg extends _Msg {
   _TextMsg(this.text);
   @override
   Map<String, Object?> toJson() => {'t': 'text', 'text': text};
+}
+
+/// 用户发的图片：bytes 只在本次会话里有，path 落盘后历史里再读。
+class _ImageMsg extends _Msg {
+  final String name;
+  final String? path;
+  Uint8List? bytes;
+  _ImageMsg({required this.name, this.path, this.bytes});
+  @override
+  Map<String, Object?> toJson() => {'t': 'image', 'name': name, 'path': path};
 }
 
 /// 人格甩出来的表情包（大 emoji）。
@@ -270,7 +285,8 @@ class _ChatPageState extends State<ChatPage> {
       context: context,
       builder: (d) => AlertDialog(
         title: const Text('语音诊断'),
-        content: Column(
+        content: SingleChildScrollView(
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -285,9 +301,24 @@ class _ChatPageState extends State<ChatPage> {
             Text('③ ${line('cloud', '云端转写')}'),
             const SizedBox(height: 10),
             Text('⓪ 装了就优先走，完全不依赖手机系统；①② 由手机系统提供，小米 / HyperOS 等常常不可用；③ 模型端点支持 /audio/transcriptions 就能用。', style: Theme.of(d).textTheme.bodySmall),
+            if (_voice.log.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text('最近日志', style: Theme.of(d).textTheme.bodySmall),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 140),
+                child: SingleChildScrollView(child: Text(_voice.log.reversed.take(12).join('\n'), style: Theme.of(d).textTheme.bodySmall?.copyWith(fontSize: 11))),
+              ),
+            ],
           ],
-        ),
+        )),
         actions: [
+          TextButton(
+              onPressed: () {
+                final text = ['余见 $appVersion 语音诊断', '离线包：${offline ? '已装' : '未装'}', ...r.entries.map((e) => '${e.key}: ${e.value}'), '--- 日志 ---', ..._voice.log].join('\n');
+                Clipboard.setData(ClipboardData(text: text));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('诊断信息已复制，发给开发者')));
+              },
+              child: const Text('复制日志')),
           TextButton(onPressed: () => Navigator.pop(d), child: const Text('关闭')),
           if (LocalAsr.supported && !offline)
             FilledButton(
@@ -324,9 +355,13 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _holdEnd({required bool cancel}) async {
     if (!_holding) return;
-    setState(() => _holding = false);
+    final reallyCancel = cancel || _cancelHint;
+    setState(() {
+      _holding = false;
+      _cancelHint = false;
+    });
     if (_phase == VoicePhase.idle) return;
-    if (cancel) {
+    if (reallyCancel) {
       await _voice.cancel(onPhase: _setPhase);
       _input.clear();
       return;
@@ -446,8 +481,10 @@ class _ChatPageState extends State<ChatPage> {
     final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
     if (x == null || !mounted) return;
     final bytes = await x.readAsBytes();
+    final path = await saveChatImage(bytes, x.name.split('.').last.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '').ifEmpty('jpg'));
+    if (!mounted) return;
     setState(() {
-      _msgs.add(_UserMsg('［图片 ${x.name}］'));
+      _msgs.add(_ImageMsg(name: x.name, path: path, bytes: bytes));
       _busy = true;
     });
     final r = await app.sayImage(bytes, x.mimeType ?? 'image/jpeg');
@@ -488,8 +525,10 @@ class _ChatPageState extends State<ChatPage> {
       _input.text = item.text!.trim();
       await _send();
     } else if (item.kind == 'image' && item.bytes != null) {
+      final path = await saveChatImage(item.bytes!, (item.mime ?? 'image/jpeg').contains('png') ? 'png' : 'jpg');
+      if (!mounted) return;
       setState(() {
-        _msgs.add(_UserMsg('［分享的图片］'));
+        _msgs.add(_ImageMsg(name: '分享的图片', path: path, bytes: item.bytes));
         _busy = true;
       });
       final r = await app.sayImage(item.bytes!, item.mime ?? 'image/jpeg');
@@ -528,27 +567,31 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: _msgs.isEmpty && _historyLoaded
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          PersonaAvatar(app.persona, size: 56),
-                          const SizedBox(height: 16),
-                          Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"',
-                              textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    itemCount: _msgs.length,
-                    itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
-                  ),
+            child: Stack(children: [
+              Positioned.fill(
+                  child: _msgs.isEmpty && _historyLoaded
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                PersonaAvatar(app.persona, size: 56),
+                                const SizedBox(height: 16),
+                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"',
+                                    textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scroll,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                          itemCount: _msgs.length,
+                          itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
+                        )),
+              if (_holding || _phase == VoicePhase.transcribing) Positioned(left: 16, right: 16, bottom: 8, child: _HoldBanner(phase: _phase, cancel: _cancelHint, partial: _input.text)),
+            ]),
           ),
           // 快捷操作：手动记 / 本月 / 预算
           SizedBox(
@@ -559,17 +602,13 @@ class _ChatPageState extends State<ChatPage> {
               children: [
                 _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
                 _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
+                _chip(Icons.calendar_month_outlined, '日历', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()))),
                 _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
                 if (app.vision != null) _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(_speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', _toggleSpeak),
               ],
             ),
           ),
-          if (_holding)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: _HoldBanner(phase: _phase, cancel: _cancelHint, partial: _input.text),
-            ),
           SafeArea(
             top: false,
             child: Padding(
@@ -683,6 +722,17 @@ class _ChatPageState extends State<ChatPage> {
             child: Text(m.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15)),
           ),
         ));
+      case _ImageMsg():
+        return Align(
+          alignment: Alignment.centerRight,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220, maxHeight: 280),
+              child: _ChatImage(msg: m),
+            ),
+          ),
+        );
       case _StickerMsg():
         return withAvatar(Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(top: 2), child: Text(m.text, style: const TextStyle(fontSize: 44, height: 1.1)))));
       case _DraftMsg():
@@ -698,6 +748,28 @@ class _ChatPageState extends State<ChatPage> {
       case _QueryMsg():
         return withAvatar(_QueryCard(result: m.result, meta: m.meta));
     }
+  }
+}
+
+/// 聊天里的图片：本次会话有 bytes 直接画，否则从落盘路径读；都没有就画个占位。
+class _ChatImage extends StatelessWidget {
+  final _ImageMsg msg;
+  const _ChatImage({required this.msg});
+  @override
+  Widget build(BuildContext context) {
+    final y = YujianColors.of(context);
+    Widget placeholder() => Container(width: 160, height: 90, alignment: Alignment.center, color: y.cardFill, child: Text('［图片 ${msg.name}］', style: Theme.of(context).textTheme.bodySmall));
+    if (msg.bytes != null) return Image.memory(msg.bytes!, fit: BoxFit.cover);
+    if (msg.path == null) return placeholder();
+    return FutureBuilder<Uint8List?>(
+      future: readChatImage(msg.path!),
+      builder: (ctx, snap) {
+        final b = snap.data;
+        if (b == null) return placeholder();
+        msg.bytes = b;
+        return Image.memory(b, fit: BoxFit.cover);
+      },
+    );
   }
 }
 
@@ -721,9 +793,10 @@ class _HoldToTalk extends StatelessWidget {
     };
     return GestureDetector(
       onLongPressStart: (_) => onStart(),
-      onLongPressMoveUpdate: (d) => onMove(d.localOffsetFromOrigin.dy < -60),
-      onLongPressEnd: (d) => onEnd(d.localPosition.dy < -60),
-      onLongPressCancel: () => onEnd(true),
+      onLongPressMoveUpdate: (d) => onMove(d.localOffsetFromOrigin.dy < -70),
+      onLongPressEnd: (_) => onEnd(false),
+      // 手势被系统打断（弹窗、来电、布局跳动）不当取消，按松开处理，别把用户说的一段话扔了
+      onLongPressCancel: () => onEnd(false),
       onTap: () => ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text('按住说话，松开发送，上滑取消'), duration: Duration(seconds: 2))),
@@ -832,4 +905,8 @@ class _QueryCard extends StatelessWidget {
       ],
     );
   }
+}
+
+extension on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

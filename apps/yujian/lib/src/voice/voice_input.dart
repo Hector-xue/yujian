@@ -68,7 +68,10 @@ class VoiceInput {
       required void Function(VoicePhase) onPhase,
       required void Function(String) onNotice,
       void Function(String reason)? onFailed}) async {
-    if (phase != VoicePhase.idle) return;
+    if (phase != VoicePhase.idle) {
+      _log('start 被忽略：phase=$phase');
+      return;
+    }
     final order = [
       if (await LocalAsr.installed()) VoiceEngine.local,
       VoiceEngine.system,
@@ -77,6 +80,7 @@ class VoiceInput {
     ];
     final reasons = <String>[];
     if (transcriber == null) lastReport['cloud'] = '没配「语音转写模型」';
+    _log('start 顺序=${order.map((e) => e.name).join('>')} 已坏=${broken.keys.map((e) => e.name).join(',')}');
     for (final e in order) {
       if (broken.containsKey(e)) {
         reasons.add('${_name(e)}：${broken[e]}');
@@ -92,15 +96,18 @@ class VoiceInput {
         };
         if (ok) {
           active = e;
+          _log('引擎 ${e.name} 已开始，phase=$phase');
           return;
         }
       } catch (err) {
+        _log('引擎 ${e.name} 起不来：$err');
         broken[e] = err.toString();
         reasons.add('${_name(e)}：$err');
       }
     }
     phase = VoicePhase.idle;
     onPhase(phase);
+    _log('全部失败：${reasons.join('；')}');
     throw VoiceUnavailable(reasons.isEmpty ? '这台设备没有可用的语音识别' : reasons.join('；'));
   }
 
@@ -128,6 +135,15 @@ class VoiceInput {
 
   /// 最近一次每条路的结论，给诊断面板看。
   final lastReport = <String, String>{};
+
+  /// 事件流水（带时间），诊断面板里可以整段复制发给开发者。
+  final log = <String>[];
+  void _log(String m) {
+    final t = DateTime.now();
+    log.add('${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}.${(t.millisecond ~/ 10).toString().padLeft(2, '0')} $m');
+    if (log.length > 60) log.removeAt(0);
+  }
+
   void Function(String)? _sysPartial;
   void Function(String)? _sysFinal;
   void Function(VoicePhase)? _sysPhase;
@@ -256,6 +272,7 @@ class VoiceInput {
       throw VoiceUnavailable('没有麦克风权限');
     }
     final wav = e == VoiceEngine.local;
+    _log('开始录音 ${wav ? 'wav16k' : 'aac'}');
     await _recorder.start(
       RecordConfig(encoder: wav ? AudioEncoder.wav : AudioEncoder.aacLc, bitRate: 64000, sampleRate: 16000, numChannels: 1),
       path: await audio.recordingPath(ext: wav ? 'wav' : 'm4a'),
@@ -266,6 +283,7 @@ class VoiceInput {
 
   /// 用户再按一下：system 停止听（会触发 final）；cloud 结束录音并转写。
   Future<String?> stop({required void Function(VoicePhase) onPhase}) async {
+    _log('stop 引擎=${active?.name} phase=$phase');
     switch (active) {
       case VoiceEngine.system:
         _userStopped = true;
@@ -282,11 +300,14 @@ class VoiceInput {
         phase = VoicePhase.transcribing;
         onPhase(phase);
         try {
+          final sw = Stopwatch()..start();
           final text = await LocalAsr.transcribeWav(path);
           lastReport['local'] = text.isEmpty ? '识别为空（没录到声音？）' : '识别成功';
+          _log('离线识别 ${sw.elapsedMilliseconds}ms → "${text.length > 30 ? text.substring(0, 30) : text}"');
           return text;
         } catch (e) {
           lastReport['local'] = '离线识别出错：$e';
+          _log('离线识别出错：$e');
           rethrow;
         } finally {
           await audio.deleteRecording(path);
@@ -324,6 +345,7 @@ class VoiceInput {
   /// 上滑取消：丢掉这次录音 / 识别，不出结果。
   Future<void> cancel({required void Function(VoicePhase) onPhase}) async {
     final e = active;
+    _log('cancel 引擎=${e?.name}');
     active = null;
     try {
       switch (e) {

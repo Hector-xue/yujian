@@ -12,7 +12,7 @@ class MainActivity : FlutterActivity() {
         SpeechBridge.register(this, flutterEngine)
         WidgetBridge.register(applicationContext, flutterEngine)
         UpdateBridge.register(applicationContext, flutterEngine)
-        ShareBridge.handle(this, intent)
+        ShareBridge.handle(this, intent, initial = true)
     }
 
     @Suppress("DEPRECATION")
