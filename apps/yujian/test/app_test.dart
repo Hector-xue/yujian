@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:notification_templates/notification_templates.dart';
 import 'package:persona/persona.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/notifications/notification_source.dart';
@@ -12,13 +13,15 @@ import 'package:yujian/src/settings_store.dart';
 void main() {
   late AppState state;
   setUp(() {
+    SharedPreferences.setMockInitialValues({}); // 对话历史 / 更新检查落盘用
     state = AppState(Ledger(openLedgerDatabaseInMemory()))..bootstrap();
   });
 
   testWidgets('home renders and bootstrap seeds accounts', (tester) async {
     await tester.pumpWidget(YujianApp(state: state));
     await tester.pumpAndSettle();
-    expect(find.text('支出'), findsOneWidget);
+    expect(find.text('本月支出'), findsOneWidget);
+    expect(find.text('余额'), findsOneWidget);
     expect(state.accounts.length, 3);
     expect(state.categories.length, 19);
   });

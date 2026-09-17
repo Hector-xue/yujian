@@ -3,6 +3,8 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../db/open_db.dart';
+import '../update/update_sheet.dart';
+import '../version.dart';
 import '../theme.dart';
 import 'accounts_page.dart';
 import 'automation_page.dart';
@@ -50,9 +52,26 @@ class MorePage extends StatelessWidget {
             trailing: Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
             onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
           ),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+            leading: Icon(Icons.system_update_alt_outlined, color: theme.colorScheme.primary),
+            title: const Text('检查更新'),
+            subtitle: Text(app.availableUpdate != null ? '有新版本 ${app.availableUpdate!.version}' : '当前 $appVersion', style: theme.textTheme.bodySmall),
+            trailing: app.availableUpdate != null ? Badge(label: const Text('新'), child: Icon(Icons.chevron_right, color: YujianColors.of(context).muted)) : Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
+            onTap: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final r = await app.checkUpdate(force: true);
+              if (!context.mounted) return;
+              if (r == null) {
+                messenger.showSnackBar(const SnackBar(content: Text('已经是最新版')));
+              } else {
+                await showUpdateSheet(context, r, onSkip: () => app.skipUpdate(r.version));
+              }
+            },
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-            child: SelectableText('余见 0.4.1 · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

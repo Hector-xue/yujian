@@ -7,7 +7,10 @@ class HomeWidgetBridge {
 
   static bool get supported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  static Future<void> update({required String balance, required String expense, required String income, required String month}) async {
+  /// 只在 Android 上给实例，别的平台 null。
+  static HomeWidgetBridge? ifSupported() => supported ? HomeWidgetBridge() : null;
+
+  Future<void> update({required String balance, required String expense, required String income, required String month}) async {
     if (!supported) return;
     try {
       await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month});

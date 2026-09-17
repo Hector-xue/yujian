@@ -8,6 +8,7 @@ import 'package:notification_templates/notification_templates.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sync_client/sync_client.dart';
 
 import 'db/db_file.dart';
@@ -15,6 +16,7 @@ import 'notifications/notification_source.dart';
 import 'notifications/share_source.dart';
 import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
+import 'update/updater.dart';
 import 'widgets/fmt.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
@@ -36,7 +38,10 @@ class AppState extends ChangeNotifier {
   PersonaPack persona = builtinPersonas.first;
   PersonaReplier replier = PersonaReplier(builtinPersonas.first);
 
-  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications})
+  /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
+  final HomeWidgetBridge? homeWidget;
+
+  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications, this.homeWidget})
       : engine = QueryEngine(ledger),
         settingsStore = settingsStore ?? MemorySettingsStore(),
         notifications = notifications ?? FakeNotificationSource();
@@ -118,6 +123,36 @@ class AppState extends ChangeNotifier {
     return s;
   }
 
+  // ---------------------------------------------------------------- 更新
+  ReleaseInfo? availableUpdate;
+  bool updatePrompted = false;
+
+  /// 启动时最多一天查一次；「检查更新」按钮 force。被跳过的版本不再弹。
+  Future<ReleaseInfo?> checkUpdate({bool force = false}) async {
+    final p = await SharedPreferences.getInstance();
+    final last = p.getInt('update_last_check') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!force && now - last < 24 * 3600 * 1000) return availableUpdate;
+    final r = await Updater.check();
+    await p.setInt('update_last_check', now);
+    if (r == null || !r.isNewer) {
+      availableUpdate = null;
+      notifyListeners();
+      return null;
+    }
+    if (!force && p.getString('update_skipped') == r.version) return null;
+    availableUpdate = r;
+    notifyListeners();
+    return r;
+  }
+
+  Future<void> skipUpdate(String version) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('update_skipped', version);
+    availableUpdate = null;
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------- 小部件
   Timer? _widgetTimer;
 
@@ -125,13 +160,15 @@ class AppState extends ChangeNotifier {
   @override
   void notifyListeners() {
     super.notifyListeners();
-    if (!HomeWidgetBridge.supported) return;
+    if (homeWidget == null) return;
     _widgetTimer?.cancel();
     _widgetTimer = Timer(const Duration(seconds: 1), pushHomeWidget);
   }
 
   /// 本月支出 / 收入 / 余额（CNY）推给桌面小部件。
   Future<void> pushHomeWidget() async {
+    final w = homeWidget;
+    if (w == null) return;
     try {
       final now = DateTime.now();
       final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
@@ -141,7 +178,7 @@ class AppState extends ChangeNotifier {
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
       final balance = ledger.balances().values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
-      await HomeWidgetBridge.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月');
+      await w.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月');
     } catch (_) {}
   }
 

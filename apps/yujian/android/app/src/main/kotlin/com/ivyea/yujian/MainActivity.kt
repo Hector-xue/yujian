@@ -11,6 +11,7 @@ class MainActivity : FlutterActivity() {
         ShareBridge.register(flutterEngine)
         SpeechBridge.register(this, flutterEngine)
         WidgetBridge.register(applicationContext, flutterEngine)
+        UpdateBridge.register(applicationContext, flutterEngine)
         ShareBridge.handle(this, intent)
     }
 

@@ -10,14 +10,16 @@ import 'src/pages/home_page.dart';
 import 'src/pages/inbox_page.dart';
 import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
+import 'src/platform/home_widget_bridge.dart';
 import 'src/notifications/notification_source.dart';
 import 'src/settings_store.dart';
 import 'src/theme.dart';
+import 'src/update/update_sheet.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await openAppDatabase();
-  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource())..bootstrap();
+  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
   await state.loadSettings();
   state.generateRecurring();
   await state.startNotifications();
@@ -25,6 +27,7 @@ Future<void> main() async {
   runApp(YujianApp(state: state));
   unawaited(state.syncNow()); // 启动后台同步，不挡首屏
   unawaited(state.pushHomeWidget());
+  unawaited(state.checkUpdate());
 }
 
 class YujianApp extends StatelessWidget {
@@ -71,6 +74,11 @@ class _ShellState extends State<Shell> {
     final inboxCount = app.inbox.length;
     // 对话放正中间：首页 · 收件箱 · 对话 · 记录 · 更多
     const chatIndex = 2;
+    final upd = app.availableUpdate;
+    if (upd != null && !app.updatePrompted) {
+      app.updatePrompted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => showUpdateSheet(context, upd, onSkip: () => app.skipUpdate(upd.version)));
+    }
     final share = app.pendingShare;
     if (share != null && share.kind == 'route') {
       // 快捷方式 / 小部件进来的跳转：只切页，不进对话
