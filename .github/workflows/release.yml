@@ -121,10 +121,18 @@ jobs:
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "yujian-${ver}-android-arm32.apk"
           (cd build/web && zip -qr "../../yujian-${ver}-web.zip" .)
           ls -la yujian-*
+      - name: release notes from CHANGELOG
+        working-directory: ${{ github.workspace }}
+        run: |
+          ver=${GITHUB_REF_NAME#v}
+          # 取 CHANGELOG 里 "## <ver>" 到下一个 "## " 之间的正文；App 内更新弹窗直接显示这段
+          awk -v v="$ver" '/^## /{p = index($0, "## " v " ") == 1 || $0 == "## " v} p' CHANGELOG.md | tail -n +2 > release-notes.md
+          [ -s release-notes.md ] || echo "余见 $ver" > release-notes.md
+          cat release-notes.md
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             apps/yujian/yujian-*-android-*.apk
             apps/yujian/yujian-*-web.zip
-          generate_release_notes: true
+          body_path: release-notes.md

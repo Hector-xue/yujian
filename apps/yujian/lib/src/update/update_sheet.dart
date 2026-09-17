@@ -47,10 +47,11 @@ class _UpdateSheetState extends State<_UpdateSheet> {
   }
 
   Future<void> _open(String url) async {
+    final messenger = ScaffoldMessenger.of(context);
     final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
+    if (!ok) {
       await Clipboard.setData(ClipboardData(text: url));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('打不开浏览器，链接已复制')));
+      messenger.showSnackBar(const SnackBar(content: Text('打不开浏览器，链接已复制')));
     }
   }
 
