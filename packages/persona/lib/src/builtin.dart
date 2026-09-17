@@ -7,6 +7,8 @@ const _common = {
 const builtinPersonas = <PersonaPack>[
   PersonaPack(
     id: 'minimalist',
+    emoji: '◎',
+    accent: 0x2F6B4F,
     name: '极简助手',
     tagline: '短句，低干扰',
     style: '''
@@ -25,6 +27,8 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'catgirl',
+    emoji: '🐱',
+    accent: 0xC2617A,
     name: '猫娘',
     tagline: '轻松可爱，适度提醒',
     style: '''
@@ -44,6 +48,8 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'coach',
+    emoji: '🏃',
+    accent: 0x2E6DB4,
     name: '财务教练',
     tagline: '目标导向，强调预算',
     style: '''
@@ -62,6 +68,8 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'auditor',
+    emoji: '🧾',
+    accent: 0x5A5F66,
     name: '严谨审计员',
     tagline: '展示依据，强调确认',
     style: '''
@@ -80,6 +88,8 @@ const builtinPersonas = <PersonaPack>[
   ),
   PersonaPack(
     id: 'companion',
+    emoji: '🌿',
+    accent: 0x6E8B3D,
     name: '温和陪伴者',
     tagline: '不羞辱消费',
     style: '''

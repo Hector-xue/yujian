@@ -5,10 +5,12 @@ class PersonaPack {
   final String tagline;
   final String style; // 风格段：称呼、语气、长度、表情、提醒方式
   final Map<String, String> templates; // 事件 → 话术，{n} {amount} {label} 占位
+  final String emoji; // 头像
+  final int accent; // 主题色 0xRRGGBB
 
-  const PersonaPack({required this.id, required this.name, required this.tagline, required this.style, required this.templates});
+  const PersonaPack({required this.id, required this.name, required this.tagline, required this.style, required this.templates, this.emoji = '◎', this.accent = 0x2F6B4F});
 
-  Map<String, Object?> toJson() => {'id': id, 'name': name, 'tagline': tagline, 'style': style, 'templates': templates};
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'tagline': tagline, 'style': style, 'templates': templates, 'emoji': emoji, 'accent': accent.toRadixString(16).padLeft(6, '0')};
 
   factory PersonaPack.fromJson(Map<String, Object?> j) => PersonaPack(
         id: j['id'] as String,
@@ -16,6 +18,8 @@ class PersonaPack {
         tagline: (j['tagline'] as String?) ?? '',
         style: (j['style'] as String?) ?? '',
         templates: ((j['templates'] as Map?) ?? const {}).cast<String, String>(),
+        emoji: (j['emoji'] as String?) ?? '◎',
+        accent: j['accent'] is String ? (int.tryParse((j['accent'] as String).replaceFirst('#', ''), radix: 16) ?? 0x2F6B4F) : ((j['accent'] as num?)?.toInt() ?? 0x2F6B4F),
       );
 }
 

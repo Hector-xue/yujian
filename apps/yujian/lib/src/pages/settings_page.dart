@@ -6,6 +6,7 @@ import 'package:providers/providers.dart';
 
 import '../app_state.dart';
 import '../settings_store.dart';
+import '../widgets/persona_avatar.dart';
 
 /// 模型与人格（§9 配置中心是一等功能）。能力按实测：点"测试连接"真发请求。
 class SettingsPage extends StatefulWidget {
@@ -164,6 +165,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   RadioListTile<String>(
                     value: p.id,
                     contentPadding: EdgeInsets.zero,
+                    secondary: PersonaAvatar(p, size: 36),
                     title: Text(p.name),
                     subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1') ?? ''}"', style: theme.textTheme.bodySmall),
                   ),

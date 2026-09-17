@@ -1,11 +1,14 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 import 'package:query_dsl/query_dsl.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../app_state.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
+import '../widgets/persona_avatar.dart';
 
 sealed class _Msg {}
 
@@ -43,6 +46,67 @@ class _ChatPageState extends State<ChatPage> {
   final _scroll = ScrollController();
   final _msgs = <_Msg>[];
   var _busy = false;
+  final _speech = SpeechToText();
+  var _listening = false;
+  String? _speechLocale;
+
+  /// 系统语音识别只有这几个平台有；桌面 Linux/Windows 没有，按钮不出现。
+  static bool get _speechPlatform => kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS;
+
+  @override
+  void dispose() {
+    if (_listening) _speech.stop();
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// 麦克风：按一下开始听，识别到完整一句就直接发出去（草稿仍要在收件箱确认，听错了不会入账）；再按一下停。
+  Future<void> _toggleListen() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    if (!_speech.isAvailable) {
+      final ok = await _speech.initialize(
+        onStatus: (st) {
+          if ((st == 'done' || st == 'notListening') && mounted) setState(() => _listening = false);
+        },
+        onError: (e) {
+          if (!mounted) return;
+          setState(() {
+            _listening = false;
+            _msgs.add(_TextMsg(e.errorMsg == 'error_no_match' ? '没听清，再说一遍' : '语音识别出错：${e.errorMsg}'));
+          });
+        },
+      );
+      if (!ok) {
+        if (mounted) setState(() => _msgs.add(_TextMsg(kIsWeb ? '这个浏览器不支持语音识别（试试 Chrome）' : '没有麦克风权限，或这台设备没有语音识别服务')));
+        return;
+      }
+      for (final l in await _speech.locales()) {
+        if (l.localeId.toLowerCase().startsWith('zh')) {
+          _speechLocale = l.localeId;
+          break;
+        }
+      }
+    }
+    if (!mounted) return;
+    setState(() => _listening = true);
+    await _speech.listen(
+      onResult: (r) {
+        if (!mounted) return;
+        _input.text = r.recognizedWords;
+        _input.selection = TextSelection.collapsed(offset: _input.text.length);
+        if (r.finalResult) {
+          setState(() => _listening = false);
+          if (r.recognizedWords.trim().isNotEmpty) _send();
+        }
+      },
+      listenOptions: SpeechListenOptions(partialResults: true, cancelOnError: true, localeId: _speechLocale, pauseFor: const Duration(seconds: 3)),
+    );
+  }
 
   Future<void> _send() async {
     final text = _input.text.trim();
@@ -165,7 +229,12 @@ class _ChatPageState extends State<ChatPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShare(app));
     }
     return Scaffold(
-      appBar: AppBar(title: Text(app.persona.name)),
+      appBar: AppBar(
+        titleSpacing: 0,
+        leading: Padding(padding: const EdgeInsets.only(left: 16), child: PersonaAvatar(app.persona, size: 32)),
+        leadingWidth: 56,
+        title: Text(app.persona.name),
+      ),
       body: Column(
         children: [
           Expanded(
@@ -173,7 +242,14 @@ class _ChatPageState extends State<ChatPage> {
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(32),
-                      child: Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          PersonaAvatar(app.persona, size: 56),
+                          const SizedBox(height: 16),
+                          Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"', textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                        ],
+                      ),
                     ),
                   )
                 : ListView.builder(
@@ -191,12 +267,18 @@ class _ChatPageState extends State<ChatPage> {
               child: Row(
                 children: [
                   if (app.vision != null) IconButton(onPressed: _busy ? null : _pickImage, icon: const Icon(Icons.image_outlined), tooltip: '识别截图 / 小票'),
+                  if (_speechPlatform)
+                    IconButton(
+                      onPressed: _busy ? null : _toggleListen,
+                      icon: Icon(_listening ? Icons.mic : Icons.mic_none, color: _listening ? theme.colorScheme.primary : null),
+                      tooltip: _listening ? '停止' : '语音输入',
+                    ),
                   Expanded(
                     child: TextField(
                       controller: _input,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
-                      decoration: const InputDecoration(hintText: '记一笔，或问问账本'),
+                      decoration: InputDecoration(hintText: _listening ? '在听…说完停 3 秒自动发出' : '记一笔，或问问账本'),
                     ),
                   ),
                   const SizedBox(width: 6),

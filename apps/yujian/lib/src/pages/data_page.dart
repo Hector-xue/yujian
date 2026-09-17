@@ -6,8 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../db/db_file.dart';
 
-/// 数据：导出 CSV / 备份 JSON / 恢复 / 导入账单。所有导入只进收件箱。
+/// 数据：导出 CSV / 备份 JSON 或 SQLite 文件 / 恢复 / 导入账单。所有导入只进收件箱。
 class DataPage extends StatefulWidget {
   const DataPage({super.key});
   @override
@@ -25,6 +26,30 @@ class _DataPageState extends State<DataPage> {
     } catch (e) {
       setState(() => status = '保存失败：$e');
     }
+  }
+
+  Future<void> _saveBytes(String name, Uint8List bytes, {required String ext}) async {
+    try {
+      final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
+      setState(() => status = path == null ? '已取消' : '已保存 $name（${(bytes.length / 1024).toStringAsFixed(0)} KB）');
+    } catch (e) {
+      setState(() => status = '保存失败：$e');
+    }
+  }
+
+  Future<bool?> _confirmReplace(BuildContext context, AppState app) {
+    final n = app.ledger.listTransactions(limit: 1 << 30).length;
+    return showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('恢复备份？'),
+        content: Text('当前账本有 $n 笔记录，会被备份内容整体替换。建议先备份一次当前账本。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('替换')),
+        ],
+      ),
+    );
   }
 
   Future<String?> _pickText() async {
@@ -57,6 +82,14 @@ class _DataPageState extends State<DataPage> {
         children: [
           item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _save('yujian-$stamp.csv', exportCsv(app.ledger))),
           item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、记忆全量；恢复时整库替换', () => _save('yujian-backup-$stamp.json', exportJsonString(app.ledger), ext: 'json')),
+          if (sqliteFileSupported)
+            item(Icons.storage_outlined, '备份数据库文件（SQLite）', '账本原文件的一致快照，含草稿、审计、预算、周期账单；可直接用 SQLite 工具打开', () async {
+              try {
+                await _saveBytes('yujian-$stamp.db', snapshotDatabase(app.ledger.database), ext: 'db');
+              } catch (e) {
+                setState(() => status = '快照失败：$e');
+              }
+            }),
           item(Icons.restore_outlined, '恢复备份', '会清空当前账本再写入备份内容', () async {
             final text = await _pickText();
             if (text == null) {
@@ -64,18 +97,7 @@ class _DataPageState extends State<DataPage> {
               return;
             }
             if (!context.mounted) return;
-            final n = app.ledger.listTransactions(limit: 1 << 30).length;
-            final ok = await showDialog<bool>(
-              context: context,
-              builder: (d) => AlertDialog(
-                title: const Text('恢复备份？'),
-                content: Text('当前账本有 $n 笔记录，会被备份内容整体替换。建议先备份一次当前账本。'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
-                  FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('替换')),
-                ],
-              ),
-            );
+            final ok = await _confirmReplace(context, app);
             if (ok != true) return;
             try {
               final restored = app.restoreBackup(jsonDecode(text) as Map<String, Object?>);
@@ -86,6 +108,26 @@ class _DataPageState extends State<DataPage> {
               setState(() => status = '恢复失败：${e.message}');
             }
           }),
+          if (sqliteFileSupported)
+            item(Icons.settings_backup_restore_outlined, '恢复数据库文件（SQLite）', '用余见的 .db 备份整库替换；来自别的设备也可以，同步身份会重置', () async {
+              final r = await FilePicker.platform.pickFiles(withData: true, type: FileType.any);
+              final f = r?.files.single;
+              if (f == null || f.bytes == null) {
+                setState(() => status = '没有读到文件');
+                return;
+              }
+              if (!context.mounted) return;
+              final ok = await _confirmReplace(context, app);
+              if (ok != true) return;
+              try {
+                final restored = await app.restoreSqlite(f.bytes!);
+                setState(() => status = '已恢复 $restored 笔交易');
+              } on FormatException catch (e) {
+                setState(() => status = '恢复失败：${e.message}');
+              } catch (e) {
+                setState(() => status = '恢复失败：$e');
+              }
+            }),
           const Divider(),
           item(Icons.file_upload_outlined, '导入账单 CSV', '微信 / 支付宝账单导出，或余见导出的 CSV；进收件箱确认后才入账', () async {
             final text = await _pickText();

@@ -34,11 +34,14 @@ class YujianApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppScope(
       state: state,
-      child: MaterialApp(
-        title: '余见',
-        theme: buildTheme(),
-        debugShowCheckedModeBanner: false,
-        home: const Shell(),
+      child: ListenableBuilder(
+        listenable: state,
+        builder: (context, _) => MaterialApp(
+          title: '余见',
+          theme: buildTheme(accent: Color(0xFF000000 | state.persona.accent)),
+          debugShowCheckedModeBanner: false,
+          home: const Shell(),
+        ),
       ),
     );
   }

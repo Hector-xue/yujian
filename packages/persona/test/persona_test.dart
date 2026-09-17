@@ -27,6 +27,9 @@ void main() {
       }
     }
     expect(personaById('nope').id, 'minimalist');
+    expect(personaById('catgirl').emoji, '🐱');
+    expect(PersonaPack.fromJson({'id': 'x', 'name': 'x', 'tagline': '', 'style': '', 'templates': {}, 'accent': '#123456'}).accent, 0x123456);
+    expect(PersonaPack.fromJson(personaById('coach').toJson()).accent, 0x2E6DB4);
   });
 
   test('templates fill placeholders', () {

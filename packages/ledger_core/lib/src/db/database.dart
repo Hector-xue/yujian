@@ -16,6 +16,11 @@ class LedgerDatabase {
   void _init({required bool wal}) {
     db.execute('PRAGMA foreign_keys = ON;');
     if (wal) db.execute('PRAGMA journal_mode = WAL;');
+    migrate();
+  }
+
+  /// 把没跑过的迁移补上。整库被外部替换（SQLite 文件恢复）后要再调一次。
+  void migrate() {
     db.execute('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);');
     final applied = db.select('SELECT version FROM schema_migrations').map((r) => r['version'] as int).toSet();
     final pending = migrations.keys.where((v) => !applied.contains(v)).toList()..sort();

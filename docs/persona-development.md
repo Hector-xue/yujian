@@ -9,6 +9,8 @@ App「更多 → 模型与人格 → 导入自定义人格包」粘一段 JSON�
   "id": "pirate",
   "name": "海盗",
   "tagline": "像海盗一样说话",
+  "emoji": "🏴‍☠️",
+  "accent": "#8B4513",
   "style": "风格：粗犷豪爽，句尾偶尔带\"啊哈\"，称呼用户\"船长\"。两句以内。",
   "templates": {
     "greeting": "船长，今天花了什么？",
@@ -25,4 +27,5 @@ App「更多 → 模型与人格 → 导入自定义人格包」粘一段 JSON�
 
 - `templates` 八个事件都要有，没配模型时直接用模板；配了模型时模型按 `style` 说话，说超过 60 字或出错就退回模板。
 - 占位符：`{n}` 笔数，`{label}` 事件说明。
+- `emoji` 是头像（一个字符），`accent` 是主题色（`#RRGGBB`）；选中该人格后对话页头像和整个 App 的强调色跟着换。两项可不填，默认 ◎ 和墨绿。
 - `id` 不能与内置的 minimalist / catgirl / coach / auditor / companion 重名。

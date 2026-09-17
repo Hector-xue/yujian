@@ -30,6 +30,9 @@ class Ledger implements ValidationContext {
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
+  /// 底层连接（备份 VACUUM INTO 等需要）。上层不要拿它写业务表。
+  LedgerDatabase get database => _db;
+
   @override
   DateTime now() => _clock();
 

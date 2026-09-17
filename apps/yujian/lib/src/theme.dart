@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// 浅色、留白、发丝线。中文标题不做负字距。
-ThemeData buildTheme() {
+/// 浅色、留白、发丝线。中文标题不做负字距。主题色跟人格走（默认墨绿）。
+ThemeData buildTheme({Color accent = const Color(0xFF2F6B4F)}) {
   const ink = Color(0xFF1F2A24);
-  const accent = Color(0xFF2F6B4F);
   final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.light).copyWith(
     surface: const Color(0xFFFBFAF7),
     onSurface: ink,

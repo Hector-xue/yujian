@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart' hide Intent;
 import 'package:interpreter/interpreter.dart';
@@ -9,6 +10,7 @@ import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
 import 'package:sync_client/sync_client.dart';
 
+import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/share_source.dart';
 import 'settings_store.dart';
@@ -405,6 +407,13 @@ class AppState extends ChangeNotifier {
   /// 恢复备份：整库替换，之后重新装配（分类/账户变了）。
   int restoreBackup(Map<String, Object?> json) {
     final n = restoreFromJson(ledger, json);
+    notifyListeners();
+    return n;
+  }
+
+  /// 用 SQLite 文件整库替换（原生端）。同步身份会被清掉，下次同步从头拉。
+  Future<int> restoreSqlite(Uint8List bytes) async {
+    final n = await restoreDatabase(ledger.database, bytes);
     notifyListeners();
     return n;
   }
