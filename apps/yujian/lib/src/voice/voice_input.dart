@@ -102,31 +102,44 @@ class VoiceInput {
 
   static String _name(VoiceEngine e) => switch (e) { VoiceEngine.system => '系统语音识别', VoiceEngine.intent => '系统语音弹窗', VoiceEngine.cloud => '云端转写' };
 
+  // system 引擎的回调：initialize 只跑一次，但每次 listen 的回调不同，所以存成字段每次覆盖，别让第一次的闭包吃掉后面的事件
+  var _finished = false;
+  void Function(String)? _sysPartial;
+  void Function(String)? _sysFinal;
+  void Function(VoicePhase)? _sysPhase;
+  void Function(String)? _sysNotice;
+  void Function(String)? _sysBroken;
+
   Future<bool> _startSystem({required void Function(String) onPartial, required void Function(String) onFinal, required void Function(VoicePhase) onPhase, required void Function(String) onNotice, required void Function(String why) onBroken}) async {
-    var finished = false;
+    _sysPartial = onPartial;
+    _sysFinal = onFinal;
+    _sysPhase = onPhase;
+    _sysNotice = onNotice;
+    _sysBroken = onBroken;
+    _finished = false;
     if (!_speechInit) {
       final ok = await _speech.initialize(
         onStatus: (st) {
-          if ((st == 'done' || st == 'notListening') && phase == VoicePhase.listening && !finished) {
+          if ((st == 'done' || st == 'notListening') && phase == VoicePhase.listening && !_finished) {
             // 系统说结束了但没给 final：拿最近识别到的当结果
-            finished = true;
+            _finished = true;
             phase = VoicePhase.idle;
-            onPhase(phase);
-            onFinal(_speech.lastRecognizedWords);
+            _sysPhase?.call(phase);
+            _sysFinal?.call(_speech.lastRecognizedWords);
           }
         },
         onError: (e) {
-          if (finished) return;
-          finished = true;
+          if (_finished) return;
+          _finished = true;
           final code = e.errorMsg;
           if (code == 'error_no_match' || code == 'no-speech' || code == 'error_speech_timeout') {
             phase = VoicePhase.idle;
-            onPhase(phase);
-            onNotice('没听清，再说一遍');
+            _sysPhase?.call(phase);
+            _sysNotice?.call('没听清，再说一遍');
             return;
           }
           // 权限/音频/客户端/服务端错误：这条路在这台机器上不通
-          onBroken(code);
+          _sysBroken?.call(code);
         },
       );
       if (!ok) throw VoiceUnavailable('系统没有语音识别服务');
@@ -142,13 +155,13 @@ class VoiceInput {
     onPhase(phase);
     await _speech.listen(
       onResult: (r) {
-        if (finished) return;
-        onPartial(r.recognizedWords);
+        if (_finished) return;
+        _sysPartial?.call(r.recognizedWords);
         if (r.finalResult) {
-          finished = true;
+          _finished = true;
           phase = VoicePhase.idle;
-          onPhase(phase);
-          onFinal(r.recognizedWords);
+          _sysPhase?.call(phase);
+          _sysFinal?.call(r.recognizedWords);
         }
       },
       listenOptions: SpeechListenOptions(partialResults: true, cancelOnError: true, localeId: _locale, pauseFor: const Duration(seconds: 3), listenFor: const Duration(seconds: 30)),
