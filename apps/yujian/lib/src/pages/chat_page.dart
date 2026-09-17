@@ -61,6 +61,15 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
+  /// 平台错误码（Android error_* / 浏览器 SpeechRecognition）翻成人话。
+  static String _speechErrorText(String code) => switch (code) {
+        'error_no_match' || 'no-speech' || 'error_speech_timeout' => '没听清，再说一遍',
+        'error_permission' || 'error_audio_error' || 'not-allowed' || 'audio-capture' => '没有麦克风权限，或麦克风被占用',
+        'error_network' || 'error_network_timeout' || 'network' => '语音识别要联网（系统识别服务走云端）',
+        'error_busy' || 'aborted' => '识别被打断了，再按一次',
+        _ => '语音识别出错：$code',
+      };
+
   /// 麦克风：按一下开始听，识别到完整一句就直接发出去（草稿仍要在收件箱确认，听错了不会入账）；再按一下停。
   Future<void> _toggleListen() async {
     if (_listening) {
@@ -77,7 +86,7 @@ class _ChatPageState extends State<ChatPage> {
           if (!mounted) return;
           setState(() {
             _listening = false;
-            _msgs.add(_TextMsg(e.errorMsg == 'error_no_match' ? '没听清，再说一遍' : '语音识别出错：${e.errorMsg}'));
+            _msgs.add(_TextMsg(_speechErrorText(e.errorMsg)));
           });
         },
       );
@@ -230,10 +239,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 0,
-        leading: Padding(padding: const EdgeInsets.only(left: 16), child: PersonaAvatar(app.persona, size: 32)),
-        leadingWidth: 56,
-        title: Text(app.persona.name),
+        title: Row(children: [PersonaAvatar(app.persona, size: 30), const SizedBox(width: 10), Text(app.persona.name)]),
       ),
       body: Column(
         children: [
