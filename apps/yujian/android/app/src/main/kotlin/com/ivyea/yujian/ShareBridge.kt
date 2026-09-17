@@ -32,15 +32,15 @@ object ShareBridge {
         }
         if (intent.action != Intent.ACTION_SEND) return
         val type = intent.type ?: return
-        val payload: Map<String, Any?>? = when {
-            type.startsWith("text/") -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { mapOf("kind" to "text", "text" to it) }
+        val payload: Map<String, Any?> = when {
+            type.startsWith("text/") -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { mapOf("kind" to "text", "text" to it) } ?: return
             type.startsWith("image/") -> {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: return
                 val bytes = activity.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return
                 mapOf("kind" to "image", "mime" to type, "bytes" to bytes)
             }
-            else -> null
-        } ?: return
+            else -> return
+        }
         deliver(payload)
     }
 
