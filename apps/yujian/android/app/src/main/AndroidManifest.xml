@@ -28,6 +28,14 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- 快捷方式 / 小部件 / 通知点击用的内部跳转：yujian://chat | inbox | home -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="yujian"/>
+            </intent-filter>
+            <!-- 长按图标的快捷方式 -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
             <!-- 系统分享：文字进对话，图片进截图识别 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
@@ -50,6 +58,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!-- 桌面小部件：本月支出 / 收入 / 余额 + 记一笔 -->
+        <receiver android:name=".SummaryWidget" android:exported="true" android:label="余见 · 本月">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_summary_info"/>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

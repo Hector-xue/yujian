@@ -10,6 +10,7 @@ class MainActivity : FlutterActivity() {
         NotificationBridge.register(applicationContext, flutterEngine)
         ShareBridge.register(flutterEngine)
         SpeechBridge.register(this, flutterEngine)
+        WidgetBridge.register(applicationContext, flutterEngine)
         ShareBridge.handle(this, intent)
     }
 

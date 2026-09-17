@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_chat_short">记一笔</string>
+    <string name="shortcut_chat_long">说一句话记一笔</string>
+    <string name="shortcut_inbox_short">收件箱</string>
+    <string name="shortcut_inbox_long">待确认的记录</string>
+    <string name="widget_description">本月支出、收入、余额，一键记一笔</string>
+</resources>

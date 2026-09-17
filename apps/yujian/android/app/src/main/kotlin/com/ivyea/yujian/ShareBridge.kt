@@ -23,7 +23,14 @@ object ShareBridge {
     }
 
     fun handle(activity: MainActivity, intent: Intent?) {
-        if (intent == null || intent.action != Intent.ACTION_SEND) return
+        if (intent == null) return
+        // 内部跳转（快捷方式 / 小部件）：yujian://chat 这类，交给 Flutter 切页
+        if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "yujian") {
+            val route = intent.data?.host ?: return
+            deliver(mapOf("kind" to "route", "text" to route))
+            return
+        }
+        if (intent.action != Intent.ACTION_SEND) return
         val type = intent.type ?: return
         val payload: Map<String, Any?>? = when {
             type.startsWith("text/") -> intent.getStringExtra(Intent.EXTRA_TEXT)?.let { mapOf("kind" to "text", "text" to it) }
@@ -34,6 +41,10 @@ object ShareBridge {
             }
             else -> null
         } ?: return
+        deliver(payload)
+    }
+
+    private fun deliver(payload: Map<String, Any?>) {
         val ch = channel
         if (ch != null) ch.invokeMethod("onShare", payload) else pending = payload
     }

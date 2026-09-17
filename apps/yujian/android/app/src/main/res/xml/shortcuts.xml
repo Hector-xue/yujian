@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 长按图标的快捷方式：直接进对话记一笔 / 看收件箱 -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_chat"
+        android:shortcutShortLabel="@string/shortcut_chat_short"
+        android:shortcutLongLabel="@string/shortcut_chat_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="yujian://chat"
+            android:targetPackage="com.ivyea.yujian"
+            android:targetClass="com.ivyea.yujian.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="inbox"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_inbox"
+        android:shortcutShortLabel="@string/shortcut_inbox_short"
+        android:shortcutLongLabel="@string/shortcut_inbox_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="yujian://inbox"
+            android:targetPackage="com.ivyea.yujian"
+            android:targetClass="com.ivyea.yujian.MainActivity" />
+    </shortcut>
+</shortcuts>

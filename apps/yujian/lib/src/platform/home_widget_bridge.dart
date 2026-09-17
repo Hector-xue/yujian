@@ -1,0 +1,18 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+/// 桌面小部件的数据推送（Android）。别的平台是空操作。
+class HomeWidgetBridge {
+  static const _m = MethodChannel('yujian/widget');
+
+  static bool get supported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  static Future<void> update({required String balance, required String expense, required String income, required String month}) async {
+    if (!supported) return;
+    try {
+      await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month});
+    } on PlatformException {
+      // 没装小部件或系统不给，都不影响 App
+    }
+  }
+}

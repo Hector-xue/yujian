@@ -24,6 +24,7 @@ Future<void> main() async {
   await state.startShare();
   runApp(YujianApp(state: state));
   unawaited(state.syncNow()); // 启动后台同步，不挡首屏
+  unawaited(state.pushHomeWidget());
 }
 
 class YujianApp extends StatelessWidget {
@@ -46,7 +47,7 @@ class YujianApp extends StatelessWidget {
             // 全局背景层：玻璃/清新/樱花的渐变放在所有页面下面，页面 Scaffold 透明
             builder: (context, child) => spec.background == null
                 ? child!
-                : Stack(children: [Positioned.fill(child: spec.background!(context, accent)), if (child != null) child]),
+                : Stack(children: [Positioned.fill(child: spec.background!(context, accent)), ?child]),
             home: const Shell(),
           );
         },
@@ -70,7 +71,13 @@ class _ShellState extends State<Shell> {
     final inboxCount = app.inbox.length;
     // 对话放正中间：首页 · 收件箱 · 对话 · 记录 · 更多
     const chatIndex = 2;
-    if (app.pendingShare != null && _index != chatIndex) {
+    final share = app.pendingShare;
+    if (share != null && share.kind == 'route') {
+      // 快捷方式 / 小部件进来的跳转：只切页，不进对话
+      app.takeShare();
+      final target = switch (share.text) { 'chat' => chatIndex, 'inbox' => 1, 'records' => 3, 'more' => 4, _ => 0 };
+      if (target != _index) WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = target));
+    } else if (share != null && _index != chatIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = chatIndex));
     }
     final pages = [

@@ -13,7 +13,9 @@ import 'package:sync_client/sync_client.dart';
 import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/share_source.dart';
+import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
+import 'widgets/fmt.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
 class AppState extends ChangeNotifier {
@@ -114,6 +116,33 @@ class AppState extends ChangeNotifier {
     final s = pendingShare;
     pendingShare = null;
     return s;
+  }
+
+  // ---------------------------------------------------------------- 小部件
+  Timer? _widgetTimer;
+
+  /// 任何账本变化都会 notify；小部件跟着刷，但合并到 1 秒一次。
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    if (!HomeWidgetBridge.supported) return;
+    _widgetTimer?.cancel();
+    _widgetTimer = Timer(const Duration(seconds: 1), pushHomeWidget);
+  }
+
+  /// 本月支出 / 收入 / 余额（CNY）推给桌面小部件。
+  Future<void> pushHomeWidget() async {
+    try {
+      final now = DateTime.now();
+      final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
+      final last = DateTime(now.year, now.month + 1, 0).day;
+      final to = '${now.year}-${now.month.toString().padLeft(2, '0')}-${last.toString().padLeft(2, '0')}';
+      int cny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
+      final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
+      final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
+      final balance = ledger.balances().values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+      await HomeWidgetBridge.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月');
+    } catch (_) {}
   }
 
   // -------------------------------------------------------------------- 同步
