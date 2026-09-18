@@ -107,7 +107,7 @@ class _VoicePageState extends State<VoicePage> {
       await _probe();
       if (!ok) return;
     }
-    if (engine == 'cloud' && app.settings.providerConfig == null) {
+    if ((engine == 'cloud' || engine == 'omni') && app.settings.providerConfig == null) {
       messenger.showSnackBar(const SnackBar(content: Text('云端合成用「模型与 API」里的端点，先去那里配好')));
       return;
     }
@@ -124,6 +124,8 @@ class _VoicePageState extends State<VoicePage> {
     const line = '主人好呀，今天想记点什么？';
     String r;
     switch (d.speechEngine) {
+      case 'omni' when d.providerConfig == null:
+        r = '先到「模型与 API」配好端点';
       case 'cloud' when !SpeechOutput.cloudConfigured(d):
         r = d.providerConfig == null ? '先到「模型与 API」配好端点' : '先填云端语音合成模型';
       case 'doubao' when !d.doubaoTts.configured:
@@ -274,6 +276,17 @@ class _VoicePageState extends State<VoicePage> {
                 ],
               ),
               engineTile(
+                'omni',
+                '主模型自带语音',
+                hasEndpoint ? '主模型是多模态 Omni 模型（如 Qwen-Omni）时不用再配别的，同一把 key 直接开口' : '先到「模型与 API」配好端点；主模型要是 Omni 多模态模型',
+                body: [
+                  _voicePicker('音色', const [(id: 'Cherry', name: 'Cherry · 女'), (id: 'Serena', name: 'Serena · 女'), (id: 'Chelsie', name: 'Chelsie · 女'), (id: 'Ethan', name: 'Ethan · 男')], s.omniVoice,
+                      (v) => app.saveSettings(app.settings.copyWith(omniVoice: v))),
+                  const SizedBox(height: 6),
+                  Text('主模型不是 Omni 的话试听会报「没有返回音频」，那就选下面的豆包 / MiniMax。', style: muted),
+                ],
+              ),
+              engineTile(
                 'doubao',
                 '豆包语音（推荐）',
                 s.doubaoTts.configured ? '已配好。抖音短剧同款，有情绪；按字数计费' : '抖音短剧同款，有情绪，中文最自然；要一个火山引擎的 API Key',
@@ -334,14 +347,14 @@ class _VoicePageState extends State<VoicePage> {
               ),
             ]),
           ),
-          if (engine == 'doubao' || engine == 'minimax' || engine == 'cloud') ...[
+          if (engine == 'doubao' || engine == 'minimax' || engine == 'cloud' || engine == 'omni') ...[
             const SizedBox(height: 4),
             TextField(
               controller: speechStyle,
               decoration: InputDecoration(
                 labelText: '语气（可选）',
                 hintText: '用撒娇甜蜜的语气 / 沉稳一点',
-                helperText: engine == 'minimax' ? 'MiniMax 只认开心 / 伤心 / 生气 / 平静这几种，会挑最接近的' : engine == 'cloud' ? '只有 gpt-4o-mini-tts 这类认，其他会忽略' : '写一句话，豆包会照着念',
+                helperText: engine == 'minimax' ? 'MiniMax 只认开心 / 伤心 / 生气 / 平静这几种，会挑最接近的' : engine == 'cloud' ? '只有 gpt-4o-mini-tts 这类认，其他会忽略' : '写一句话，它会照着念',
                 helperMaxLines: 2,
               ),
             ),

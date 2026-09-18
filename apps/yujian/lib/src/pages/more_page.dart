@@ -61,7 +61,7 @@ class MorePage extends StatelessWidget {
 
     final s = app.settings;
     final modelLine = app.hasModel ? '${s.model}${(s.visionModel ?? '').isNotEmpty ? ' · 看图 ${s.visionModel}' : ''}' : '未配置，用规则解析';
-    final voiceLine = switch (s.speechEngine) { 'doubao' => '朗读：豆包语音', 'minimax' => '朗读：MiniMax', 'cloud' => '朗读：云端 ${s.speechModel ?? ''}', 'offline' => '朗读：离线语音包', _ => '朗读：手机系统' };
+    final voiceLine = switch (s.speechEngine) { 'doubao' => '朗读：豆包语音', 'minimax' => '朗读：MiniMax', 'cloud' => '朗读：云端 ${s.speechModel ?? ''}', 'omni' => '朗读：主模型自带语音', 'offline' => '朗读：离线语音包', _ => '朗读：手机系统' };
     final upd = app.availableUpdate;
 
     return Scaffold(

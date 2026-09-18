@@ -67,6 +67,9 @@ class SpeechOutput {
       case 'minimax':
         if (!s.minimaxTts.configured) return false;
         return _speakChunked(clean, my, (sen) => minimaxSynthesize(s.minimaxTts, sen, emotion: minimaxEmotionOf(s.speechStyle)), onDone: () => meter?.recordSpeech('minimax/${s.minimaxModel}', clean.length));
+      case 'omni':
+        if (s.providerConfig == null) return false;
+        return _speakChunked(clean, my, (sen) => omniSynthesize(s.providerConfig!, sen, model: s.speechModel, voice: s.omniVoice, style: s.speechStyle), onDone: () => meter?.recordSpeech('${(s.speechModel ?? '').isEmpty ? s.model : s.speechModel}', clean.length));
       case 'offline':
         if (!await offlineAvailable()) return false;
         return _speakOffline(clean, s, my);

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'config.dart';
 import 'models.dart';
 import 'provider.dart';
 
@@ -194,4 +195,96 @@ String _uuid() {
   final t = DateTime.now().microsecondsSinceEpoch.toRadixString(16).padLeft(14, '0');
   final n = (++_seq).toRadixString(16).padLeft(4, '0');
   return 'yj$t$n';
+}
+
+/// 多模态（Omni）模型自带的语音输出：同一个 OpenAI 兼容端点、同一把 Key，聊天接口开 `modalities: ["text","audio"]`，
+/// 流式返回里 `choices[0].delta.audio.data` 是 base64 的 PCM16 24kHz 单声道（阿里百炼 Qwen-Omni 的规格）。
+/// 这里把它当 TTS 用：让模型一字不差地念给定文本，收齐 PCM 后包成 WAV。
+Future<Uint8List> omniSynthesize(ProviderConfig config, String text, {String? model, String voice = 'Cherry', String? style, http.Client? client, Duration timeout = const Duration(seconds: 60)}) async {
+  if (config.type == ProviderType.anthropic) throw ProviderException('Anthropic 接口没有语音输出');
+  if (text.trim().isEmpty) return Uint8List(0);
+  final base = _trim(config.baseUrl);
+  final body = {
+    'model': (model ?? '').isEmpty ? config.model : model,
+    'messages': [
+      {'role': 'system', 'content': '你是配音员。把用户发来的文字一字不差地朗读出来：不要回答、不要评论、不要增减任何字，只读原文。${(style ?? '').trim().isEmpty ? '' : '朗读语气：${style!.trim()}。'}'},
+      {'role': 'user', 'content': text},
+    ],
+    'modalities': ['text', 'audio'],
+    'audio': {'voice': voice, 'format': 'wav'},
+    'stream': true,
+  };
+  final headers = {'Content-Type': 'application/json', 'Accept': 'text/event-stream', if ((config.apiKey ?? '').isNotEmpty) 'Authorization': 'Bearer ${config.apiKey}'};
+  final cl = client ?? http.Client();
+  final pcm = BytesBuilder(copy: false);
+  try {
+    final req = http.Request('POST', Uri.parse('$base/chat/completions'))
+      ..headers.addAll(headers)
+      ..body = jsonEncode(body);
+    final resp = await cl.send(req).timeout(timeout);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      final t = await resp.stream.bytesToString();
+      throw ProviderException(providerErrorMessage(t), status: resp.statusCode, retryable: resp.statusCode >= 500 || resp.statusCode == 429);
+    }
+    String? err;
+    await for (final line in resp.stream.transform(utf8.decoder).transform(const LineSplitter()).timeout(timeout)) {
+      var l = line.trim();
+      if (!l.startsWith('data:')) continue;
+      l = l.substring(5).trim();
+      if (l.isEmpty || l == '[DONE]') continue;
+      Object? j;
+      try {
+        j = jsonDecode(l);
+      } on FormatException {
+        continue;
+      }
+      if (j is! Map) continue;
+      if (j['error'] != null) {
+        err ??= providerErrorMessage(l);
+        continue;
+      }
+      final choices = j['choices'];
+      if (choices is! List || choices.isEmpty) continue;
+      final delta = (choices.first as Map)['delta'];
+      final audio = delta is Map ? delta['audio'] : null;
+      final data = audio is Map ? audio['data'] : null;
+      if (data is String && data.isNotEmpty) pcm.add(base64Decode(data));
+    }
+    if (pcm.isEmpty) throw ProviderException(err ?? '模型没有返回音频：它可能不是 Omni 多模态模型，或端点不支持 modalities=audio');
+  } on TimeoutException {
+    throw ProviderException('timeout after ${timeout.inSeconds}s', retryable: true);
+  } on http.ClientException catch (e) {
+    throw ProviderException('network: ${e.message}', retryable: true);
+  } finally {
+    if (client == null) cl.close();
+  }
+  return pcmToWav(pcm.takeBytes(), sampleRate: 24000);
+}
+
+/// PCM16 单声道 → WAV（44 字节头）。
+Uint8List pcmToWav(Uint8List pcm, {int sampleRate = 24000, int channels = 1}) {
+  final byteRate = sampleRate * channels * 2;
+  final out = ByteData(44 + pcm.length);
+  void str(int off, String s) {
+    for (var i = 0; i < 4; i++) {
+      out.setUint8(off + i, s.codeUnitAt(i));
+    }
+  }
+
+  str(0, 'RIFF');
+  out.setUint32(4, 36 + pcm.length, Endian.little);
+  str(8, 'WAVE');
+  str(12, 'fmt ');
+  out.setUint32(16, 16, Endian.little);
+  out.setUint16(20, 1, Endian.little);
+  out.setUint16(22, channels, Endian.little);
+  out.setUint32(24, sampleRate, Endian.little);
+  out.setUint32(28, byteRate, Endian.little);
+  out.setUint16(32, channels * 2, Endian.little);
+  out.setUint16(34, 16, Endian.little);
+  str(36, 'data');
+  out.setUint32(40, pcm.length, Endian.little);
+  final bytes = out.buffer.asUint8List();
+  bytes.setRange(44, 44 + pcm.length, pcm);
+  return bytes;
 }

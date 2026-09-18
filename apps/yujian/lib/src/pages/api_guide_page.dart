@@ -11,11 +11,26 @@ class ApiPreset {
   final String baseUrl;
   final String model;
   final String? visionModel;
-  const ApiPreset({required this.name, this.providerType = 'openai', required this.baseUrl, required this.model, this.visionModel});
+  /// 顺手把语音也配上：同一把 key 能用的转写 / 合成模型，以及朗读引擎（cloud = OpenAI 兼容合成，omni = 主模型自带语音）
+  final String? transcribeModel;
+  final String? speechModel;
+  final String? speechVoice;
+  final String? speechEngine;
+  const ApiPreset({required this.name, this.providerType = 'openai', required this.baseUrl, required this.model, this.visionModel, this.transcribeModel, this.speechModel, this.speechVoice, this.speechEngine});
 }
 
 const deepseekPreset = ApiPreset(name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash');
-const siliconflowPreset = ApiPreset(name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3');
+const siliconflowPreset = ApiPreset(
+  name: '硅基流动',
+  baseUrl: 'https://api.siliconflow.cn/v1',
+  model: 'deepseek-ai/DeepSeek-V3',
+  visionModel: 'Qwen/Qwen3-VL-8B-Instruct',
+  transcribeModel: 'FunAudioLLM/SenseVoiceSmall',
+  speechModel: 'FunAudioLLM/CosyVoice2-0.5B',
+  speechVoice: 'FunAudioLLM/CosyVoice2-0.5B:anna',
+  speechEngine: 'cloud',
+);
+const bailianPreset = ApiPreset(name: '阿里云百炼 · Qwen-Omni', baseUrl: '', model: 'qwen3-omni-flash', speechEngine: 'omni');
 
 /// 怎么申请 API：面向不知道"模型在哪买"的用户。两家举例，每步一个动作，末尾一键填入。
 /// [asPicker] 从「模型与 API」页进来时为 true：选完直接把配置带回去，不再套一层页面。
@@ -97,7 +112,8 @@ class ApiGuidePage extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   '余见不配模型也能记账（规则解析）。配上模型后：说话更随意也能听懂、能看图识别截图、能陪你聊。\n'
-                  '"模型"不是买软件，是按用量付费的接口：你在模型厂商那里注册、充几块钱、拿到一串 API Key，填进余见就行。一个人日常记账，一个月通常几毛到几块钱。',
+                  '"模型"不是买软件，是按用量付费的接口：你在模型厂商那里注册、充几块钱、拿到一串 API Key，填进余见就行。一个人日常记账，一个月通常几毛到几块钱。\n'
+                  '只需要配一个：现在的主流模型一个就能又读字又看图；语音想要更好再另选。下面三家挑一家。',
                   style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
                 ),
               ]),
@@ -124,7 +140,7 @@ class ApiGuidePage extends StatelessWidget {
           step(1, '打开硅基流动，手机号注册、登录。新用户通常送一点体验额度。', url: 'https://cloud.siliconflow.cn', urlLabel: 'cloud.siliconflow.cn'),
           step(2, '左侧「API 密钥」→「新建 API 密钥」，复制。', url: 'https://cloud.siliconflow.cn/account/ak', urlLabel: 'cloud.siliconflow.cn/account/ak'),
           step(3, '「模型广场」里能看到每个模型的价格，有一批小模型是免费的（如 Qwen/Qwen3-8B）。看图、语音识别、语音合成的模型这里也有。'),
-          step(4, '回到余见，填入：'),
+          step(4, '回到余见，点下面按钮一次填全（文字 / 看图 / 语音识别 / 语音合成用同一把 key）：'),
           kv('接口类型', 'OpenAI 兼容'),
           kv('Base URL', siliconflowPreset.baseUrl),
           kv('模型名', siliconflowPreset.model),
@@ -138,6 +154,12 @@ class ApiGuidePage extends StatelessWidget {
           ),
           FilledButton.tonalIcon(onPressed: () => _use(context, siliconflowPreset), icon: const Icon(Icons.input, size: 18), label: const Text('把硅基流动的配置填进去')),
 
+          h('例三：阿里云百炼 · Qwen-Omni（一个模型：文字 + 看图 + 说话）'),
+          step(1, '注册阿里云并开通「百炼」（模型服务），完成实名。', url: 'https://bailian.console.aliyun.com', urlLabel: 'bailian.console.aliyun.com'),
+          step(2, '左下角「API-KEY」→ 创建，复制。', url: 'https://bailian.console.aliyun.com/model/settings/api-key', urlLabel: 'bailian.console.aliyun.com → API-KEY'),
+          step(3, '控制台首页会显示你的「接口地址」（形如 https://xxxx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1，带你自己的工作空间 ID），复制它当 Base URL。'),
+          step(4, '回到余见，点下面按钮填入，粘贴 Base URL 和 Key，模型名点右侧列表挑一个带 omni 的（如 qwen3-omni-flash）。它一个模型就能读字、看图、开口说话——语音页会自动选成「主模型自带语音」。'),
+          FilledButton.tonalIcon(onPressed: () => _use(context, bailianPreset), icon: const Icon(Icons.input, size: 18), label: const Text('把百炼的配置填进去')),
           h('其他也行'),
           p('OpenAI、OpenRouter、Moonshot、智谱、阿里百炼……凡是"OpenAI 兼容"接口的都能用，填对方文档给的 Base URL 和模型名即可。Anthropic 接口要在余见里把类型切到「Anthropic」。\n本机跑 Ollama / LM Studio 的，Base URL 填 http://电脑IP:11434/v1，Key 留空，再开「仅本地模型」，数据不出局域网。'),
           h('想要短剧那种配音'),

@@ -29,6 +29,8 @@ class _ModelPageState extends State<ModelPage> {
   var probing = false;
   var showKey = false;
   var listingModels = false;
+  var showOptional = false;
+  ApiPreset? _preset; // 教程带来的整套配置（含语音部分），保存时一起落
 
   @override
   void initState() {
@@ -42,6 +44,8 @@ class _ModelPageState extends State<ModelPage> {
     providerType = p?.providerType ?? s.providerType;
     localOnly = s.localOnly;
     redact = s.redact;
+    _preset = p;
+    showOptional = (s.visionModel ?? '').isNotEmpty;
   }
 
   @override
@@ -52,8 +56,23 @@ class _ModelPageState extends State<ModelPage> {
     super.dispose();
   }
 
-  Settings _draft() => AppScope.of(context).settings.copyWith(
-      baseUrl: baseUrl.text.trim(), apiKey: apiKey.text.trim(), model: model.text.trim(), visionModel: visionModel.text.trim(), providerType: providerType, localOnly: localOnly, redact: redact);
+  Settings _draft() {
+    final p = _preset;
+    return AppScope.of(context).settings.copyWith(
+      baseUrl: baseUrl.text.trim(),
+      apiKey: apiKey.text.trim(),
+      model: model.text.trim(),
+      visionModel: visionModel.text.trim(),
+      providerType: providerType,
+      localOnly: localOnly,
+      redact: redact,
+      // 教程一键填入的语音部分：只在有值时覆盖，用户自己配过的不动
+      transcribeModel: p?.transcribeModel,
+      speechModel: p?.speechModel,
+      speechVoice: p?.speechVoice,
+      speechEngine: p?.speechEngine,
+    );
+  }
 
   static bool _looksLikeBadModel(String err) =>
       RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
@@ -93,10 +112,12 @@ class _ModelPageState extends State<ModelPage> {
     final p = await Navigator.of(context).push<ApiPreset>(MaterialPageRoute(builder: (_) => const ApiGuidePage(asPicker: true)));
     if (p == null || !mounted) return;
     setState(() {
+      _preset = p;
       providerType = p.providerType;
       baseUrl.text = p.baseUrl;
       model.text = p.model;
-      if (p.visionModel != null) visionModel.text = p.visionModel!;
+      visionModel.text = p.visionModel ?? '';
+      showOptional = p.visionModel != null;
       probeResult = null;
     });
   }
@@ -120,7 +141,9 @@ class _ModelPageState extends State<ModelPage> {
             ),
           ),
           const SizedBox(height: 16),
-          Text('OpenAI 兼容接口：OpenAI、DeepSeek、硅基流动、OpenRouter、Ollama（http://主机:11434/v1）、LM Studio 都行。不填就只用规则解析，一样能记账。', style: theme.textTheme.bodySmall),
+          Text('主模型（一个就够）', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text('读字、看图、陪聊都用它。OpenAI 兼容接口都行：DeepSeek、硅基流动、阿里云百炼、OpenAI、OpenRouter、Ollama（http://主机:11434/v1）。不填就只用规则解析，一样能记账。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
           SegmentedButton<String>(
             segments: const [ButtonSegment(value: 'openai', label: Text('OpenAI 兼容')), ButtonSegment(value: 'anthropic', label: Text('Anthropic'))],
@@ -156,16 +179,6 @@ class _ModelPageState extends State<ModelPage> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: visionModel,
-            decoration: InputDecoration(
-              labelText: '看图模型名（可选）',
-              hintText: '识别截图/小票用；留空则用上面的模型',
-              helperText: '如 Qwen/Qwen3-VL-8B-Instruct、gpt-4o-mini；上面的模型不支持看图时填这个',
-              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(visionModel), icon: const Icon(Icons.list_alt_outlined)),
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
               OutlinedButton(onPressed: probing ? null : _probe, child: Text(probing ? '测试中…' : '测试连接')),
@@ -173,7 +186,27 @@ class _ModelPageState extends State<ModelPage> {
               if (probeResult != null) Expanded(child: Text(probeResult!, style: theme.textTheme.bodySmall)),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            initiallyExpanded: showOptional,
+            title: Text('可选：看图用另一个模型', style: theme.textTheme.bodyMedium),
+            subtitle: Text('主模型「测试连接」看图显示 ✗ 时才需要', style: theme.textTheme.bodySmall),
+            children: [
+              TextField(
+                controller: visionModel,
+                decoration: InputDecoration(
+                  labelText: '看图模型名',
+                  hintText: '如 Qwen/Qwen3-VL-8B-Instruct、gpt-4o-mini',
+                  helperText: '识别截图 / 小票用；留空 = 用主模型',
+                  suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(visionModel), icon: const Icon(Icons.list_alt_outlined)),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+          Text('语音（识别 / 朗读）在更多 → 语音里另配，可选。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('仅本地模型'),

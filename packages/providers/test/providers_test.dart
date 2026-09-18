@@ -341,4 +341,23 @@ void main() {
     s.handler = (_) => {'base_resp': {'status_code': 1004, 'status_msg': 'login fail'}};
     await expectLater(minimaxSynthesize(MiniMaxTtsConfig(apiKey: 'bad', voice: 'v', baseUrl: base), 'x'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', contains('鉴权失败'))));
   });
+
+  test('omniSynthesize: streams chat completion with modalities audio, joins base64 PCM chunks into a WAV', () async {
+    s.textReply = 'data: {"choices":[{"delta":{"content":"你","audio":{"data":"${base64Encode([1, 0])}"}}}]}\n\n'
+        'data: {"choices":[{"delta":{"audio":{"data":"${base64Encode([2, 0, 3, 0])}","transcript":"你好"}}}]}\n\n'
+        'data: [DONE]\n';
+    final wav = await omniSynthesize(cfg(), '你好', voice: 'Cherry');
+    expect(wav.length, 44 + 6);
+    expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
+    expect(wav.sublist(44), [1, 0, 2, 0, 3, 0]);
+    final req = s.requests.last;
+    expect(req['path'], '/v1/chat/completions');
+    expect((req['body'] as Map)['modalities'], ['text', 'audio']);
+    expect(((req['body'] as Map)['audio'] as Map)['voice'], 'Cherry');
+    expect((req['body'] as Map)['stream'], isTrue);
+    // 没音频（不是 omni 模型）
+    s.textReply = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n';
+    await expectLater(omniSynthesize(cfg(), 'x'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', contains('Omni'))));
+    s.textReply = null;
+  });
 }
