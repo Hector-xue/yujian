@@ -23,6 +23,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - run: ../../scripts/check_version.sh
       - run: flutter pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
