@@ -140,6 +140,8 @@ class ApiGuidePage extends StatelessWidget {
 
           h('其他也行'),
           p('OpenAI、OpenRouter、Moonshot、智谱、阿里百炼……凡是"OpenAI 兼容"接口的都能用，填对方文档给的 Base URL 和模型名即可。Anthropic 接口要在余见里把类型切到「Anthropic」。\n本机跑 Ollama / LM Studio 的，Base URL 填 http://电脑IP:11434/v1，Key 留空，再开「仅本地模型」，数据不出局域网。'),
+          h('想要短剧那种配音'),
+          p('那是另一类服务（豆包语音 / MiniMax），不走这里的模型端点。更多 → 「怎么开通真人感配音」有单独的教程。'),
           h('花了多少'),
           p('更多 → 用量与花费，能看到余见一共用了多少 token、按厂商标价估算的金额。'),
         ],
