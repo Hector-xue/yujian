@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// 自定义头像落盘：support/avatars/<personaId>_<ts>.<ext>；同一人格的旧文件顺手删掉。
+/// 自定义头像落盘：`support/avatars/{personaId}_{ts}.{ext}`；同一人格的旧文件顺手删掉。
 Future<String?> saveAvatarImage(String personaId, Uint8List bytes, String ext) async {
   final dir = Directory('${(await getApplicationSupportDirectory()).path}/avatars');
   if (!dir.existsSync()) dir.createSync(recursive: true);
