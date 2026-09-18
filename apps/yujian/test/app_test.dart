@@ -14,6 +14,7 @@ import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/notifications/notification_source.dart';
 import 'package:yujian/src/notifications/screenshot_source.dart';
 import 'package:yujian/src/settings_store.dart';
+import 'package:yujian/src/usage/usage_meter.dart';
 import 'package:yujian/src/widgets/fmt.dart';
 
 void main() {
@@ -247,6 +248,54 @@ void main() {
       await st.saveSettings(const Settings(screenWanted: false));
       await st.startNotifications();
       expect(src.screenWanted, isFalse);
+    });
+  });
+
+  group('usage meter', () {
+    test('accumulates by day/model/kind, estimates cost with builtin, prefix and override prices, persists', () async {
+      final m = UsageMeter()..now = () => DateTime(2026, 9, 18, 10);
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'chat', promptTokens: 1000000, completionTokens: 500000, hasUsage: true));
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'vision', promptTokens: 0, completionTokens: 0, hasUsage: false));
+      m.record(const UsageEvent(model: 'Qwen/Qwen3-8B', kind: 'chat', promptTokens: 100, completionTokens: 50, hasUsage: true));
+      m.record(const UsageEvent(model: 'mystery-9b', kind: 'chat', promptTokens: 10, completionTokens: 10, hasUsage: true));
+      m.recordSpeech('gpt-4o-mini-tts', 1000000);
+      final all = m.summary();
+      expect(all.tokens, 1500170);
+      expect(all.calls, 5);
+      expect(all.chars, 1000000);
+      final flash = all.byModel.firstWhere((x) => x.model == 'deepseek-flash');
+      expect(flash.cost, closeTo(2 + 4, 1e-9)); // 1M×¥2 + 0.5M×¥8
+      expect(flash.kinds, {'chat', 'vision'});
+      expect(all.byModel.firstWhere((x) => x.model == 'Qwen/Qwen3-8B').cost, 0); // 免费档
+      expect(all.byModel.firstWhere((x) => x.model == 'gpt-4o-mini-tts').cost, closeTo(4.4, 1e-9));
+      expect(all.unknownModels, ['mystery-9b']);
+      expect(all.knownCost, closeTo(10.4, 1e-9));
+      // 前缀匹配：deepseek-flash-2 也按 flash 算
+      expect(m.priceOf('deepseek-flash-2')?.inPerM, 2);
+      expect(m.priceOf('Pro/deepseek-ai/DeepSeek-V3')?.outPerM, 8);
+      // 用户自填单价
+      await m.setPrice('mystery-9b', const ModelPrice(inPerM: 1, outPerM: 1));
+      expect(m.summary().unknownModels, isEmpty);
+      // 月度过滤：上个月的不算
+      m.now = () => DateTime(2026, 8, 3);
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'chat', promptTokens: 7, completionTokens: 0, hasUsage: true));
+      expect(m.summary(from: DateTime(2026, 9, 1)).tokens, 1500170);
+      expect(m.summary().tokens, 1500177);
+      // 落盘再读回
+      await m.flush();
+      final m2 = UsageMeter();
+      await m2.load();
+      expect(m2.summary().tokens, 1500177);
+      expect(m2.priceOf('mystery-9b')?.inPerM, 1);
+    });
+
+    test('AppState wraps the provider so calls are metered', () async {
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()))..bootstrap();
+      await st.saveSettings(const Settings(baseUrl: 'http://127.0.0.1:1/v1', model: 'x'));
+      expect(st.interpreter.llm, isNotNull);
+      expect(st.provider, isA<MeteredProvider>());
+      await st.saveSettings(const Settings());
+      expect(st.provider, isNull);
     });
   });
 

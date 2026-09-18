@@ -21,6 +21,7 @@ import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platfor
 import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
 import 'update/updater.dart';
+import 'usage/usage_meter.dart';
 import 'widgets/fmt.dart';
 
 /// 全局状态：账本 + 解析器 + 查询引擎。页面只通过这里读写，变更后 notify 刷新。
@@ -34,6 +35,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
   VisionInterpreter? vision;
+  /// 当前装配的模型（已包计量层）；null = 没配。
+  ChatProvider? provider;
   SyncClient? sync;
   String? lastSyncNote;
   /// 分享进来的内容，由对话页消费（消费后置 null）。
@@ -45,6 +48,8 @@ class AppState extends ChangeNotifier {
   /// 陪聊：有模型才有；没模型时对话页用模板提示去配。
   CompanionReplier? companion;
   final CompanionMemory memory = CompanionMemory();
+  /// token 用量记账（更多 → 用量与花费）。
+  final UsageMeter usage = UsageMeter();
 
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
@@ -59,6 +64,7 @@ class AppState extends ChangeNotifier {
   Future<void> loadSettings() async {
     settings = await settingsStore.load();
     await memory.load();
+    await usage.load();
     await _loadRecentNotices();
     try {
       autoHintDismissed = (await SharedPreferences.getInstance()).getBool('auto_hint_dismissed') ?? false;
@@ -120,7 +126,9 @@ class AppState extends ChangeNotifier {
 
   void _apply() {
     final cfg = settings.providerConfig;
-    final ChatProvider? p = cfg == null ? null : (cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg));
+    // 所有对话 / 看图调用都包一层计量，用量页才有数
+    final ChatProvider? p = cfg == null ? null : MeteredProvider(cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg), onUsage: usage.record);
+    provider = p;
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
     vision = p == null ? null : VisionInterpreter(p);
     final custom = settings.customPersonaById(settings.personaId);

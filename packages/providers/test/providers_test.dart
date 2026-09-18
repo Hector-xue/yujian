@@ -265,4 +265,26 @@ void main() {
     await expectLater(synthesizeSpeech(cfg(), 'x', model: 'tts-1', voice: 'nope'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', 'voice not found')));
     s.status = 200;
   });
+
+  test('MeteredProvider reports usage per call kind and skips failed calls', () async {
+    final events = <UsageEvent>[];
+    final p = MeteredProvider(OpenAICompatProvider(cfg()), onUsage: events.add);
+    s.handler = (_) => chatReply('hi');
+    await p.complete(system: 's', user: 'u');
+    expect(events.single.kind, 'chat');
+    expect(events.single.promptTokens, 10);
+    expect(events.single.completionTokens, 5);
+    expect(events.single.hasUsage, isTrue);
+    expect(events.single.model, 'fake-1');
+    s.handler = (_) => {'choices': [{'message': {'role': 'assistant', 'content': 'x'}}]}; // 没 usage
+    await p.completeWithImages(system: 's', user: 'u', images: [ImageInput(Uint8List(2), 'image/png')]);
+    expect(events.last.kind, 'vision');
+    expect(events.last.hasUsage, isFalse);
+    expect(events.last.model, 'fake-1'); // 响应没 model 字段时 provider 自己填配置里的名字
+    s.status = 500;
+    s.handler = (_) => {'error': 'x'};
+    await expectLater(p.complete(system: 's', user: 'u'), throwsA(isA<ProviderException>()));
+    expect(events.length, 2);
+    s.status = 200;
+  });
 }

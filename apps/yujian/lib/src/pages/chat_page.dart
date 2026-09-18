@@ -23,7 +23,7 @@ import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
-import 'settings_page.dart';
+import 'model_page.dart';
 import 'stats_page.dart';
 
 sealed class _Msg {
@@ -340,7 +340,7 @@ class _ChatPageState extends State<ChatPage> {
         content: Text(canOffline ? '系统语音不可用。装离线语音包（${LocalAsr.approxMb} MB）就能用' : '语音识别没走通，长按麦克风看诊断'),
         action: canOffline
             ? SnackBarAction(label: '下载离线包', onPressed: _installOffline)
-            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))),
+            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
       ));
   }
 
@@ -410,7 +410,7 @@ class _ChatPageState extends State<ChatPage> {
           TextButton(
               onPressed: () {
                 Navigator.pop(d);
-                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()));
               },
               child: const Text('去设置')),
         ],
@@ -558,13 +558,15 @@ class _ChatPageState extends State<ChatPage> {
   /// 朗读回复（用户开了才读）：配了语音合成模型走云端真人感语音，否则系统 TTS；都没有就静默。
   Future<void> _say(String text) async {
     if (!_speak || !mounted) return;
-    await _tts.speak(text, AppScope.of(context).settings);
+    final app = AppScope.of(context);
+    await _tts.speak(text, app.settings, meter: app.usage);
   }
 
   /// 单条朗读：不看全局开关。
   Future<void> _speakOnce(String text) async {
     if (!mounted) return;
-    await _tts.speak(text, AppScope.of(context).settings);
+    final app = AppScope.of(context);
+    await _tts.speak(text, app.settings, meter: app.usage);
   }
 
   Future<void> _toggleSpeak() async {
@@ -598,7 +600,7 @@ class _ChatPageState extends State<ChatPage> {
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           content: const Text('识别截图需要先配置模型'),
-          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))),
+          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
         ));
       return;
     }

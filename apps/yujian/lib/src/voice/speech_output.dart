@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:providers/providers.dart';
 
 import '../settings_store.dart';
+import '../usage/usage_meter.dart';
 import 'local_tts_native.dart' if (dart.library.js_interop) 'local_tts_web.dart';
 
 /// 朗读出口，三档：配了云端语音合成模型 → 云端；装了离线真人感语音包 → 本机 Kokoro；都没有 / 失败 → 系统 TTS。
@@ -28,13 +29,15 @@ class SpeechOutput {
 
   static bool cloudConfigured(Settings s) => (s.speechModel ?? '').isNotEmpty && s.providerConfig != null && s.providerConfig!.type != ProviderType.anthropic;
 
-  Future<void> speak(String text, Settings settings, {bool interrupt = true}) async {
+  /// [meter] 给了就把云端合成的字符数记进用量。
+  Future<void> speak(String text, Settings settings, {bool interrupt = true, UsageMeter? meter}) async {
     final clean = cleanup(text);
     if (clean.isEmpty) return;
     final my = ++_seq;
     if (interrupt) await stop();
     if (cloudConfigured(settings)) {
       final ok = await _speakCloud(clean, settings, my);
+      if (ok) meter?.recordSpeech(settings.speechModel!, clean.length);
       if (ok || my != _seq) return;
       // 云端没成：往下退，别让用户干等一句没声音
     }
