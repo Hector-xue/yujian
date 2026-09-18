@@ -31,7 +31,7 @@ class TransactionsPage extends StatelessWidget {
       body: txs.isEmpty
           ? Center(child: Text('还没有记录', style: theme.textTheme.bodySmall))
           : ListView(
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: EdgeInsets.only(bottom: 24 + MediaQuery.paddingOf(context).bottom),
               children: [
                 for (final e in byDay.entries) ...[
                   Padding(

@@ -21,7 +21,7 @@ class InboxPage extends StatelessWidget {
       body: groups.isEmpty
           ? Center(child: Text('没有待确认的记录', style: Theme.of(context).textTheme.bodySmall))
           : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
               children: [
                 for (final g in groups.values) Padding(padding: const EdgeInsets.only(bottom: 12), child: DraftGroupCard(drafts: g, onChanged: app.touch)),
               ],

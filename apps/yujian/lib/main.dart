@@ -96,9 +96,12 @@ class _ShellState extends State<Shell> {
       const MorePage(),
     ];
     return Scaffold(
+      // 页面从底栏下面滑过（底栏是悬浮胶囊，不再是贴边的一整条）；各页列表底部按 MediaQuery.padding.bottom 留位
+      extendBody: true,
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: Frosted(
+      bottomNavigationBar: Dock(
           child: NavigationBar(
+        backgroundColor: Colors.transparent,
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
