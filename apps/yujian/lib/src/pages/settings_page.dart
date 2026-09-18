@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../settings_store.dart';
 import '../theme.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
+import '../voice/local_tts_native.dart' if (dart.library.js_interop) '../voice/local_tts_web.dart';
 import '../voice/offline_asr_sheet.dart';
 import '../voice/speech_output.dart';
 import '../widgets/persona_avatar.dart';
@@ -33,6 +34,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _speechPreview = SpeechOutput();
   String? speechResult;
   var speechTesting = false;
+  var offlineTesting = false;
   late String personaId;
   late String providerType;
   late bool localOnly;
@@ -97,7 +99,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     setState(() {
       speechTesting = false;
-      speechResult = _speechPreview.lastError == null ? '合成成功，已播放' : '合成失败：${_speechPreview.lastError}';
+      speechResult = _speechPreview.lastError == null ? '云端合成成功，已播放' : '云端合成失败：${_speechPreview.lastError}';
     });
   }
 
@@ -329,6 +331,79 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 4),
           ],
+          if (LocalTts.supported) ...[
+            FutureBuilder<bool>(
+              future: LocalTts.installed(),
+              builder: (ctx, snap) {
+                final on = snap.data == true;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(on ? Icons.record_voice_over : Icons.record_voice_over_outlined, color: theme.colorScheme.primary),
+                      title: const Text('离线真人感语音包'),
+                      subtitle: Text(
+                        on
+                            ? '已安装。它说话有语气有语调，在本机合成、不联网。上面填了云端语音合成模型时优先用云端'
+                            : '约 ${LocalTts.approxMb} MB，下载一次；不想花 API 钱又嫌系统朗读机械的选它',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      trailing: on
+                          ? TextButton(
+                              onPressed: () async {
+                                await LocalTts.uninstall();
+                                _speechPreview.refreshOffline();
+                                if (mounted) setState(() {});
+                              },
+                              child: const Text('删除'))
+                          : FilledButton.tonal(
+                              onPressed: () async {
+                                await showOfflineTtsDownload(context);
+                                _speechPreview.refreshOffline();
+                                if (mounted) setState(() {});
+                              },
+                              child: const Text('下载')),
+                    ),
+                    if (on)
+                      Row(children: [
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: LocalTts.voices.any((v) => v.sid == app.settings.offlineVoiceSid) ? app.settings.offlineVoiceSid : LocalTts.defaultSid,
+                            decoration: const InputDecoration(labelText: '音色', isDense: true),
+                            items: [for (final v in LocalTts.voices) DropdownMenuItem(value: v.sid, child: Text(v.name))],
+                            onChanged: (v) {
+                              if (v != null) app.saveSettings(app.settings.copyWith(offlineVoiceSid: v));
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        OutlinedButton.icon(
+                          onPressed: offlineTesting
+                              ? null
+                              : () async {
+                                  setState(() {
+                                    offlineTesting = true;
+                                    speechResult = null;
+                                  });
+                                  final ok = await _speechPreview.speakOffline('主人好呀，今天想记点什么？', app.settings);
+                                  if (!mounted) return;
+                                  setState(() {
+                                    offlineTesting = false;
+                                    speechResult = ok ? '离线合成成功，已播放' : '离线合成失败：${_speechPreview.lastError}';
+                                  });
+                                },
+                          icon: const Icon(Icons.volume_up_outlined, size: 18),
+                          label: Text(offlineTesting ? '合成中…' : '试听'),
+                        ),
+                      ]),
+                    if (on && speechResult != null && speechResult!.startsWith('离线')) Padding(padding: const EdgeInsets.only(top: 6), child: Text(speechResult!, style: theme.textTheme.bodySmall)),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 4),
+          ],
           TextField(
             controller: transcribeModel,
             decoration: InputDecoration(
@@ -365,7 +440,7 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               OutlinedButton.icon(onPressed: speechTesting ? null : _testSpeech, icon: const Icon(Icons.volume_up_outlined, size: 18), label: Text(speechTesting ? '合成中…' : '试听')),
               const SizedBox(width: 12),
-              if (speechResult != null) Expanded(child: Text(speechResult!, style: theme.textTheme.bodySmall)),
+              if (speechResult != null && !speechResult!.startsWith('离线')) Expanded(child: Text(speechResult!, style: theme.textTheme.bodySmall)),
             ],
           ),
           const SizedBox(height: 12),
