@@ -306,18 +306,6 @@ void main() {
     expect(state.hasModel, isTrue);
     expect(state.settings.redact, isTrue);
   });
-}
-
-class _FakeChat extends ChatProvider {
-  final String out;
-  _FakeChat(this.out);
-  @override
-  String get name => 'fake';
-  @override
-  String get model => 'fake-model';
-  @override
-  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
-      ChatResult(text: out, model: model, latency: Duration.zero);
 
   group('fmtRelativeMs', () {
     final now = DateTime(2026, 9, 18, 10, 30);
@@ -330,4 +318,16 @@ class _FakeChat extends ChatProvider {
       expect(fmtRelativeMs(ms(DateTime(2026, 9, 12, 14, 5)), now: now), '9/12 14:05');
     });
   });
+}
+
+class _FakeChat extends ChatProvider {
+  final String out;
+  _FakeChat(this.out);
+  @override
+  String get name => 'fake';
+  @override
+  String get model => 'fake-model';
+  @override
+  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
+      ChatResult(text: out, model: model, latency: Duration.zero);
 }
