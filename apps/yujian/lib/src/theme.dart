@@ -148,7 +148,7 @@ ThemeData _base({
       surfaceTintColor: Colors.transparent,
       indicatorColor: navIndicator ?? accent.withValues(alpha: 0.14),
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
-      height: 64,
+      height: 60,
       elevation: 0,
     ),
     textTheme: _text(ink: ink, soft: soft, titleWeight: titleWeight),
@@ -358,6 +358,43 @@ class Frosted extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: DecoratedBox(decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0x33FFFFFF), width: 0.6))), child: child),
+      ),
+    );
+  }
+}
+
+/// 底栏：悬浮长胶囊，四边留空、页面从它下面滑过，没有贴边的分界线。
+/// 玻璃主题真磨砂；其他主题用卡片的底色和描边（卡通主题自然带粗描边）。
+/// 配合 Scaffold.extendBody 使用：系统底部安全区算在胶囊外面，内部 NavigationBar 不再自己垫一次。
+class Dock extends StatelessWidget {
+  final Widget child;
+  const Dock({super.key, required this.child});
+
+  static const _radius = 32.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final y = YujianColors.of(context);
+    final theme = Theme.of(context);
+    final shape = theme.cardTheme.shape;
+    final side = shape is RoundedRectangleBorder ? shape.side : BorderSide(color: y.cardBorder, width: 0.6);
+    final inset = MediaQuery.paddingOf(context).bottom;
+    final r = BorderRadius.circular(_radius);
+    Widget pill = DecoratedBox(
+      decoration: BoxDecoration(color: y.glass ? const Color(0xB8FFFFFF) : y.cardFill, borderRadius: r, border: Border.fromBorderSide(side)),
+      child: MediaQuery.removePadding(context: context, removeBottom: true, child: child),
+    );
+    if (y.glass) {
+      pill = ClipRRect(borderRadius: r, child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: pill));
+    }
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, 0, 14, inset > 0 ? inset + 6 : 14),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: r,
+          boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.10), blurRadius: 28, offset: const Offset(0, 10))],
+        ),
+        child: pill,
       ),
     );
   }
