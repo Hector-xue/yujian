@@ -95,7 +95,7 @@ class LocalTts {
   static Future<String> synthesize(String text, {int sid = defaultSid, double speed = 1.0}) async {
     final d = await _dir();
     final out = '${(await getTemporaryDirectory()).path}/yujian_tts_${DateTime.now().microsecondsSinceEpoch}.wav';
-    await _Worker.instance(d.path).run(_Job(text, sid, speed, out));
+    await (await _Worker.instance(d.path)).run(_Job(text, sid, speed, out));
     return out;
   }
 
