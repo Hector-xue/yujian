@@ -279,7 +279,7 @@ class _VoicePageState extends State<VoicePage> {
                 s.doubaoTts.configured ? '已配好。抖音短剧同款，有情绪；按字数计费' : '抖音短剧同款，有情绪，中文最自然；要一个火山引擎的 API Key',
                 body: [
                   _keyField(doubaoKey, 'API Key', helper: '火山引擎 → 豆包语音 → 应用里复制；只存本机安全存储'),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 16),
                   _voicePicker('音色', doubaoVoices, s.doubaoVoice, (v) => app.saveSettings(app.settings.copyWith(doubaoVoice: v))),
                   ExpansionTile(
                     tilePadding: EdgeInsets.zero,
@@ -300,7 +300,7 @@ class _VoicePageState extends State<VoicePage> {
                 s.minimaxTts.configured ? '已配好。speech-02-hd，有情绪；按字数计费' : '有情绪、很自然；要一个 MiniMax 的 API Key',
                 body: [
                   _keyField(minimaxKey, 'API Key', helper: 'MiniMax 开放平台 → 接口密钥；只存本机安全存储'),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 16),
                   _voicePicker('音色', minimaxVoices, s.minimaxVoice, (v) => app.saveSettings(app.settings.copyWith(minimaxVoice: v))),
                   ExpansionTile(
                     tilePadding: EdgeInsets.zero,
