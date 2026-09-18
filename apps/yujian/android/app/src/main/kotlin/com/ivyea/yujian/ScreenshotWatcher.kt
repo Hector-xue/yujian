@@ -167,7 +167,9 @@ object ScreenshotWatcher {
         val u = Uri.parse(uri)
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+            // 只量尺寸：这一步 decodeStream 恒返回 null，别拿返回值判断
+            ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
             var sample = 1
             while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
