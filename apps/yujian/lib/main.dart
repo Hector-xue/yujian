@@ -10,6 +10,7 @@ import 'src/pages/home_page.dart';
 import 'src/pages/inbox_page.dart';
 import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
+import 'src/platform/avatar_files_native.dart' if (dart.library.js_interop) 'src/platform/avatar_files_web.dart';
 import 'src/platform/home_widget_bridge.dart';
 import 'src/notifications/notification_source.dart';
 import 'src/notifications/screenshot_source.dart';
@@ -66,14 +67,20 @@ class YujianApp extends StatelessWidget {
         builder: (context, _) {
           final accent = Color(0xFF000000 | state.persona.accent);
           final spec = themeById(state.settings.themeId);
+          final base = spec.build(accent);
+          final bgPath = state.settings.backgroundImage ?? '';
+          final custom = bgPath.isEmpty ? null : backgroundImage(bgPath); // 文件没了就当没设
+          // 全局背景层：主题自己的渐变（或纯色）在最下面，用户的背景图按可见度叠在上面，页面 Scaffold 透明
+          Widget background(BuildContext context) => Stack(fit: StackFit.expand, children: [
+                spec.background?.call(context, accent) ?? ColoredBox(color: base.colorScheme.surface),
+                if (custom != null) Opacity(opacity: state.settings.backgroundOpacity.clamp(0.0, 1.0), child: custom),
+              ]);
+          final hasBg = spec.background != null || custom != null;
           return MaterialApp(
             title: '余见',
-            theme: spec.build(accent),
+            theme: custom == null ? base : withCustomBackground(base, background),
             debugShowCheckedModeBanner: false,
-            // 全局背景层：玻璃/清新/樱花的渐变放在所有页面下面，页面 Scaffold 透明
-            builder: (context, child) => spec.background == null
-                ? child!
-                : Stack(children: [Positioned.fill(child: spec.background!(context, accent)), ?child]),
+            builder: (context, child) => !hasBg ? child! : Stack(children: [Positioned.fill(child: background(context)), ?child]),
             home: const Shell(),
           );
         },
@@ -127,7 +134,7 @@ class _ShellState extends State<Shell> {
         backgroundColor: Colors.transparent,
         // 高度跟着系统字号走：内容 = 指示胶囊 32 + 标签上距 4 + 标签一行(字号 12，NavigationBar 内部把标签缩放封顶 1.3)，
         // 再留上下各 ~6。写死 60 在大字号手机上内容会顶出底栏（选中胶囊贴着/超出上边）
-        height: 48 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18),
+        height: 50 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18),
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [

@@ -1,21 +1,79 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../app_state.dart';
+import '../platform/avatar_files_native.dart' if (dart.library.js_interop) '../platform/avatar_files_web.dart';
 import '../theme.dart';
 
-/// 外观：主题。点了就生效。
-class AppearancePage extends StatelessWidget {
+/// 外观：主题 + 自定义全局背景图（可调可见度）。点了就生效。
+class AppearancePage extends StatefulWidget {
   const AppearancePage({super.key});
+  @override
+  State<AppearancePage> createState() => _AppearancePageState();
+}
+
+class _AppearancePageState extends State<AppearancePage> {
+  double? _dragging; // 滑块拖动中的临时值，松手才落盘
+
+  Future<void> _pickBackground() async {
+    final app = AppScope.of(context);
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, maxHeight: 2400, imageQuality: 85);
+    if (x == null) return;
+    await app.setBackground(await x.readAsBytes(), ext: x.name.toLowerCase().endsWith('.png') ? 'png' : 'jpg');
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final s = app.settings;
+    final bgPath = s.backgroundImage ?? '';
+    final bg = bgPath.isEmpty ? null : backgroundImage(bgPath);
     return Scaffold(
       appBar: AppBar(title: const Text('外观')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
+          Text('背景', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text('用自己的图片当全屏背景，所有页面都在它上面。可见度调低一点字更清楚。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 10),
+          if (bg == null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonalIcon(onPressed: _pickBackground, icon: const Icon(Icons.wallpaper_outlined, size: 18), label: const Text('从相册选一张')),
+            )
+          else ...[
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(width: 96, height: 160, child: Opacity(opacity: (_dragging ?? s.backgroundOpacity).clamp(0.0, 1.0), child: bg)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('可见度 ${((_dragging ?? s.backgroundOpacity) * 100).round()}%', style: theme.textTheme.bodyMedium),
+                  Slider(
+                    value: (_dragging ?? s.backgroundOpacity).clamp(0.05, 1.0),
+                    min: 0.05,
+                    max: 1,
+                    onChanged: (v) => setState(() => _dragging = v),
+                    onChangeEnd: (v) async {
+                      await app.saveSettings(app.settings.copyWith(backgroundOpacity: v));
+                      if (mounted) setState(() => _dragging = null);
+                    },
+                  ),
+                  Wrap(spacing: 8, children: [
+                    OutlinedButton(onPressed: _pickBackground, child: const Text('换一张')),
+                    TextButton(onPressed: () => app.setBackground(null), child: const Text('移除')),
+                  ]),
+                ]),
+              ),
+            ]),
+          ],
+          const SizedBox(height: 24),
+          Text('主题', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
           Text('主题管质感和形状，强调色跟人格走。点了就生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 14),
           GridView.builder(
