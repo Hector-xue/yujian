@@ -237,6 +237,9 @@ class TemplateMatcher {
     );
   }
 
+  /// 按关键词判方向（学模板时也用它预选）。
+  static String? directionOf(String text) => _directionOf(text);
+
   static String? _directionOf(String text) {
     if (_transferRe.hasMatch(text)) return 'transfer';
     if (_incomeRe.hasMatch(text) && !_expenseRe.hasMatch(text)) return 'income';

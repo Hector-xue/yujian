@@ -2,4 +2,5 @@
 library;
 
 export 'src/event.dart';
+export 'src/learn.dart';
 export 'src/templates.dart';

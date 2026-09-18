@@ -14,6 +14,12 @@ import org.json.JSONObject
  * 不读短信、不用无障碍。用户在系统设置里授权后才会被绑定。
  */
 class YujianNotificationListener : NotificationListenerService() {
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // 这个服务常驻，顺手把截图观察者挂上（用户没开截图记账它什么都不做）
+        ScreenshotWatcher.ensureStarted(applicationContext)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         val extras = sbn.notification.extras ?: return

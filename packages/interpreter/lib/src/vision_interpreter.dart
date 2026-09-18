@@ -11,9 +11,13 @@ class VisionInterpreter {
   final Duration timeout;
   VisionInterpreter(this.provider, {this.timeout = const Duration(seconds: 60)});
 
-  Future<InterpretResult> interpret(List<ImageInput> images, InterpretContext ctx, {String hint = ''}) async {
+  /// [autoScan]：截图自动记账在用——图不是用户特意挑的，多半和钱无关，让模型先判断"是不是交易凭证"，不是就返回空。
+  Future<InterpretResult> interpret(List<ImageInput> images, InterpretContext ctx, {String hint = '', bool autoScan = false}) async {
     final system = '${LLMInterpreter.buildSystemPrompt(ctx)}\n'
-        '现在输入的是支付截图、账单截图或小票照片。识别其中的每一笔交易，intent 固定为 propose_transactions。\n'
+        '${autoScan ? '现在输入的是用户手机上新出现的一张截图，它可能和钱完全无关。'
+            '只有当图里是真实的交易凭证——支付成功页、付款 / 收款结果、订单已支付、账单明细、转账记录、小票——才识别其中的每一笔交易，intent 为 propose_transactions。'
+            '聊天记录、商品页、购物车、广告、优惠券、游戏、记账 App 本身的页面（余见）、看不出是否已付款的页面，一律视为没有交易：drafts 给空数组。'
+            '宁可漏也不要编：金额、方向不确定就不要给。' : '现在输入的是支付截图、账单截图或小票照片。识别其中的每一笔交易，intent 固定为 propose_transactions。'}\n'
         '看不清的金额不要猜，填 null；日期看不到就用当前时间；商户名照抄图片上的。';
     final r = await provider.completeWithImages(
       system: system,

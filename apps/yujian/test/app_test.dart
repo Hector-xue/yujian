@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:interpreter/interpreter.dart';
 import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:notification_templates/notification_templates.dart';
@@ -9,7 +12,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/notifications/notification_source.dart';
+import 'package:yujian/src/notifications/screenshot_source.dart';
 import 'package:yujian/src/settings_store.dart';
+import 'package:yujian/src/usage/usage_meter.dart';
 import 'package:yujian/src/widgets/fmt.dart';
 
 void main() {
@@ -246,6 +251,99 @@ void main() {
     });
   });
 
+  group('usage meter', () {
+    test('accumulates by day/model/kind, estimates cost with builtin, prefix and override prices, persists', () async {
+      final m = UsageMeter()..now = () => DateTime(2026, 9, 18, 10);
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'chat', promptTokens: 1000000, completionTokens: 500000, hasUsage: true));
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'vision', promptTokens: 0, completionTokens: 0, hasUsage: false));
+      m.record(const UsageEvent(model: 'Qwen/Qwen3-8B', kind: 'chat', promptTokens: 100, completionTokens: 50, hasUsage: true));
+      m.record(const UsageEvent(model: 'mystery-9b', kind: 'chat', promptTokens: 10, completionTokens: 10, hasUsage: true));
+      m.recordSpeech('gpt-4o-mini-tts', 1000000);
+      final all = m.summary();
+      expect(all.tokens, 1500170);
+      expect(all.calls, 5);
+      expect(all.chars, 1000000);
+      final flash = all.byModel.firstWhere((x) => x.model == 'deepseek-flash');
+      expect(flash.cost, closeTo(2 + 4, 1e-9)); // 1M×¥2 + 0.5M×¥8
+      expect(flash.kinds, {'chat', 'vision'});
+      expect(all.byModel.firstWhere((x) => x.model == 'Qwen/Qwen3-8B').cost, 0); // 免费档
+      expect(all.byModel.firstWhere((x) => x.model == 'gpt-4o-mini-tts').cost, closeTo(4.4, 1e-9));
+      expect(all.unknownModels, ['mystery-9b']);
+      expect(all.knownCost, closeTo(10.4, 1e-9));
+      // 前缀匹配：deepseek-flash-2 也按 flash 算
+      expect(m.priceOf('deepseek-flash-2')?.inPerM, 2);
+      expect(m.priceOf('Pro/deepseek-ai/DeepSeek-V3')?.outPerM, 8);
+      // 用户自填单价
+      await m.setPrice('mystery-9b', const ModelPrice(inPerM: 1, outPerM: 1));
+      expect(m.summary().unknownModels, isEmpty);
+      // 月度过滤：上个月的不算
+      m.now = () => DateTime(2026, 8, 3);
+      m.record(const UsageEvent(model: 'deepseek-flash', kind: 'chat', promptTokens: 7, completionTokens: 0, hasUsage: true));
+      expect(m.summary(from: DateTime(2026, 9, 1)).tokens, 1500170);
+      expect(m.summary().tokens, 1500177);
+      // 落盘再读回
+      await m.flush();
+      final m2 = UsageMeter();
+      await m2.load();
+      expect(m2.summary().tokens, 1500177);
+      expect(m2.priceOf('mystery-9b')?.inPerM, 1);
+    });
+
+    test('AppState wraps the provider so calls are metered', () async {
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()))..bootstrap();
+      await st.saveSettings(const Settings(baseUrl: 'http://127.0.0.1:1/v1', model: 'x'));
+      expect(st.interpreter.llm, isNotNull);
+      expect(st.provider, isA<MeteredProvider>());
+      await st.saveSettings(const Settings());
+      expect(st.provider, isNull);
+    });
+  });
+
+  group('screenshots', () {
+    ScreenshotEvent shot(int id) => ScreenshotEvent(id: id, uri: 'content://shot/$id', name: 'Screenshot_$id.png', addedMs: DateTime.now().millisecondsSinceEpoch);
+    const payJson = '{"intent":"propose_transactions","transactions":[{"type":"expense","amount":"36.50","merchant":"肯德基","category_id":"food","account_id":"wechat","occurred_at":"2026-09-18T12:31:00+08:00","confidence":0.9}]}';
+    const noneJson = '{"intent":"chat","transactions":[]}';
+
+    test('confirm mode: transaction screenshot → inbox draft; unrelated screenshot ignored; same shot twice dedupes; strict prompt used', () async {
+      final src = FakeScreenshotSource()..images['content://shot/1'] = Uint8List.fromList([1, 2, 3])..images['content://shot/2'] = Uint8List.fromList([2]);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
+      await st.saveSettings(const Settings(screenshotWanted: true));
+      final fake = _FakeVision({'content://shot/1': payJson, 'content://shot/2': noneJson});
+      st.vision = VisionInterpreter(fake);
+      expect(await st.ingestScreenshots([shot(1), shot(2), shot(1)]), 1);
+      final d = st.inbox.single;
+      expect(d.source, Source.screenshot);
+      expect(d.payload['amount_minor'], 3650);
+      expect((d.payload['metadata'] as Map)['screenshot'], isNotNull);
+      expect(st.ledger.listTransactions(), isEmpty);
+      expect(st.screenshotLog.map((o) => o.outcome).toList(), ['ignored', 'ignored', 'inbox']); // 最新在前：重复图 / 无关图 / 进收件箱
+      expect(fake.lastSystem, contains('可能和钱完全无关')); // 严格模式提示词
+    });
+
+    test('silent mode commits; missing model / missing image are skipped with a reason; live stream drains', () async {
+      final src = FakeScreenshotSource()..images['content://shot/1'] = Uint8List.fromList([1]);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
+      await st.saveSettings(const Settings(screenshotWanted: true, automationMode: AutomationMode.silent));
+      expect(await st.ingestScreenshots([shot(1)]), 0);
+      expect(st.screenshotLog.single.detail, '没配置模型');
+      st.vision = VisionInterpreter(_FakeVision({'content://shot/1': payJson}));
+      expect(await st.ingestScreenshots([shot(9)]), 0); // 图不在
+      expect(st.screenshotLog.first.outcome, 'skipped');
+      expect(await st.ingestScreenshots([shot(1)]), 1);
+      expect(st.ledger.listTransactions().single.amountMinor, 3650);
+      expect(st.screenshotLog.first.outcome, 'recorded');
+      // 实时流：原生说「有新的」，Dart 自己去 drain
+      await st.startScreenshots();
+      src.images['content://shot/3'] = Uint8List.fromList([3]);
+      st.vision = VisionInterpreter(_FakeVision({'content://shot/3': payJson}));
+      src.push(shot(3));
+      await Future<void>.delayed(Duration.zero);
+      await st.drainScreenshots(); // 排在流触发的那批后面，等它跑完
+      expect(st.ledger.listTransactions().length, 2);
+      expect(src.queued, isEmpty);
+    });
+  });
+
   test('user notification templates and custom persona are honored', () async {
     final src = FakeNotificationSource(enabled: true);
     final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
@@ -346,4 +444,24 @@ class _FakeChat extends ChatProvider {
   @override
   Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
       ChatResult(text: out, model: model, latency: Duration.zero);
+}
+
+class _FakeVision extends ChatProvider {
+  final Map<String, String> byUri; // uri → 模型回答；靠图首字节 == uri 末位数字对回去
+  String? lastSystem;
+  _FakeVision(this.byUri);
+  @override
+  String get name => 'fake-vision';
+  @override
+  String get model => 'fake-vision-model';
+  @override
+  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
+      ChatResult(text: '{"intent":"chat"}', model: model, latency: Duration.zero);
+  @override
+  Future<ChatResult> completeWithImages({required String system, required String user, required List<ImageInput> images, bool jsonMode = false, Duration? timeout}) async {
+    lastSystem = system;
+    // FakeScreenshotSource 里每个 uri 的字节内容不同：按首字节找回是哪张图
+    final key = byUri.keys.firstWhere((k) => k.endsWith('/${images.first.bytes.first}'), orElse: () => byUri.keys.first);
+    return ChatResult(text: byUri[key]!, model: model, latency: Duration.zero);
+  }
 }

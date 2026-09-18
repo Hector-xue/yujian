@@ -148,7 +148,7 @@ ThemeData _base({
       surfaceTintColor: Colors.transparent,
       indicatorColor: navIndicator ?? accent.withValues(alpha: 0.14),
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
-      height: 60,
+      height: 64,
       elevation: 0,
     ),
     textTheme: _text(ink: ink, soft: soft, titleWeight: titleWeight),

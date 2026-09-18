@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../settings_store.dart';
 import '../widgets/fmt.dart';
+import '../widgets/learn_template_sheet.dart';
 
 /// 自动记账（§11）：通知监听开关、三种模式、自动入账日志、模板试验。
 class AutomationPage extends StatefulWidget {
@@ -16,6 +17,8 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   bool? systemEnabled;
   bool? screenEnabled;
   Map<String, Object?> screenDiag = const {};
+  ({bool permitted, bool partial})? shotStatus;
+  Map<String, Object?> shotDiag = const {};
   final testText = TextEditingController();
   String? testResult;
 
@@ -38,17 +41,63 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   }
 
   Future<void> _refresh() async {
-    final n = AppScope.of(context).notifications;
+    final app = AppScope.of(context);
+    final n = app.notifications;
     final v = await n.isEnabled();
     final sc = await n.isScreenEnabled();
     final diag = await n.screenDiagnostics();
+    final shots = app.screenshots;
+    final ss = await shots.status();
+    final sd = await shots.diagnostics();
     if (mounted) {
       setState(() {
         systemEnabled = v;
         screenEnabled = sc;
         screenDiag = diag;
+        shotStatus = ss;
+        shotDiag = sd;
       });
     }
+  }
+
+  /// 截图自动记账的处理记录：每张图记了 / 进收件箱 / 忽略 / 出错，一眼看出模型怎么判的。
+  Widget _screenshotLog(BuildContext context, AppState app) {
+    final theme = Theme.of(context);
+    final log = app.screenshotLog;
+    final observing = shotDiag['observing'] == true;
+    final pending = (shotDiag['pending'] as num?)?.toInt() ?? 0;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: Text('截图处理记录', style: theme.textTheme.titleSmall)),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
+            ]),
+            Text('${observing ? '正在盯着相册' : '观察者没在（App 进后台被杀后，下次打开会补扫最近 24 小时）'}${pending > 0 ? ' · $pending 张待处理' : ''}', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 6),
+            if (log.isEmpty)
+              Text('还没处理过截图。截一张支付页 / 订单页试试', style: theme.textTheme.bodySmall)
+            else
+              for (final o in log.take(8))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(
+                      switch (o.outcome) { 'recorded' => Icons.check_circle_outline, 'inbox' => Icons.inbox_outlined, 'error' => Icons.error_outline, _ => Icons.remove_circle_outline },
+                      size: 16,
+                      color: switch (o.outcome) { 'recorded' || 'inbox' => theme.colorScheme.primary, 'error' => theme.colorScheme.error, _ => theme.textTheme.bodySmall?.color },
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text('${fmtRelativeMs(o.atMs)} · ${o.detail}${o.modelUsed != null ? ' · ${o.modelUsed}' : ''}', style: theme.textTheme.bodySmall)),
+                  ]),
+                ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 支付页识别的诊断面板：把原生侧每一步的记录摆出来，没识别到时能看出卡在哪一环。
@@ -140,73 +189,6 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     return '$time  $what${count > 1 ? ' ×$count' : ''}';
   }
 
-  Future<void> _addTemplate(BuildContext context) async {
-    final app = AppScope.of(context);
-    final id = TextEditingController();
-    final pkg = TextEditingController(text: 'com.tencent.mm');
-    final re = TextEditingController(text: r'已支付[¥￥]?(?<amount>\d+(?:\.\d{1,2})?)');
-    final hint = TextEditingController();
-    var direction = 'expense';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (d) => StatefulBuilder(
-        builder: (d, setState) => AlertDialog(
-          title: const Text('新模板'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: id, decoration: const InputDecoration(labelText: '名字', hintText: 'my_bank')),
-                const SizedBox(height: 12),
-                TextField(controller: pkg, decoration: const InputDecoration(labelText: '包名（留空=任意）')),
-                const SizedBox(height: 12),
-                TextField(controller: re, decoration: const InputDecoration(labelText: '正文正则', helperText: '必须含 (?<amount>数字) 分组；可选 (?<merchant>…)'), maxLines: 2),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: direction,
-                  decoration: const InputDecoration(labelText: '方向'),
-                  items: const [
-                    DropdownMenuItem(value: 'expense', child: Text('支出')),
-                    DropdownMenuItem(value: 'income', child: Text('收入')),
-                    DropdownMenuItem(value: 'transfer', child: Text('转账')),
-                    DropdownMenuItem(value: '', child: Text('按关键词判'))
-                  ],
-                  onChanged: (v) => setState(() => direction = v ?? ''),
-                ),
-                const SizedBox(height: 12),
-                TextField(controller: hint, decoration: const InputDecoration(labelText: '账户线索（可选）', hintText: '招行')),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('保存')),
-          ],
-        ),
-      ),
-    );
-    if (ok != true || !context.mounted) return;
-    try {
-      RegExp(re.text); // 先验证正则
-    } on FormatException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('正则不合法：${e.message}')));
-      return;
-    }
-    if (id.text.trim().isEmpty || !re.text.contains('(?<amount>')) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('要有名字，正则要有 (?<amount>…) 分组')));
-      return;
-    }
-    final t = <String, Object?>{
-      'id': id.text.trim(),
-      'packages': pkg.text.trim().isEmpty ? <String>[] : [pkg.text.trim()],
-      'text_re': re.text,
-      if (direction.isNotEmpty) 'direction': direction,
-      if (hint.text.trim().isNotEmpty) 'account_hint': hint.text.trim(),
-      'confidence': 0.9,
-    };
-    await app.saveSettings(app.settings.copyWith(userTemplates: [...app.settings.userTemplates.where((x) => x['id'] != t['id']), t]));
-  }
-
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -219,7 +201,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('两条路，建议都开：微信 / 支付宝付款时 App 在前台，系统不弹通知，只有「支付页识别」能抓到；银行、购物平台的到账 / 支付通知则由「通知自动记账」读。都只在本机处理，不读短信，关掉随时生效。', style: theme.textTheme.bodySmall),
+          Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」让视觉模型看一眼。前两条只在本机处理；截图会发给你配置的模型。关掉随时生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -281,6 +263,41 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('打开应用信息页')),
             ),
           ],
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('截图自动记账'),
+            subtitle: Text(
+              !supported
+                  ? '仅 Android 支持'
+                  : !app.hasModel
+                      ? '要先配置一个能看图的模型（更多 → 模型与人格）'
+                      : shotStatus?.partial == true
+                          ? '相册权限只给了「部分照片」，看不到新截图：到应用信息页改成「允许全部」'
+                          : s.screenshotWanted
+                              ? '相册里新出现的截图会发给模型判断：是支付页 / 订单 / 账单 / 小票就按下面的模式记账，不是就忽略'
+                              : '截一张支付页、订单页或小票，不用打开余见也能记。需要相册读取权限；每张新截图都会发给你配置的模型',
+              style: theme.textTheme.bodySmall,
+            ),
+            value: s.screenshotWanted,
+            onChanged: !supported || !app.hasModel
+                ? null
+                : (v) async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await app.setScreenshotWanted(v);
+                    if (v && !ok) messenger.showSnackBar(const SnackBar(content: Text('没拿到相册权限，截图自动记账没打开')));
+                    _refresh();
+                  },
+          ),
+          if (supported && s.screenshotWanted && shotStatus?.partial == true)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('去应用信息页改权限')),
+            ),
+          if (supported && s.screenshotWanted) ...[
+            Text('后台也能记的前提是余见进程还活着：开了「通知自动记账」或「支付页识别」系统会替它留着；国产系统还得在设置里允许余见自启动 / 后台运行。进程被杀期间截的图，下次打开余见时补扫最近 24 小时。', style: theme.textTheme.bodySmall),
+            Padding(padding: const EdgeInsets.only(top: 4), child: _screenshotLog(context, app)),
+          ],
           const SizedBox(height: 16),
           Text('模式', style: theme.textTheme.titleMedium),
           RadioGroup<AutomationMode>(
@@ -312,19 +329,35 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
             ),
           if (autoLog.isNotEmpty) Text('长按一条可撤销', style: theme.textTheme.bodySmall),
           const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(child: Text('自定义模板', style: theme.textTheme.titleMedium)),
-              TextButton.icon(onPressed: () => _addTemplate(context), icon: const Icon(Icons.add, size: 18), label: const Text('新建')),
-            ],
-          ),
-          Text('内置模板认不出的通知，自己写一条：包名 + 正则（金额用 (?<amount>…) 分组）。用户模板优先于内置。', style: theme.textTheme.bodySmall),
+          Text('教它认一种通知', style: theme.textTheme.titleMedium),
+          Text('有些 App 的通知内置规则认不出（银行、小众平台）：拿一条真实通知当例子，点一下金额、选个方向就行，不用懂包名和正则。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 4, children: [
+            FilledButton.tonalIcon(
+              onPressed: () async {
+                final n = await pickRecentNotice(context);
+                if (n == null || !context.mounted) return;
+                await showLearnTemplateSheet(context, from: n);
+              },
+              icon: const Icon(Icons.notifications_none, size: 18),
+              label: const Text('从最近的通知里选'),
+            ),
+            OutlinedButton.icon(onPressed: () => showLearnTemplateSheet(context), icon: const Icon(Icons.content_paste, size: 18), label: const Text('粘贴通知文字')),
+          ]),
           for (final t in s.userTemplates)
             ListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
-              title: Text('${t['id']} · ${(t['packages'] as List?)?.join(',') ?? '任意包'}'),
-              subtitle: Text('${t['text_re']} → ${t['direction'] ?? '按关键词'}${t['account_hint'] != null ? ' · ${t['account_hint']}' : ''}', style: theme.textTheme.bodySmall),
+              title: Text('${t['id']}', maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                t['sample'] is String && (t['sample'] as String).isNotEmpty
+                    ? '例：${t['sample']}'
+                    : '${t['text_re']} → ${t['direction'] ?? '按关键词'}${t['account_hint'] != null ? ' · ${t['account_hint']}' : ''}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+              onTap: () => showLearnTemplateSheet(context, edit: t),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, size: 20),
                 onPressed: () => app.saveSettings(s.copyWith(userTemplates: [
@@ -333,6 +366,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 ])),
               ),
             ),
+          if (s.userTemplates.isNotEmpty) Text('点一条可以改', style: theme.textTheme.bodySmall),
           const SizedBox(height: 24),
           Text('试试模板', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),

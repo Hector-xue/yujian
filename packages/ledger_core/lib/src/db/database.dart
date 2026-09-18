@@ -16,6 +16,8 @@ class LedgerDatabase {
   void _init({required bool wal}) {
     db.execute('PRAGMA foreign_keys = ON;');
     if (wal) db.execute('PRAGMA journal_mode = WAL;');
+    // 同一进程里可能有第二个引擎（截图后台处理）短暂同时写：等锁而不是直接 SQLITE_BUSY
+    if (wal) db.execute('PRAGMA busy_timeout = 5000;');
     migrate();
   }
 

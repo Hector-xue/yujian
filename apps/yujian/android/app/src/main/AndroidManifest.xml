@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <!-- 应用内更新：下载 apk 后拉起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- 截图自动记账：读相册里新出现的截图（用户在「自动记账」里打开后才申请） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <application
         android:label="余见"
         android:name="${applicationName}"

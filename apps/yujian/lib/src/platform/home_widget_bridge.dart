@@ -19,4 +19,28 @@ class HomeWidgetBridge {
       // 没装小部件或系统不给，都不影响 App
     }
   }
+
+  /// 桌面是否支持从 App 内直接添加小部件（Android 8+ 且桌面实现了 pin；不支持就只能长按桌面手动加）。
+  Future<bool> pinSupported() async {
+    if (!supported) return false;
+    try {
+      return await _m.invokeMethod<bool>('pinSupported') ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// 弹系统的「添加到主屏幕」确认框。返回 false = 桌面不支持 / 系统拒绝。
+  Future<bool> pin(String kind) async {
+    if (!supported) return false;
+    try {
+      return await _m.invokeMethod<bool>('pin', {'kind': kind}) ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
 }

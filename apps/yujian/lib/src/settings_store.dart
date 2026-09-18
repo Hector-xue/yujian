@@ -16,6 +16,7 @@ class Settings {
   final AutomationMode automationMode;
   final bool notificationsWanted; // 用户在余见里打开了开关（系统授权另查）
   final bool screenWanted; // 支付页识别（无障碍）开关（系统授权另查）
+  final bool screenshotWanted; // 截图自动记账开关（相册权限另查）
   final String? visionModel; // 空 = 用 model
   final String? syncUrl;
   final String? syncToken;
@@ -29,7 +30,11 @@ class Settings {
   final String? assistantName; // 对话页显示名，空 = 人格名
   final String themeId; // 外观主题
   final String? transcribeModel; // 语音转写模型（/audio/transcriptions），空 = 不用云转写
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
+  final String? speechModel; // 语音合成模型（/audio/speech），空 = 用系统 TTS
+  final String? speechVoice; // 音色名，各服务不同（alloy / anna / …）
+  final String? speechStyle; // 语气说明，只有 gpt-4o-mini-tts 这类认；空不发
+  final int offlineVoiceSid; // 离线语音包的音色编号（Kokoro sid）
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.offlineVoiceSid = 3});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -48,7 +53,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, int? offlineVoiceSid}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -56,6 +61,7 @@ class Settings {
         automationMode: automationMode ?? this.automationMode,
         notificationsWanted: notificationsWanted ?? this.notificationsWanted,
         screenWanted: screenWanted ?? this.screenWanted,
+        screenshotWanted: screenshotWanted ?? this.screenshotWanted,
         visionModel: visionModel ?? this.visionModel,
         syncUrl: syncUrl ?? this.syncUrl,
         syncToken: syncToken ?? this.syncToken,
@@ -69,6 +75,10 @@ class Settings {
         assistantName: assistantName ?? this.assistantName,
         themeId: themeId ?? this.themeId,
         transcribeModel: transcribeModel ?? this.transcribeModel,
+        speechModel: speechModel ?? this.speechModel,
+        speechVoice: speechVoice ?? this.speechVoice,
+        speechStyle: speechStyle ?? this.speechStyle,
+        offlineVoiceSid: offlineVoiceSid ?? this.offlineVoiceSid,
       );
 }
 
@@ -101,6 +111,7 @@ class PlatformSettingsStore implements SettingsStore {
       automationMode: AutomationMode.values.asNameMap()[p.getString('automation_mode') ?? ''] ?? AutomationMode.confirm,
       notificationsWanted: p.getBool('notifications_wanted') ?? false,
       screenWanted: p.getBool('screen_wanted') ?? false,
+      screenshotWanted: p.getBool('screenshot_wanted') ?? false,
       visionModel: p.getString('llm_vision_model'),
       syncUrl: p.getString('sync_url'),
       syncToken: syncToken,
@@ -114,6 +125,10 @@ class PlatformSettingsStore implements SettingsStore {
       assistantName: _emptyToNull(p.getString('assistant_name')),
       themeId: p.getString('theme_id') ?? 'glass',
       transcribeModel: _emptyToNull(p.getString('transcribe_model')),
+      speechModel: _emptyToNull(p.getString('speech_model')),
+      speechVoice: _emptyToNull(p.getString('speech_voice')),
+      speechStyle: _emptyToNull(p.getString('speech_style')),
+      offlineVoiceSid: p.getInt('offline_voice_sid') ?? 3,
     );
   }
 
@@ -126,6 +141,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('automation_mode', s.automationMode.name);
     await p.setBool('notifications_wanted', s.notificationsWanted);
     await p.setBool('screen_wanted', s.screenWanted);
+    await p.setBool('screenshot_wanted', s.screenshotWanted);
     await p.setString('llm_vision_model', s.visionModel ?? '');
     await p.setString('sync_url', s.syncUrl ?? '');
     await p.setString('user_templates', jsonEncode(s.userTemplates));
@@ -138,6 +154,10 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('assistant_name', s.assistantName ?? '');
     await p.setString('theme_id', s.themeId);
     await p.setString('transcribe_model', s.transcribeModel ?? '');
+    await p.setString('speech_model', s.speechModel ?? '');
+    await p.setString('speech_voice', s.speechVoice ?? '');
+    await p.setString('speech_style', s.speechStyle ?? '');
+    await p.setInt('offline_voice_sid', s.offlineVoiceSid);
     try {
       for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
         if (e.value == null || e.value!.isEmpty) {

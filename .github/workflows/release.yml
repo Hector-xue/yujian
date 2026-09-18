@@ -101,6 +101,8 @@ jobs:
           keyAlias=$KS_ALIAS
           keyPassword=$KS_PASSWORD
           EOT
+      - run: ../../scripts/check_version.sh "${GITHUB_REF_NAME}"
+        if: startsWith(github.ref, 'refs/tags/')
       - run: flutter pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test

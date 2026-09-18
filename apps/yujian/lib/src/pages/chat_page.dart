@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:flutter/services.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
@@ -16,6 +15,7 @@ import '../version.dart';
 import '../voice/chat_files_native.dart' if (dart.library.js_interop) '../voice/chat_files_web.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
 import '../voice/offline_asr_sheet.dart';
+import '../voice/speech_output.dart';
 import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
@@ -23,7 +23,7 @@ import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
-import 'settings_page.dart';
+import 'model_page.dart';
 import 'stats_page.dart';
 
 sealed class _Msg {
@@ -109,7 +109,7 @@ class _ChatPageState extends State<ChatPage> {
   var _voiceMode = false; // 输入栏：键盘 / 按住说话
   var _holding = false;
   var _cancelHint = false; // 手指上滑到取消区
-  final _tts = FlutterTts();
+  final _tts = SpeechOutput();
   var _speak = false;
   var _stickerCount = 0;
 
@@ -122,7 +122,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _voice.dispose();
-    _tts.stop().catchError((_) => null);
+    _tts.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -340,7 +340,7 @@ class _ChatPageState extends State<ChatPage> {
         content: Text(canOffline ? '系统语音不可用。装离线语音包（${LocalAsr.approxMb} MB）就能用' : '语音识别没走通，长按麦克风看诊断'),
         action: canOffline
             ? SnackBarAction(label: '下载离线包', onPressed: _installOffline)
-            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))),
+            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
       ));
   }
 
@@ -410,7 +410,7 @@ class _ChatPageState extends State<ChatPage> {
           TextButton(
               onPressed: () {
                 Navigator.pop(d);
-                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()));
               },
               child: const Text('去设置')),
         ],
@@ -555,31 +555,23 @@ class _ChatPageState extends State<ChatPage> {
     SharedPreferences.getInstance().then((p) => p.setInt('chat_sticker_n', _stickerCount));
   }
 
-  /// 朗读回复（用户开了才读；没有 TTS 引擎就静默）。
+  /// 朗读回复（用户开了才读）：配了语音合成模型走云端真人感语音，否则系统 TTS；都没有就静默。
   Future<void> _say(String text) async {
-    if (!_speak) return;
-    try {
-      await _tts.setLanguage('zh-CN');
-      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
-    } catch (_) {}
+    if (!_speak || !mounted) return;
+    final app = AppScope.of(context);
+    await _tts.speak(text, app.settings, meter: app.usage);
   }
 
   /// 单条朗读：不看全局开关。
   Future<void> _speakOnce(String text) async {
-    try {
-      await _tts.stop();
-      await _tts.setLanguage('zh-CN');
-      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
-    } catch (_) {}
+    if (!mounted) return;
+    final app = AppScope.of(context);
+    await _tts.speak(text, app.settings, meter: app.usage);
   }
 
   Future<void> _toggleSpeak() async {
     setState(() => _speak = !_speak);
-    if (!_speak) {
-      try {
-        await _tts.stop();
-      } catch (_) {}
-    }
+    if (!_speak) await _tts.stop();
     final p = await SharedPreferences.getInstance();
     await p.setBool('chat_speak', _speak);
   }
@@ -602,6 +594,16 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickImage() async {
     final app = AppScope.of(context);
+    if (app.vision == null) {
+      // 没配模型就别先开相册再报错：直接指路
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: const Text('识别截图需要先配置模型'),
+          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
+        ));
+      return;
+    }
     final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
     if (x == null || !mounted) return;
     final bytes = await x.readAsBytes();
@@ -724,11 +726,12 @@ class _ChatPageState extends State<ChatPage> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               children: [
+                // 识别截图放第一位：常用，且在末尾要横滑一下才看得见
+                _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
                 _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
                 _chip(Icons.calendar_month_outlined, '日历', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()))),
                 _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
-                if (app.vision != null) _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(_speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', _toggleSpeak),
               ],
             ),
