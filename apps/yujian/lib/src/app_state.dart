@@ -124,6 +124,14 @@ class AppState extends ChangeNotifier {
     await saveSettings(settings.copyWith(personaAvatars: avatars));
   }
 
+  /// 自定义全局背景：[bytes] 为 null = 移除。
+  Future<void> setBackground(Uint8List? bytes, {String ext = 'jpg'}) async {
+    final old = settings.backgroundImage;
+    if (old != null) await deleteAvatarImage(old); // 同一套文件工具
+    final path = bytes == null ? null : await saveBackgroundImage(bytes, ext);
+    await saveSettings(settings.copyWith(backgroundImage: path ?? ''));
+  }
+
   void _apply() {
     final cfg = settings.providerConfig;
     // 所有对话 / 看图调用都包一层计量，用量页才有数

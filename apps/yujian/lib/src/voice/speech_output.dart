@@ -30,18 +30,20 @@ class SpeechOutput {
   static bool cloudConfigured(Settings s) => (s.speechModel ?? '').isNotEmpty && s.providerConfig != null && s.providerConfig!.type != ProviderType.anthropic;
 
   /// [meter] 给了就把云端合成的字符数记进用量。
+  /// 按设置里选的引擎读；选的那个不可用（没装 / 没配 / 出错）就往下退：云端 → 离线 → 系统。
   Future<void> speak(String text, Settings settings, {bool interrupt = true, UsageMeter? meter}) async {
     final clean = cleanup(text);
     if (clean.isEmpty) return;
-    final my = ++_seq;
     if (interrupt) await stop();
-    if (cloudConfigured(settings)) {
+    final my = ++_seq; // 必须在 stop() 之后取号：stop() 会把旧号作废
+    final engine = settings.speechEngine;
+    if (engine == 'cloud' && cloudConfigured(settings)) {
       final ok = await _speakCloud(clean, settings, my);
       if (ok) meter?.recordSpeech(settings.speechModel!, clean.length);
       if (ok || my != _seq) return;
       // 云端没成：往下退，别让用户干等一句没声音
     }
-    if (await offlineAvailable()) {
+    if ((engine == 'cloud' || engine == 'offline') && await offlineAvailable()) {
       final ok = await _speakOffline(clean, settings, my);
       if (ok || my != _seq) return;
     }
@@ -52,9 +54,24 @@ class SpeechOutput {
   Future<bool> speakOffline(String text, Settings settings) async {
     final clean = cleanup(text);
     if (clean.isEmpty) return false;
-    final my = ++_seq;
     await stop();
+    final my = ++_seq;
     return _speakOffline(clean, settings, my);
+  }
+
+  /// 只走云端（设置页试听用）。
+  Future<bool> speakCloud(String text, Settings settings) async {
+    final clean = cleanup(text);
+    if (clean.isEmpty || !cloudConfigured(settings)) return false;
+    await stop();
+    final my = ++_seq;
+    return _speakCloud(clean, settings, my);
+  }
+
+  /// 只走系统朗读（设置页试听用）。
+  Future<void> speakSystem(String text) async {
+    await stop();
+    await _speakSystem(cleanup(text));
   }
 
   /// 离线合成按句切：先合第一句就开播，后面的句子在工作 isolate 里接着合，听感上没有长等待。

@@ -160,6 +160,13 @@ ThemeData _base({
   );
 }
 
+/// 用户自定义了全局背景图：所有主题的 Scaffold / 顶栏都改透明，路由切换用 [background] 垫底（和玻璃主题同一套做法）。
+ThemeData withCustomBackground(ThemeData t, Widget Function(BuildContext) background) => t.copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: t.appBarTheme.copyWith(backgroundColor: Colors.transparent),
+      pageTransitionsTheme: PageTransitionsTheme(builders: {for (final p in TargetPlatform.values) p: _BackedTransitions(background: background)}),
+    );
+
 class _BackedTransitions extends PageTransitionsBuilder {
   final Widget Function(BuildContext) background;
   const _BackedTransitions({required this.background});
@@ -388,7 +395,7 @@ class Dock extends StatelessWidget {
       pill = ClipRRect(borderRadius: r, child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: pill));
     }
     return Padding(
-      padding: EdgeInsets.fromLTRB(14, 0, 14, inset > 0 ? inset + 6 : 14),
+      padding: EdgeInsets.fromLTRB(10, 0, 10, inset > 0 ? inset + 2 : 10), // 胶囊宽一点、贴底一点
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: r,

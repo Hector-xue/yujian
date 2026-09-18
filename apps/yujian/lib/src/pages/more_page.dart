@@ -66,7 +66,7 @@ class MorePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('更多')),
       body: ListView(
-        padding: const EdgeInsets.only(top: 4, bottom: 8),
+        padding: EdgeInsets.only(top: 4, bottom: 8 + MediaQuery.paddingOf(context).bottom), // 底栏悬浮在页面上，最后一项要留出它的高度
         children: [
           group('记账', [
             item(Icons.bar_chart_outlined, '月度统计', onTap: () => go(const StatsPage())),

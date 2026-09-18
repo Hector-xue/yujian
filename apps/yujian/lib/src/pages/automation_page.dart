@@ -19,6 +19,8 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   Map<String, Object?> screenDiag = const {};
   ({bool permitted, bool partial})? shotStatus;
   Map<String, Object?> shotDiag = const {};
+  var screenLogExpanded = false;
+  var shotLogExpanded = false;
   final testText = TextEditingController();
   String? testResult;
 
@@ -81,7 +83,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
             if (log.isEmpty)
               Text('还没处理过截图。截一张支付页 / 订单页试试', style: theme.textTheme.bodySmall)
             else
-              for (final o in log.take(8))
+              for (final o in log.take(shotLogExpanded ? 20 : 5)) // 最多保留 20 条，旧的自动丢
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3),
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -94,6 +96,14 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                     Expanded(child: Text('${fmtRelativeMs(o.atMs)} · ${o.detail}${o.modelUsed != null ? ' · ${o.modelUsed}' : ''}', style: theme.textTheme.bodySmall)),
                   ]),
                 ),
+            if (log.length > 5)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => shotLogExpanded = !shotLogExpanded),
+                  child: Text(shotLogExpanded ? '收起' : '展开全部 ${log.length} 条（最多保留 20 条）'),
+                ),
+              ),
           ],
         ),
       ),
@@ -143,7 +153,16 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
         if (verdict != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(verdict, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error))),
         if (log.isNotEmpty) ...[
           const SizedBox(height: 6),
-          for (final e in log.take(30)) Text(_logLine(e), style: theme.textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          // 原生侧环形只留 40 条，这里默认只展开最近 6 条，不清空也不会越堆越长
+          for (final e in log.take(screenLogExpanded ? 40 : 6)) Text(_logLine(e), style: theme.textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          if (log.length > 6)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => screenLogExpanded = !screenLogExpanded),
+                child: Text(screenLogExpanded ? '收起' : '展开全部 ${log.length} 条（最多保留 40 条，旧的自动丢）'),
+              ),
+            ),
         ],
       ],
     );

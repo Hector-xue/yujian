@@ -74,6 +74,8 @@
             </intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/payment_screen_service" />
         </service>
+        <!-- 小部件「添加到桌面」的成功回调 -->
+        <receiver android:name=".PinResultReceiver" android:exported="false"/>
         <!-- 桌面小部件：本月支出 / 收入 / 余额 + 记一笔 -->
         <receiver android:name=".SummaryWidget" android:exported="true" android:label="余见 · 本月">
             <intent-filter>

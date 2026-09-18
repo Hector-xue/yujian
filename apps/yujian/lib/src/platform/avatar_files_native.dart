@@ -27,3 +27,22 @@ Widget? avatarImage(String path, double size) {
   if (!f.existsSync()) return null;
   return Image.file(f, width: size, height: size, fit: BoxFit.cover, gaplessPlayback: true);
 }
+
+/// 自定义全局背景落盘：`support/background/bg_{ts}.{ext}`，只留一张（文件名带时间戳，换图后 Image 缓存不会串）。
+Future<String?> saveBackgroundImage(Uint8List bytes, String ext) async {
+  final dir = Directory('${(await getApplicationSupportDirectory()).path}/background');
+  if (!dir.existsSync()) dir.createSync(recursive: true);
+  for (final f in dir.listSync()) {
+    if (f is File) f.deleteSync();
+  }
+  final f = File('${dir.path}/bg_${DateTime.now().millisecondsSinceEpoch}.$ext');
+  await f.writeAsBytes(bytes, flush: true);
+  return f.path;
+}
+
+/// 路径 → 铺满的背景图；文件没了返回 null。
+Widget? backgroundImage(String path) {
+  final f = File(path);
+  if (!f.existsSync()) return null;
+  return Image.file(f, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium);
+}

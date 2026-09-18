@@ -1,6 +1,10 @@
 package com.ivyea.yujian
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.widget.Toast
 import android.content.ComponentName
 import android.content.Context
 import android.os.Build
@@ -37,7 +41,9 @@ object WidgetBridge {
                     }
                     if (cls == null) { result.error("bad_kind", "unknown widget kind: $kind", null); return@setMethodCallHandler }
                     result.success(try {
-                        pinSupported(ctx) && AppWidgetManager.getInstance(ctx).requestPinAppWidget(ComponentName(ctx, cls), null, null)
+                        // 成功回调：桌面真加上了才发，收到就弹个 toast 让用户知道
+                        val cb = PendingIntent.getBroadcast(ctx, 0, Intent(ctx, PinResultReceiver::class.java).setAction(PinResultReceiver.ACTION), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                        pinSupported(ctx) && AppWidgetManager.getInstance(ctx).requestPinAppWidget(ComponentName(ctx, cls), null, cb)
                     } catch (_: Exception) { false })
                 }
                 else -> result.notImplemented()
@@ -47,4 +53,15 @@ object WidgetBridge {
 
     private fun pinSupported(ctx: Context): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && try { AppWidgetManager.getInstance(ctx).isRequestPinAppWidgetSupported } catch (_: Exception) { false }
+}
+
+/** requestPinAppWidget 的成功回调：桌面确认加上了才会广播过来。 */
+class PinResultReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == ACTION) Toast.makeText(context, "小部件已添加到桌面", Toast.LENGTH_SHORT).show()
+    }
+
+    companion object {
+        const val ACTION = "com.ivyea.yujian.PIN_RESULT"
+    }
 }

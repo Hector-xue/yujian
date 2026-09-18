@@ -14,19 +14,23 @@ class WidgetsPage extends StatefulWidget {
 class _WidgetKind {
   final String kind; // 原生侧 WidgetBridge 认的种类名
   final String name;
-  final String cells;
+  final int cols;
+  final int rows;
   final String desc;
-  final double aspect; // 预览图宽高比
-  const _WidgetKind(this.kind, this.name, this.cells, this.desc, this.aspect);
+  const _WidgetKind(this.kind, this.name, this.cols, this.rows, this.desc);
+  String get cells => '$cols×$rows';
 }
 
 const _kinds = [
-  _WidgetKind('summary', '本月', '4×2', '本月支出、收入、余额，一键记一笔', 2),
-  _WidgetKind('calendar', '日历', '4×4', '月历：每天的支出 / 收入 + 本月收支 + 记一笔', 1),
-  _WidgetKind('large', '今日', '2×2', '今日支出 + 本月 + 记一笔', 1),
-  _WidgetKind('compact', '余额', '2×1', '余额 + 记一笔', 2),
-  _WidgetKind('mini', '记一笔', '1×1', '一个记一笔按钮，点开直接进对话', 1),
+  _WidgetKind('summary', '本月', 4, 2, '本月支出、收入、余额，一键记一笔'),
+  _WidgetKind('calendar', '日历', 4, 4, '月历：每天的支出 / 收入 + 本月收支 + 记一笔'),
+  _WidgetKind('large', '今日', 2, 2, '今日支出 + 本月 + 记一笔'),
+  _WidgetKind('compact', '余额', 2, 1, '余额 + 记一笔'),
+  _WidgetKind('mini', '记一笔', 1, 1, '一个记一笔按钮，点开直接进对话'),
 ];
+
+/// 预览按桌面格子等比画：一格 ≈ 66dp，4 格宽的和 1 格宽的一眼能看出大小差别，也不会把 140px 的小图拉糊。
+const _cell = 66.0;
 
 class _WidgetsPageState extends State<WidgetsPage> {
   bool? _pinSupported; // null = 还没问到原生
@@ -48,12 +52,22 @@ class _WidgetsPageState extends State<WidgetsPage> {
   }
 
   Future<void> _pin(_WidgetKind k) async {
-    final bridge = AppScope.of(context).homeWidget;
+    final app = AppScope.of(context);
+    final bridge = app.homeWidget;
     final messenger = ScaffoldMessenger.of(context);
     final ok = bridge == null ? false : await bridge.pin(k.kind);
     if (!mounted) return;
-    // 成功时系统自己弹「添加到主屏幕」确认框，这里不再多说；失败才提示走手动
-    if (!ok) messenger.showSnackBar(const SnackBar(content: Text('这个桌面不支持从 App 内添加，请长按桌面空白处 → 小部件 → 余见')));
+    messenger.hideCurrentSnackBar();
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(content: Text('这个桌面不支持从 App 内添加，请长按桌面空白处 → 小部件 → 余见')));
+      return;
+    }
+    // 请求已发给桌面：正常会弹「添加到主屏幕」确认框。小米 / HyperOS 会静默吞掉，得先在应用信息页允许「桌面快捷方式」
+    messenger.showSnackBar(SnackBar(
+      duration: const Duration(seconds: 8),
+      content: const Text('已请求桌面添加。没弹确认框的话：小米 / HyperOS 要先在应用信息页 → 权限管理 → 允许「桌面快捷方式」，或长按桌面空白处 → 小部件 → 余见手动加'),
+      action: SnackBarAction(label: '应用信息', onPressed: () => app.notifications.openAppInfo()),
+    ));
   }
 
   @override
@@ -97,15 +111,14 @@ class _WidgetsPageState extends State<WidgetsPage> {
                     const SizedBox(height: 4),
                     Text(k.desc, style: theme.textTheme.bodySmall),
                     const SizedBox(height: 12),
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: k.aspect >= 2 ? 280 : 200),
-                        child: AspectRatio(
-                          aspectRatio: k.aspect,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(y.radius * 0.6),
-                            child: Image.asset('assets/widgets/${k.kind}.png', fit: BoxFit.contain),
-                          ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: SizedBox(
+                        width: _cell * k.cols,
+                        height: _cell * k.rows,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(y.radius * 0.5),
+                          child: Image.asset('assets/widgets/${k.kind}.png', fit: BoxFit.fill, filterQuality: FilterQuality.medium),
                         ),
                       ),
                     ),

@@ -34,7 +34,10 @@ class Settings {
   final String? speechVoice; // 音色名，各服务不同（alloy / anna / …）
   final String? speechStyle; // 语气说明，只有 gpt-4o-mini-tts 这类认；空不发
   final int offlineVoiceSid; // 离线语音包的音色编号（Kokoro sid）
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.offlineVoiceSid = 3});
+  final String speechEngine; // 朗读用哪个：system | offline | cloud
+  final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
+  final double backgroundOpacity; // 背景图可见度 0–1
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.offlineVoiceSid = 3, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -53,7 +56,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, int? offlineVoiceSid}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, int? offlineVoiceSid, String? speechEngine, String? backgroundImage, double? backgroundOpacity}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -79,6 +82,9 @@ class Settings {
         speechVoice: speechVoice ?? this.speechVoice,
         speechStyle: speechStyle ?? this.speechStyle,
         offlineVoiceSid: offlineVoiceSid ?? this.offlineVoiceSid,
+        speechEngine: speechEngine ?? this.speechEngine,
+        backgroundImage: backgroundImage ?? this.backgroundImage,
+        backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
       );
 }
 
@@ -129,6 +135,9 @@ class PlatformSettingsStore implements SettingsStore {
       speechVoice: _emptyToNull(p.getString('speech_voice')),
       speechStyle: _emptyToNull(p.getString('speech_style')),
       offlineVoiceSid: p.getInt('offline_voice_sid') ?? 3,
+      speechEngine: p.getString('speech_engine') ?? 'system',
+      backgroundImage: _emptyToNull(p.getString('background_image')),
+      backgroundOpacity: p.getDouble('background_opacity') ?? 0.6,
     );
   }
 
@@ -158,6 +167,9 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('speech_voice', s.speechVoice ?? '');
     await p.setString('speech_style', s.speechStyle ?? '');
     await p.setInt('offline_voice_sid', s.offlineVoiceSid);
+    await p.setString('speech_engine', s.speechEngine);
+    await p.setString('background_image', s.backgroundImage ?? '');
+    await p.setDouble('background_opacity', s.backgroundOpacity);
     try {
       for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
         if (e.value == null || e.value!.isEmpty) {
