@@ -135,7 +135,8 @@ class PlatformSettingsStore implements SettingsStore {
       speechVoice: _emptyToNull(p.getString('speech_voice')),
       speechStyle: _emptyToNull(p.getString('speech_style')),
       offlineVoiceSid: p.getInt('offline_voice_sid') ?? 3,
-      speechEngine: p.getString('speech_engine') ?? 'system',
+      // 0.8.4 及之前没有这个键：那时配了云端模型就是在用云端，照旧；离线包的迁移在 AppState.loadSettings 里（要查文件）
+      speechEngine: p.getString('speech_engine') ?? ((p.getString('speech_model') ?? '').isNotEmpty ? 'cloud' : 'system'),
       backgroundImage: _emptyToNull(p.getString('background_image')),
       backgroundOpacity: p.getDouble('background_opacity') ?? 0.6,
     );

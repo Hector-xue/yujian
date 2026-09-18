@@ -21,6 +21,7 @@ import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platfor
 import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
 import 'update/updater.dart';
+import 'voice/local_tts_native.dart' if (dart.library.js_interop) 'voice/local_tts_web.dart';
 import 'usage/usage_meter.dart';
 import 'widgets/fmt.dart';
 
@@ -67,7 +68,13 @@ class AppState extends ChangeNotifier {
     await usage.load();
     await _loadRecentNotices();
     try {
-      autoHintDismissed = (await SharedPreferences.getInstance()).getBool('auto_hint_dismissed') ?? false;
+      final p = await SharedPreferences.getInstance();
+      autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
+      // 0.8.4 升上来：那时装了离线语音包就是在用它（虽然当时有 bug 没声），别让老用户升级后退回系统朗读
+      if (!p.containsKey('speech_engine') && settings.speechEngine == 'system' && await LocalTts.installed()) {
+        settings = settings.copyWith(speechEngine: 'offline');
+        await settingsStore.save(settings);
+      }
     } catch (_) {}
     _apply();
   }
