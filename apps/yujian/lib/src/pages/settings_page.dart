@@ -10,6 +10,7 @@ import '../settings_store.dart';
 import '../theme.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
 import '../voice/offline_asr_sheet.dart';
+import '../voice/speech_output.dart';
 import '../widgets/persona_avatar.dart';
 import 'persona_editor_page.dart';
 
@@ -26,6 +27,12 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController model;
   late final TextEditingController visionModel;
   late final TextEditingController transcribeModel;
+  late final TextEditingController speechModel;
+  late final TextEditingController speechVoice;
+  late final TextEditingController speechStyle;
+  final _speechPreview = SpeechOutput();
+  String? speechResult;
+  var speechTesting = false;
   late String personaId;
   late String providerType;
   late bool localOnly;
@@ -43,10 +50,22 @@ class _SettingsPageState extends State<SettingsPage> {
     model = TextEditingController(text: s.model ?? '');
     visionModel = TextEditingController(text: s.visionModel ?? '');
     transcribeModel = TextEditingController(text: s.transcribeModel ?? '');
+    speechModel = TextEditingController(text: s.speechModel ?? '');
+    speechVoice = TextEditingController(text: s.speechVoice ?? '');
+    speechStyle = TextEditingController(text: s.speechStyle ?? '');
     personaId = s.personaId;
     providerType = s.providerType;
     localOnly = s.localOnly;
     redact = s.redact;
+  }
+
+  @override
+  void dispose() {
+    _speechPreview.dispose(); // 试听用的播放器要释放
+    for (final c in [baseUrl, apiKey, model, visionModel, transcribeModel, speechModel, speechVoice, speechStyle]) {
+      c.dispose();
+    }
+    super.dispose();
   }
 
   Settings _draft() => AppScope.of(context).settings.copyWith(
@@ -56,9 +75,31 @@ class _SettingsPageState extends State<SettingsPage> {
       personaId: personaId,
       visionModel: visionModel.text.trim(),
       transcribeModel: transcribeModel.text.trim(),
+      speechModel: speechModel.text.trim(),
+      speechVoice: speechVoice.text.trim(),
+      speechStyle: speechStyle.text.trim(),
       providerType: providerType,
       localOnly: localOnly,
       redact: redact);
+
+  /// 试听：用当前填的（未保存的）配置合成一句，放出来；失败把原因摆出来。
+  Future<void> _testSpeech() async {
+    final d = _draft();
+    if (!SpeechOutput.cloudConfigured(d)) {
+      setState(() => speechResult = '先填 Base URL、模型名和语音合成模型');
+      return;
+    }
+    setState(() {
+      speechTesting = true;
+      speechResult = null;
+    });
+    await _speechPreview.speak('主人好呀，今天想记点什么？', d);
+    if (!mounted) return;
+    setState(() {
+      speechTesting = false;
+      speechResult = _speechPreview.lastError == null ? '合成成功，已播放' : '合成失败：${_speechPreview.lastError}';
+    });
+  }
 
   static bool _looksLikeBadModel(String err) =>
       RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
@@ -297,6 +338,35 @@ class _SettingsPageState extends State<SettingsPage> {
               helperMaxLines: 3,
               suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(transcribeModel), icon: const Icon(Icons.list_alt_outlined)),
             ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: speechModel,
+            decoration: InputDecoration(
+              labelText: '语音合成模型（可选）',
+              hintText: '如 gpt-4o-mini-tts、tts-1、FunAudioLLM/CosyVoice2-0.5B',
+              helperText: '让它开口像真人：回复发到同一端点的 /audio/speech 合成后播放。留空用手机系统朗读（机械感重）',
+              helperMaxLines: 3,
+              suffixIcon: IconButton(tooltip: '从端点拉模型列表', onPressed: listingModels ? null : () => _pickModel(speechModel), icon: const Icon(Icons.list_alt_outlined)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: speechVoice,
+            decoration: const InputDecoration(labelText: '音色', hintText: 'alloy / nova / FunAudioLLM/CosyVoice2-0.5B:anna', helperText: '各家音色名不同，看服务商文档；留空用 alloy', helperMaxLines: 2),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: speechStyle,
+            decoration: const InputDecoration(labelText: '语气说明（可选）', hintText: '温柔、慢一点，像在陪人聊天', helperText: '只有 gpt-4o-mini-tts 这类支持语气指令的模型认，其他服务会忽略', helperMaxLines: 2),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              OutlinedButton.icon(onPressed: speechTesting ? null : _testSpeech, icon: const Icon(Icons.volume_up_outlined, size: 18), label: Text(speechTesting ? '合成中…' : '试听')),
+              const SizedBox(width: 12),
+              if (speechResult != null) Expanded(child: Text(speechResult!, style: theme.textTheme.bodySmall)),
+            ],
           ),
           const SizedBox(height: 12),
           Row(

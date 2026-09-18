@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:flutter/services.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
@@ -16,6 +15,7 @@ import '../version.dart';
 import '../voice/chat_files_native.dart' if (dart.library.js_interop) '../voice/chat_files_web.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
 import '../voice/offline_asr_sheet.dart';
+import '../voice/speech_output.dart';
 import '../voice/voice_input.dart';
 import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
@@ -109,7 +109,7 @@ class _ChatPageState extends State<ChatPage> {
   var _voiceMode = false; // 输入栏：键盘 / 按住说话
   var _holding = false;
   var _cancelHint = false; // 手指上滑到取消区
-  final _tts = FlutterTts();
+  final _tts = SpeechOutput();
   var _speak = false;
   var _stickerCount = 0;
 
@@ -122,7 +122,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _voice.dispose();
-    _tts.stop().catchError((_) => null);
+    _tts.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -555,31 +555,21 @@ class _ChatPageState extends State<ChatPage> {
     SharedPreferences.getInstance().then((p) => p.setInt('chat_sticker_n', _stickerCount));
   }
 
-  /// 朗读回复（用户开了才读；没有 TTS 引擎就静默）。
+  /// 朗读回复（用户开了才读）：配了语音合成模型走云端真人感语音，否则系统 TTS；都没有就静默。
   Future<void> _say(String text) async {
-    if (!_speak) return;
-    try {
-      await _tts.setLanguage('zh-CN');
-      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
-    } catch (_) {}
+    if (!_speak || !mounted) return;
+    await _tts.speak(text, AppScope.of(context).settings);
   }
 
   /// 单条朗读：不看全局开关。
   Future<void> _speakOnce(String text) async {
-    try {
-      await _tts.stop();
-      await _tts.setLanguage('zh-CN');
-      await _tts.speak(text.replaceAll(RegExp(r'（[^）]{0,12}）'), ''));
-    } catch (_) {}
+    if (!mounted) return;
+    await _tts.speak(text, AppScope.of(context).settings);
   }
 
   Future<void> _toggleSpeak() async {
     setState(() => _speak = !_speak);
-    if (!_speak) {
-      try {
-        await _tts.stop();
-      } catch (_) {}
-    }
+    if (!_speak) await _tts.stop();
     final p = await SharedPreferences.getInstance();
     await p.setBool('chat_speak', _speak);
   }

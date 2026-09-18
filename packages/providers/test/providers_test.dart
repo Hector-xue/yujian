@@ -10,6 +10,7 @@ class FakeServer {
   late HttpServer server;
   final List<Map<String, Object?>> requests = [];
   Object? Function(Map<String, Object?> body)? handler;
+  List<int>? binaryReply; // 设了就回裸二进制（audio/mpeg），模拟 /audio/speech
   int status = 200;
 
   Future<void> start() async {
@@ -23,7 +24,14 @@ class FakeServer {
         body = {'raw': raw, 'content-type': req.headers.contentType?.toString()};
       }
       requests.add({'path': req.uri.path, 'method': req.method, 'auth': req.headers.value('authorization'), 'x-api-key': req.headers.value('x-api-key'), 'body': body});
-      final reply = handler?.call(body) ?? {'error': 'no handler'};
+      if (binaryReply != null && status == 200) {
+        req.response.statusCode = 200;
+        req.response.headers.contentType = ContentType('audio', 'mpeg');
+        req.response.add(binaryReply!);
+        await req.response.close();
+        return;
+      }
+      final reply = handler?.call(body) ?? {'error': 'no handler'}; // handler 里可能改 status，先调它
       req.response.statusCode = status;
       req.response.headers.contentType = ContentType.json;
       req.response.write(jsonEncode(reply));
@@ -230,5 +238,31 @@ void main() {
     expect(raw, contains('name="language"'));
     final anth = ProviderConfig(name: 'a', type: ProviderType.anthropic, baseUrl: s.baseUrl, apiKey: 'ak', model: 'm');
     await expectLater(transcribeAudio(anth, Uint8List(1), filename: 'a', mime: 'audio/mp4', model: 'x'), throwsA(isA<ProviderException>()));
+  });
+
+  test('synthesizeSpeech posts JSON to /audio/speech and returns raw audio bytes; JSON-wrapped and error replies handled', () async {
+    s.binaryReply = [0xFF, 0xFB, 0x90, 0x00];
+    final a = await synthesizeSpeech(cfg(), '主人好呀', model: 'tts-1', voice: 'alloy', instructions: '温柔一点');
+    expect(a, [0xFF, 0xFB, 0x90, 0x00]);
+    final req = s.requests.last;
+    expect(req['path'], '/v1/audio/speech');
+    expect(req['auth'], 'Bearer k');
+    expect((req['body'] as Map)['input'], '主人好呀');
+    expect((req['body'] as Map)['voice'], 'alloy');
+    expect((req['body'] as Map)['instructions'], '温柔一点');
+    expect((req['body'] as Map)['response_format'], 'mp3');
+    // 空文本不发请求
+    final before = s.requests.length;
+    expect(await synthesizeSpeech(cfg(), '  ', model: 'tts-1', voice: 'alloy'), isEmpty);
+    expect(s.requests.length, before);
+    // JSON 包着 base64
+    s.binaryReply = null;
+    s.handler = (_) => {'audio': base64Encode([1, 2, 3])};
+    expect(await synthesizeSpeech(cfg(), 'x', model: 'tts-1', voice: 'alloy'), [1, 2, 3]);
+    // 出错
+    s.status = 400;
+    s.handler = (_) => {'error': {'message': 'voice not found'}};
+    await expectLater(synthesizeSpeech(cfg(), 'x', model: 'tts-1', voice: 'nope'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', 'voice not found')));
+    s.status = 200;
   });
 }
