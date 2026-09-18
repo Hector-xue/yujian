@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'local_asr_native.dart' if (dart.library.js_interop) 'local_asr_web.dart';
-import 'local_tts_native.dart' if (dart.library.js_interop) 'local_tts_web.dart';
 
 /// 下载离线语音包（识别）的对话框：进度条，成功返回 true。
 Future<bool> showOfflineAsrDownload(BuildContext context) async {
@@ -12,20 +11,6 @@ Future<bool> showOfflineAsrDownload(BuildContext context) async {
       title: '离线语音包',
       desc: '中文离线识别模型（Paraformer，约 ${LocalAsr.approxMb} MB），下载一次，之后说话不联网、不看手机系统脸色。识别在本机跑，录音不上传。',
       download: LocalAsr.download,
-    ),
-  );
-  return r ?? false;
-}
-
-/// 下载离线真人感语音包（合成）的对话框。
-Future<bool> showOfflineTtsDownload(BuildContext context) async {
-  final r = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _DownloadDialog(
-      title: '离线真人感语音包',
-      desc: '中文神经网络语音合成模型（Kokoro，约 ${LocalTts.approxMb} MB），下载一次。之后它说话有语气有语调，在本机合成，不联网、不花 API 钱。旧一点的手机第一句会等一两秒。',
-      download: LocalTts.download,
     ),
   );
   return r ?? false;

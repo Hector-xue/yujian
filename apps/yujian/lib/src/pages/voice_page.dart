@@ -10,10 +10,12 @@ import '../voice/vendor_voices.dart';
 import '../widgets/model_picker.dart';
 import 'tts_guide_page.dart';
 
-/// 语音：听（离线识别包 / 云端转写）和说（三选一：系统朗读 / 离线语音包 / 云端合成）。
+/// 语音：听（离线识别包 / 云端转写）和说（单选：系统朗读 / 主模型自带语音 / 豆包 / MiniMax / OpenAI 兼合成）。
 /// 「说」是明确的单选，选哪个用哪个；填空只在选了云端时才露出来。
+/// [embedded] 为真时只出正文（给「模型与语音」的标签页用），不带自己的 Scaffold / 顶栏。
 class VoicePage extends StatefulWidget {
-  const VoicePage({super.key});
+  final bool embedded;
+  const VoicePage({super.key, this.embedded = false});
   @override
   State<VoicePage> createState() => _VoicePageState();
 }
@@ -97,18 +99,12 @@ class _VoicePageState extends State<VoicePage> {
     });
   }
 
-  /// 单选：选离线但没装 → 先下载；选云端但没端点 → 提示。选中即保存。
+  /// 单选：选云端但没端点 → 提示。选中即保存。
   Future<void> _chooseEngine(String engine) async {
     final app = AppScope.of(context);
     final messenger = ScaffoldMessenger.of(context);
-    if (engine == 'offline' && ttsInstalled != true) {
-      final ok = await showOfflineTtsDownload(context);
-      _preview.refreshOffline();
-      await _probe();
-      if (!ok) return;
-    }
     if ((engine == 'cloud' || engine == 'omni') && app.settings.providerConfig == null) {
-      messenger.showSnackBar(const SnackBar(content: Text('云端合成用「模型与 API」里的端点，先去那里配好')));
+      messenger.showSnackBar(const SnackBar(content: Text('云端合成用「主模型」里的端点，先去那里配好')));
       return;
     }
     await app.saveSettings(app.settings.copyWith(speechEngine: engine));
@@ -125,9 +121,9 @@ class _VoicePageState extends State<VoicePage> {
     String r;
     switch (d.speechEngine) {
       case 'omni' when d.providerConfig == null:
-        r = '先到「模型与 API」配好端点';
+        r = '先到「主模型」配好端点';
       case 'cloud' when !SpeechOutput.cloudConfigured(d):
-        r = d.providerConfig == null ? '先到「模型与 API」配好端点' : '先填云端语音合成模型';
+        r = d.providerConfig == null ? '先到「主模型」配好端点' : '先填云端语音合成模型';
       case 'doubao' when !d.doubaoTts.configured:
         r = '先粘贴豆包的 API Key';
       case 'minimax' when !d.minimaxTts.configured:
@@ -194,9 +190,7 @@ class _VoicePageState extends State<VoicePage> {
           if (engine == value && body.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(12, 0, 0, 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body)),
         ]);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('语音')),
-      body: ListView(
+    final body = ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
           Text('听你说', style: theme.textTheme.titleMedium),
@@ -225,7 +219,7 @@ class _VoicePageState extends State<VoicePage> {
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: Text('云端转写（可选，一般不用）', style: theme.textTheme.bodyMedium),
-            subtitle: Text(hasEndpoint ? '离线包和系统识别都不行时的兜底' : '先到「模型与 API」配好端点', style: muted),
+            subtitle: Text(hasEndpoint ? '离线包和系统识别都不行时的兜底' : '先到「主模型」配好端点', style: muted),
             children: [
               TextField(
                 controller: transcribeModel,
@@ -250,35 +244,9 @@ class _VoicePageState extends State<VoicePage> {
             child: Column(children: [
               engineTile('system', '手机系统朗读', '免费、不用装东西；机械感重'),
               engineTile(
-                'offline',
-                '离线真人感语音包',
-                ttsInstalled == true ? '已安装。有语气有语调，在本机合成、不联网、不花钱' : '约 ${LocalTts.approxMb} MB 下载一次；有语气有语调，不联网、不花钱',
-                trailing: ttsInstalled == true
-                    ? TextButton(
-                        onPressed: () async {
-                          await LocalTts.uninstall();
-                          _preview.refreshOffline();
-                          if (engine == 'offline') await app.saveSettings(app.settings.copyWith(speechEngine: 'system'));
-                          await _probe();
-                        },
-                        child: const Text('删除'))
-                    : null,
-                body: [
-                  if (ttsInstalled == true)
-                    DropdownButtonFormField<int>(
-                      initialValue: LocalTts.voices.any((v) => v.sid == s.offlineVoiceSid) ? s.offlineVoiceSid : LocalTts.defaultSid,
-                      decoration: const InputDecoration(labelText: '音色', isDense: true),
-                      items: [for (final v in LocalTts.voices) DropdownMenuItem(value: v.sid, child: Text(v.name))],
-                      onChanged: (v) {
-                        if (v != null) app.saveSettings(app.settings.copyWith(offlineVoiceSid: v));
-                      },
-                    ),
-                ],
-              ),
-              engineTile(
                 'omni',
                 '主模型自带语音',
-                hasEndpoint ? '主模型是多模态 Omni 模型（如 Qwen-Omni）时不用再配别的，同一把 key 直接开口' : '先到「模型与 API」配好端点；主模型要是 Omni 多模态模型',
+                hasEndpoint ? '主模型是多模态 Omni 模型（如 Qwen-Omni）时不用再配别的，同一把 key 直接开口' : '先到「主模型」配好端点；主模型要是 Omni 多模态模型',
                 body: [
                   _voicePicker('音色', const [(id: 'Cherry', name: 'Cherry · 女'), (id: 'Serena', name: 'Serena · 女'), (id: 'Chelsie', name: 'Chelsie · 女'), (id: 'Ethan', name: 'Ethan · 男')], s.omniVoice,
                       (v) => app.saveSettings(app.settings.copyWith(omniVoice: v))),
@@ -331,7 +299,7 @@ class _VoicePageState extends State<VoicePage> {
               engineTile(
                 'cloud',
                 'OpenAI 兼容语音合成',
-                hasEndpoint ? '用「模型与 API」的端点（硅基流动 CosyVoice、OpenAI tts）' : '先到「模型与 API」配好端点',
+                hasEndpoint ? '用「主模型」的端点（硅基流动 CosyVoice、OpenAI tts）' : '先到「主模型」配好端点',
                 body: [
                   TextField(
                     controller: speechModel,
@@ -347,6 +315,19 @@ class _VoicePageState extends State<VoicePage> {
               ),
             ]),
           ),
+          if (ttsInstalled == true)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.delete_sweep_outlined, color: theme.colorScheme.primary),
+              title: const Text('旧版下载的离线语音包'),
+              subtitle: Text('0.8.7 起不再用它（效果差）。占约 ${LocalTts.approxMb} MB，删掉腾地方', style: muted),
+              trailing: TextButton(
+                  onPressed: () async {
+                    await LocalTts.uninstall();
+                    await _probe();
+                  },
+                  child: const Text('删除')),
+            ),
           if (engine == 'doubao' || engine == 'minimax' || engine == 'cloud' || engine == 'omni') ...[
             const SizedBox(height: 4),
             TextField(
@@ -376,7 +357,8 @@ class _VoicePageState extends State<VoicePage> {
             child: const Text('保存'),
           ),
         ],
-      ),
-    );
+      );
+    if (widget.embedded) return body;
+    return Scaffold(appBar: AppBar(title: const Text('语音')), body: body);
   }
 }

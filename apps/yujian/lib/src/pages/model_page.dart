@@ -3,16 +3,19 @@ import 'package:providers/providers.dart';
 
 import '../app_state.dart';
 import '../settings_store.dart';
+import '../theme.dart';
 import '../widgets/model_picker.dart';
 import 'api_guide_page.dart';
 import 'usage_page.dart';
 
 /// 模型与 API（§9 配置中心是一等功能）。只管"用哪个模型、怎么连"：接口类型、地址、Key、模型名、看图模型、隐私开关。
-/// 语音 / 人格 / 外观各有自己的页。能力按实测：点"测试连接"真发请求。
+/// 语音在同一入口的另一个标签页（[AiPage]），人格 / 外观各有自己的页。能力按实测：点"测试连接"真发请求。
+/// [embedded] 为真时只出正文，不带 Scaffold / 顶栏。
 class ModelPage extends StatefulWidget {
   /// 从教程带过来的一套配置，只预填不保存。
   final ApiPreset? preset;
-  const ModelPage({super.key, this.preset});
+  final bool embedded;
+  const ModelPage({super.key, this.preset, this.embedded = false});
   @override
   State<ModelPage> createState() => _ModelPageState();
 }
@@ -126,12 +129,10 @@ class _ModelPageState extends State<ModelPage> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('模型与 API')),
-      body: ListView(
+    final body = ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Card(
+          GlassCard(
             child: ListTile(
               leading: Icon(Icons.help_outline, color: theme.colorScheme.primary),
               title: const Text('还没有 API Key？'),
@@ -205,7 +206,7 @@ class _ModelPageState extends State<ModelPage> {
               const SizedBox(height: 8),
             ],
           ),
-          Text('语音（识别 / 朗读）在更多 → 语音里另配，可选。', style: theme.textTheme.bodySmall),
+          Text('语音识别 / 朗读在旁边的「语音」页里配，可选。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -241,8 +242,9 @@ class _ModelPageState extends State<ModelPage> {
             child: const Text('保存'),
           ),
         ],
-      ),
-    );
+      );
+    if (widget.embedded) return body;
+    return Scaffold(appBar: AppBar(title: const Text('模型与 API')), body: body);
   }
 
   static String _usageLine(AppState app) {

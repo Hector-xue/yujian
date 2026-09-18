@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../settings_store.dart';
+import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/learn_template_sheet.dart';
 
@@ -68,7 +69,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     final log = app.screenshotLog;
     final observing = shotDiag['observing'] == true;
     final pending = (shotDiag['pending'] as num?)?.toInt() ?? 0;
-    return Card(
+    return GlassCard(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
         child: Column(
@@ -110,7 +111,8 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     );
   }
 
-  /// 支付页识别的诊断面板：把原生侧每一步的记录摆出来，没识别到时能看出卡在哪一环。
+  /// 支付页识别的诊断卡：和下面「截图处理记录」同一种卡片。状态一行、结论一行（有问题才出现）、然后是原生侧每一步的记录，
+  /// 没识别到时能看出卡在哪一环。
   Widget _screenDiagnostics(BuildContext context, AppState app) {
     final theme = Theme.of(context);
     final d = screenDiag;
@@ -118,55 +120,101 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     final lastEventAt = (d['last_event_at'] as num?)?.toInt() ?? 0;
     final lastPkg = d['last_event_pkg'] as String? ?? '';
     final wanted = d['wanted'] == true;
+    final isTool = d['tool'] != false; // 老 App 没这个字段 → 当没问题
     final log = ((d['log'] as List?) ?? const []).cast<Map>().reversed.toList();
+    final emptyTrees = log.where((e) => e['what'] == 'empty_tree').length;
     String when(int ms) => ms <= 0 ? '—' : fmtRelativeMs(ms);
-    final lines = <String>[
-      '系统无障碍：${screenEnabled == true ? '已开' : '未开'}',
-      '余见开关（原生侧）：${wanted ? '开' : '关'}',
-      '服务连接：${connectedAt > 0 ? '已连接（${when(connectedAt)}）' : '未连接'}',
-      '最近事件：${lastEventAt > 0 ? '${when(lastEventAt)} · ${_appName(lastPkg)}' : '还没收到过'}',
-    ];
+    final status = screenEnabled != true
+        ? '系统无障碍未开'
+        : connectedAt <= 0
+            ? '系统已开，服务没连上'
+            : '服务已连接 ${when(connectedAt)}${lastEventAt > 0 ? ' · 最近事件 ${when(lastEventAt)} ${_appName(lastPkg)}' : ' · 还没收到过事件'}';
     final verdict = screenEnabled != true
         ? '系统里还没打开，服务不会启动'
         : !wanted
             ? '原生侧开关是关的，重新拨一次上面的开关'
             : connectedAt <= 0
                 ? '系统说已开但服务没连上：小米 / HyperOS 常在 App 更新或重启后把无障碍服务掐掉，去系统无障碍页关一下再开；应用信息页里把「自启动」打开'
-                : lastEventAt <= 0
-                    ? '服务在，但还没收到过支付 / 购物 App 的事件：去微信付一笔看这里会不会变'
-                    : null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          Expanded(child: Text('识别诊断', style: theme.textTheme.titleSmall)),
-          TextButton(onPressed: _refresh, child: const Text('刷新')),
-          TextButton(
-            onPressed: () async {
-              await app.notifications.clearScreenLog();
-              await _refresh();
-            },
-            child: const Text('清空'),
-          ),
-        ]),
-        for (final l in lines) Text(l, style: theme.textTheme.bodySmall),
-        if (verdict != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(verdict, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error))),
-        if (log.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          // 原生侧环形只留 40 条，这里默认只展开最近 6 条，不清空也不会越堆越长
-          for (final e in log.take(screenLogExpanded ? 40 : 6)) Text(_logLine(e), style: theme.textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
-          if (log.length > 6)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: () => setState(() => screenLogExpanded = !screenLogExpanded),
-                child: Text(screenLogExpanded ? '收起' : '展开全部 ${log.length} 条（最多保留 40 条，旧的自动丢）'),
+                : !isTool
+                    ? '这次更新把服务声明成了「无障碍工具」（Android 14 起微信 / 支付宝的支付页只对这类服务开放），但系统还记着旧声明：去系统无障碍页把「余见 · 支付页识别」关一下再开'
+                    : emptyTrees > 0
+                        ? '有窗口但读不到一段文字：Android 14 起支付页对普通无障碍服务屏蔽。这次更新已声明成「无障碍工具」，去系统无障碍页关一下再开就能读到'
+                        : lastEventAt <= 0
+                            ? '服务在，但还没收到过支付 / 购物 App 的事件：去微信付一笔看这里会不会变'
+                            : null;
+    return GlassCard(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: Text('识别诊断', style: theme.textTheme.titleSmall)),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
+              TextButton(
+                onPressed: () async {
+                  await app.notifications.clearScreenLog();
+                  await _refresh();
+                },
+                child: const Text('清空'),
               ),
-            ),
-        ],
-      ],
+            ]),
+            Text(status, style: theme.textTheme.bodySmall),
+            if (verdict != null) ...[
+              const SizedBox(height: 4),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.error_outline, size: 16, color: theme.colorScheme.error),
+                const SizedBox(width: 6),
+                Expanded(child: Text(verdict, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error))),
+              ]),
+              if (screenEnabled == true && (!isTool || emptyTrees > 0))
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(onPressed: () => app.notifications.openScreenSettings(), icon: const Icon(Icons.accessibility_new, size: 18), label: const Text('去无障碍设置')),
+                ),
+            ],
+            const SizedBox(height: 6),
+            if (log.isEmpty)
+              Text('还没有记录。去微信 / 支付宝付一笔，这里会一步步记下来', style: theme.textTheme.bodySmall)
+            else
+              // 原生侧环形只留 40 条，这里默认只展开最近 5 条，不清空也不会越堆越长
+              for (final e in log.take(screenLogExpanded ? 40 : 5))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(_logIcon(e), size: 16, color: _logColor(e, theme)),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(_logLine(e), style: theme.textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]))),
+                  ]),
+                ),
+            if (log.length > 5)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => screenLogExpanded = !screenLogExpanded),
+                  child: Text(screenLogExpanded ? '收起' : '展开全部 ${log.length} 条（最多保留 40 条）'),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
+
+  static IconData _logIcon(Map e) => switch (e['what']) {
+        'enqueued' => Icons.check_circle_outline,
+        'connected' => Icons.link,
+        'unbound' => Icons.link_off,
+        'dup' => Icons.copy_outlined,
+        'no_root' || 'empty_tree' || 'no_amount' => Icons.error_outline,
+        _ => Icons.remove_circle_outline,
+      };
+
+  static Color? _logColor(Map e, ThemeData theme) => switch (e['what']) {
+        'enqueued' || 'connected' => theme.colorScheme.primary,
+        'no_root' || 'empty_tree' || 'no_amount' || 'unbound' => theme.colorScheme.error,
+        _ => theme.textTheme.bodySmall?.color,
+      };
 
   static const _appNames = {
     'com.tencent.mm': '微信',
@@ -199,13 +247,14 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       'unbound' => '服务被系统解绑',
       'not_wanted' => '$pkg 有事件，但余见开关是关的',
       'no_root' => '$pkg 有事件，但读不到窗口内容',
+      'empty_tree' => '$pkg 有窗口，但一段文字都读不到（页面对无障碍屏蔽）',
       'no_success_text' => '$pkg 页面里没有「支付成功」字样（${n ?? 0} 段文字）',
       'no_amount' => '$pkg 有「支付成功」但没读到金额：${((e['sample'] as List?) ?? const []).join(' | ')}',
       'dup' => '$pkg ¥${e['amount']} 两分钟内重复，跳过',
       'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱',
       _ => '${e['what']}',
     };
-    return '$time  $what${count > 1 ? ' ×$count' : ''}';
+    return '$time $what${count > 1 ? ' ×$count' : ''}';
   }
 
   @override
@@ -290,7 +339,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               !supported
                   ? '仅 Android 支持'
                   : !app.hasModel
-                      ? '要先配置一个能看图的模型（更多 → 模型与人格）'
+                      ? '要先配置一个能看图的模型（更多 → 模型与语音）'
                       : shotStatus?.partial == true
                           ? '相册权限只给了「部分照片」，看不到新截图：到应用信息页改成「允许全部」'
                           : s.screenshotWanted

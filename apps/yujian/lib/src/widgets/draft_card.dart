@@ -20,7 +20,7 @@ class DraftGroupCard extends StatelessWidget {
     final pending = drafts.where((d) => d.status == DraftStatus.pending).toList();
     final committed = drafts.where((d) => d.status == DraftStatus.committed).length;
     final theme = Theme.of(context);
-    return Card(
+    return GlassCard(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
         child: Column(

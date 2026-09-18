@@ -106,6 +106,12 @@ class PaymentScreenService : AccessibilityService() {
             log(this, entry.put("what", "no_root"))
             return
         }
+        if (texts.isEmpty()) {
+            // 有窗口却一段文字都没有：Android 14 起页面对非「无障碍工具」服务屏蔽（accessibilityDataSensitive），
+            // 或页面还没铺完。单独记一类，App 里能看出是"读不到"而不是"没有支付成功字样"
+            log(this, entry.put("what", "empty_tree").put("sdk", android.os.Build.VERSION.SDK_INT))
+            return
+        }
         val hasSuccess = texts.any { PaymentScreenParser.isSuccessText(it) }
         val found = PaymentScreenParser.extract(texts)
         if (found == null) {
@@ -187,6 +193,17 @@ class PaymentScreenService : AccessibilityService() {
         fun isWanted(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_WANTED, false)
         fun setWanted(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean(KEY_WANTED, v).apply()
 
+        /** 系统当前记录的服务信息里 isAccessibilityTool 是否为真：老版本升上来系统可能还缓存着旧声明，要关一下再开。 */
+        fun isTool(ctx: Context): Boolean {
+            if (android.os.Build.VERSION.SDK_INT < 33) return true // 33 以下没有这个概念，也没有 dataSensitive 屏蔽
+            return try {
+                val am = ctx.getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
+                val me = ComponentName(ctx, PaymentScreenService::class.java)
+                am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                    .firstOrNull { ComponentName.unflattenFromString(it.id) == me }?.isAccessibilityTool ?: true
+            } catch (_: Throwable) { true }
+        }
+
         fun isEnabled(ctx: Context): Boolean {
             val flat = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
             val me = ComponentName(ctx, PaymentScreenService::class.java)
@@ -203,7 +220,7 @@ class PaymentScreenService : AccessibilityService() {
             val arr = try { JSONArray(p.getString(KEY_LOG, "[]")) } catch (_: Throwable) { JSONArray() }
             val now = System.currentTimeMillis()
             val last = if (arr.length() > 0) arr.optJSONObject(arr.length() - 1) else null
-            if (last != null && last.optString("what") == entry.optString("what") && last.optString("pkg") == entry.optString("pkg") && entry.optString("what") in setOf("no_success_text", "no_root", "not_wanted", "dup")) {
+            if (last != null && last.optString("what") == entry.optString("what") && last.optString("pkg") == entry.optString("pkg") && entry.optString("what") in setOf("no_success_text", "no_root", "empty_tree", "not_wanted", "dup")) {
                 last.put("count", last.optInt("count", 1) + 1).put("t", now)
                 p.edit().putString(KEY_LOG, arr.toString()).apply()
                 return
@@ -223,6 +240,8 @@ class PaymentScreenService : AccessibilityService() {
                 .put("connected_at", p.getLong(KEY_CONNECTED_AT, 0L))
                 .put("last_event_at", p.getLong(KEY_LAST_EVENT_AT, 0L))
                 .put("last_event_pkg", p.getString(KEY_LAST_EVENT_PKG, "") ?: "")
+                .put("sdk", android.os.Build.VERSION.SDK_INT)
+                .put("tool", isTool(ctx))
                 .put("log", try { JSONArray(p.getString(KEY_LOG, "[]")) } catch (_: Throwable) { JSONArray() })
                 .toString()
         }

@@ -90,7 +90,7 @@ class _WidgetsPageState extends State<WidgetsPage> {
           ),
           const SizedBox(height: 14),
           for (final k in _kinds) ...[
-            Card(
+            GlassCard(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                 child: Column(

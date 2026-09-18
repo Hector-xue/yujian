@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../theme.dart';
 import 'model_page.dart';
 
 /// 一套可一键填入「模型与 API」页的配置。
@@ -104,7 +105,7 @@ class ApiGuidePage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Card(
+          GlassCard(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
