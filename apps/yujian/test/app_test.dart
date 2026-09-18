@@ -95,7 +95,7 @@ void main() {
     await tester.enterText(find.byType(TextField), '你好');
     await tester.tap(find.byIcon(Icons.arrow_upward));
     await tester.pumpAndSettle();
-    expect(find.textContaining('先在「更多 → 模型与人格」配一个模型'), findsOneWidget);
+    expect(find.textContaining('先在「更多 → 模型与语音」配一个模型'), findsOneWidget);
     expect(state.inbox, isEmpty);
 
     // 有模型（假的）：走陪聊，回复带模型名，记住的事落盘
