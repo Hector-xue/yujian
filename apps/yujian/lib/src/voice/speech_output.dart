@@ -10,19 +10,14 @@ import 'package:providers/providers.dart';
 
 import '../settings_store.dart';
 import '../usage/usage_meter.dart';
-import 'local_tts_native.dart' if (dart.library.js_interop) 'local_tts_web.dart';
 
-/// 朗读出口，三档：配了云端语音合成模型 → 云端；装了离线真人感语音包 → 本机 Kokoro；都没有 / 失败 → 系统 TTS。
+/// 朗读出口：按设置选的引擎读（豆包 / MiniMax / OpenAI 兼容 / Omni 主模型），不可用或失败 → 系统 TTS。
 /// 对话页只管调 [speak] / [stop]，不用知道是哪条路在响。
 class SpeechOutput {
   final FlutterTts _tts = FlutterTts();
   AudioPlayer? _player;
   int _seq = 0; // 每次 speak 递增；合成回来时序号过期就不放（用户已经点了下一条 / 关了朗读）
-  String? lastError; // 最近一次云端 / 离线合成失败的原因（设置页「试听」用）
-  bool? _offlineInstalled; // 缓存一次，装 / 删语音包后调 [refreshOffline]
-
-  Future<bool> offlineAvailable() async => _offlineInstalled ??= await LocalTts.installed();
-  void refreshOffline() => _offlineInstalled = null;
+  String? lastError; // 最近一次云端合成失败的原因（设置页「试听」用）
 
   /// 括号里的小动作「（甩尾巴）」不读；表情符号也去掉，念出来很怪。
   static String cleanup(String text) => text.replaceAll(RegExp(r'（[^）]{0,12}）'), '').replaceAll(RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]', unicode: true), '').trim();
@@ -70,9 +65,6 @@ class SpeechOutput {
       case 'omni':
         if (s.providerConfig == null) return false;
         return _speakChunked(clean, my, (sen) => omniSynthesize(s.providerConfig!, sen, model: s.speechModel, voice: s.omniVoice, style: s.speechStyle), onDone: () => meter?.recordSpeech('${(s.speechModel ?? '').isEmpty ? s.model : s.speechModel}', clean.length));
-      case 'offline':
-        if (!await offlineAvailable()) return false;
-        return _speakOffline(clean, s, my);
       default:
         return false;
     }
@@ -103,36 +95,6 @@ class SpeechOutput {
     } catch (e) {
       lastError = '$e';
       return false;
-    }
-  }
-
-  /// 离线合成按句切：先合第一句就开播，后面的句子在工作 isolate 里接着合，听感上没有长等待。
-  Future<bool> _speakOffline(String text, Settings s, int my) async {
-    final sentences = splitSentences(text);
-    if (sentences.isEmpty) return false;
-    try {
-      // 一次性把所有句子排进工作 isolate（它串行处理），这边按顺序等、逐句放
-      final jobs = [for (final sen in sentences) LocalTts.synthesize(sen, sid: s.offlineVoiceSid)];
-      for (final job in jobs) {
-        final wav = await job;
-        if (my != _seq) {
-          _cleanupFile(wav);
-          _drop(jobs);
-          return true; // 被打断，静默丢弃
-        }
-        await _playFile(wav);
-      }
-      lastError = null;
-      return true;
-    } catch (e) {
-      lastError = '$e';
-      return false;
-    }
-  }
-
-  static void _drop(List<Future<String>> jobs) {
-    for (final j in jobs) {
-      j.then(_cleanupFile, onError: (_) {});
     }
   }
 
@@ -197,7 +159,7 @@ class SpeechOutput {
   }
 
   Future<void> dispose() async {
-    await stop(); // 离线引擎不在这里关：别的页面可能还在用，它自己闲置两分钟会卸
+    await stop();
     try {
       await _player?.dispose();
     } catch (_) {}

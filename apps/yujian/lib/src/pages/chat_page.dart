@@ -21,9 +21,9 @@ import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
+import 'ai_page.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
-import 'model_page.dart';
 import 'stats_page.dart';
 
 sealed class _Msg {
@@ -208,7 +208,7 @@ class _ChatPageState extends State<ChatPage> {
     if (c == null) {
       setState(() {
         _busy = false;
-        _msgs.add(_TextMsg('${app.replier.template(PersonaEvent.notUnderstood)}\n想让我陪你聊天的话，先在「更多 → 模型与人格」配一个模型。'));
+        _msgs.add(_TextMsg('${app.replier.template(PersonaEvent.notUnderstood)}\n想让我陪你聊天的话，先在「更多 → 模型与语音」配一个模型。'));
       });
       _saveHistory();
       _jumpToEnd();
@@ -229,7 +229,7 @@ class _ChatPageState extends State<ChatPage> {
       _busy = false;
       _msgs.add(_TextMsg(r.text, meta: r.model == null ? null : _chatMeta(r.model)));
       if (r.sticker != null) _msgs.add(_StickerMsg(r.sticker!));
-      if (learned.isNotEmpty) _msgs.add(_TextMsg('（记住了：${learned.join('；')}）', meta: '可在「模型与人格 → 它记住的事」里管理'));
+      if (learned.isNotEmpty) _msgs.add(_TextMsg('（记住了：${learned.join('；')}）', meta: '可在「人格与角色 → 它记住的事」里管理'));
     });
     _say(r.text);
     _saveHistory();
@@ -331,7 +331,7 @@ class _ChatPageState extends State<ChatPage> {
   /// 几条路都不通：聊天里写一次原因，SnackBar 每次都弹（别让人以为按钮坏了），能装离线包就直接给按钮。
   void _voiceFailed(String reason) {
     final canOffline = LocalAsr.supported;
-    _notice(canOffline ? '这台手机的系统语音识别不能用（$reason）。装一个离线语音包（约 ${LocalAsr.approxMb} MB，下载一次）就不再依赖系统；或者在「模型与人格」里填「语音转写模型」走云端。长按麦克风看诊断。' : '语音识别都没走通：$reason。长按麦克风看诊断。');
+    _notice(canOffline ? '这台手机的系统语音识别不能用（$reason）。装一个离线语音包（约 ${LocalAsr.approxMb} MB，下载一次）就不再依赖系统；或者在「模型与语音 → 语音」里填「云端转写」走云端。长按麦克风看诊断。' : '语音识别都没走通：$reason。长按麦克风看诊断。');
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -340,7 +340,7 @@ class _ChatPageState extends State<ChatPage> {
         content: Text(canOffline ? '系统语音不可用。装离线语音包（${LocalAsr.approxMb} MB）就能用' : '语音识别没走通，长按麦克风看诊断'),
         action: canOffline
             ? SnackBarAction(label: '下载离线包', onPressed: _installOffline)
-            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
+            : SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AiPage()))),
       ));
   }
 
@@ -410,7 +410,7 @@ class _ChatPageState extends State<ChatPage> {
           TextButton(
               onPressed: () {
                 Navigator.pop(d);
-                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()));
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AiPage()));
               },
               child: const Text('去设置')),
         ],
@@ -600,7 +600,7 @@ class _ChatPageState extends State<ChatPage> {
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           content: const Text('识别截图需要先配置模型'),
-          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ModelPage()))),
+          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AiPage()))),
         ));
       return;
     }
@@ -716,7 +716,6 @@ class _ChatPageState extends State<ChatPage> {
                           itemCount: _msgs.length,
                           itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
                         )),
-              if (_holding || _phase == VoicePhase.transcribing) Positioned(left: 16, right: 16, bottom: 8, child: _HoldBanner(phase: _phase, cancel: _cancelHint, partial: _input.text)),
             ]),
           ),
           // 快捷操作：手动记 / 本月 / 预算
@@ -756,6 +755,8 @@ class _ChatPageState extends State<ChatPage> {
                         ? _HoldToTalk(
                             phase: _phase,
                             holding: _holding,
+                            cancel: _cancelHint,
+                            partial: _input.text,
                             onStart: _holdStart,
                             onEnd: (cancel) => _holdEnd(cancel: cancel),
                             onMove: (up) {
@@ -795,7 +796,7 @@ class _ChatPageState extends State<ChatPage> {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Material(
-        color: y.cardFill,
+        color: y.solidFill,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: y.cardBorder, width: 0.6)),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -849,7 +850,7 @@ class _ChatPageState extends State<ChatPage> {
                     constraints: const BoxConstraints(maxWidth: 300),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                        color: y.cardFill,
+                        color: y.solidFill,
                         borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(18), bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
                         border: Border.all(color: y.cardBorder, width: 0.6)),
                     child: Text(m.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15)),
@@ -917,14 +918,16 @@ class _ChatImage extends StatelessWidget {
   }
 }
 
-/// 按住说话的大按钮。
+/// 按住说话的大按钮。按住 / 松开 / 上滑取消 / 识别中的状态全在这一个按钮里，系统识别有片段就把片段显示在按钮上，输入区不另加状态条。
 class _HoldToTalk extends StatelessWidget {
   final VoicePhase phase;
   final bool holding;
+  final bool cancel;
+  final String partial;
   final VoidCallback onStart;
   final void Function(bool cancel) onEnd;
   final void Function(bool up) onMove;
-  const _HoldToTalk({required this.phase, required this.holding, required this.onStart, required this.onEnd, required this.onMove});
+  const _HoldToTalk({required this.phase, required this.holding, required this.cancel, required this.partial, required this.onStart, required this.onEnd, required this.onMove});
 
   @override
   Widget build(BuildContext context) {
@@ -933,8 +936,12 @@ class _HoldToTalk extends StatelessWidget {
     final active = holding && phase != VoicePhase.idle;
     final label = switch (phase) {
       VoicePhase.transcribing => '识别中…',
-      _ => active ? '松开 发送' : '按住 说话',
+      _ when !active => '按住 说话',
+      _ when cancel => '松开 取消',
+      _ when partial.isNotEmpty => partial,
+      _ => '松开 发送 · 上滑取消',
     };
+    final tint = cancel ? y.danger : theme.colorScheme.primary;
     return GestureDetector(
       onLongPressStart: (_) => onStart(),
       onLongPressMoveUpdate: (d) => onMove(d.localOffsetFromOrigin.dy < -70),
@@ -947,11 +954,12 @@ class _HoldToTalk extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: active ? theme.colorScheme.primary.withValues(alpha: 0.18) : y.cardFill,
+          color: cancel ? y.danger.withValues(alpha: 0.14) : active ? theme.colorScheme.primary.withValues(alpha: 0.18) : y.solidFill,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: active ? theme.colorScheme.primary : y.cardBorder, width: active ? 1.4 : 0.8),
+          border: Border.all(color: active ? tint : y.cardBorder, width: active ? 1.4 : 0.8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -959,41 +967,12 @@ class _HoldToTalk extends StatelessWidget {
             if (phase == VoicePhase.transcribing)
               const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
             else
-              Icon(active ? Icons.graphic_eq : Icons.mic, size: 18, color: active ? theme.colorScheme.primary : null),
+              Icon(cancel ? Icons.delete_outline : active ? Icons.graphic_eq : Icons.mic, size: 18, color: active ? tint : null),
             const SizedBox(width: 8),
-            Text(label, style: theme.textTheme.titleMedium?.copyWith(color: active ? theme.colorScheme.primary : null)),
+            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleMedium?.copyWith(color: active ? tint : null))),
           ],
         ),
       ),
-    );
-  }
-}
-
-/// 按住时输入栏上方的状态条：在听 / 录音中 / 上滑取消，系统识别有片段会实时显示。
-class _HoldBanner extends StatelessWidget {
-  final VoicePhase phase;
-  final bool cancel;
-  final String partial;
-  const _HoldBanner({required this.phase, required this.cancel, required this.partial});
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final y = YujianColors.of(context);
-    final text = cancel
-        ? '松开取消'
-        : partial.isNotEmpty
-            ? partial
-            : switch (phase) { VoicePhase.listening => '在听…', VoicePhase.recording => '录音中…说完松开', VoicePhase.transcribing => '识别中…', VoicePhase.idle => '准备中…' };
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(color: cancel ? y.danger.withValues(alpha: 0.12) : theme.colorScheme.primary.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(14)),
-      child: Row(children: [
-        Icon(cancel ? Icons.delete_outline : Icons.mic, size: 18, color: cancel ? y.danger : theme.colorScheme.primary),
-        const SizedBox(width: 8),
-        Expanded(child: Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: cancel ? y.danger : null), maxLines: 2, overflow: TextOverflow.ellipsis)),
-        if (!cancel) Text('上滑取消', style: theme.textTheme.bodySmall),
-      ]),
     );
   }
 }
@@ -1012,7 +991,7 @@ class _QueryCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Card(
+        GlassCard(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Column(

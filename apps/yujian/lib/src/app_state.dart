@@ -21,7 +21,6 @@ import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platfor
 import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
 import 'update/updater.dart';
-import 'voice/local_tts_native.dart' if (dart.library.js_interop) 'voice/local_tts_web.dart';
 import 'usage/usage_meter.dart';
 import 'widgets/fmt.dart';
 
@@ -70,11 +69,6 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
-      // 0.8.4 升上来：那时装了离线语音包就是在用它（虽然当时有 bug 没声），别让老用户升级后退回系统朗读
-      if (!p.containsKey('speech_engine') && settings.speechEngine == 'system' && await LocalTts.installed()) {
-        settings = settings.copyWith(speechEngine: 'offline');
-        await settingsStore.save(settings);
-      }
     } catch (_) {}
     _apply();
   }
@@ -682,7 +676,7 @@ class AppState extends ChangeNotifier {
   /// 截图 / 小票 → 草稿（source screenshot）。
   Future<({List<Draft> drafts, String? error, String? modelUsed})> sayImage(List<int> bytes, String mime, {String hint = ''}) async {
     final v = vision;
-    if (v == null) return (drafts: const <Draft>[], error: '识别图片需要先配置模型（更多 → 模型与人格）', modelUsed: null);
+    if (v == null) return (drafts: const <Draft>[], error: '识别图片需要先配置模型（更多 → 模型与语音）', modelUsed: null);
     try {
       final r = await v.interpret([ImageInput(bytes, mime)], context(), hint: hint);
       if (r.drafts.isEmpty) return (drafts: const <Draft>[], error: '图里没认出交易', modelUsed: r.modelUsed);

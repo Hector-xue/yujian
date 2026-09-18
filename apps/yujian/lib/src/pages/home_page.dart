@@ -38,7 +38,7 @@ class HomePage extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
         children: [
           // 余额是第一眼要看的：单独的颜色、最大的字
-          Card(
+          GlassCard(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
               child: Column(
@@ -69,7 +69,7 @@ class HomePage extends StatelessWidget {
           ),
           if (app.showAutoHint) ...[
             const SizedBox(height: 14),
-            Card(
+            GlassCard(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
                 child: Row(children: [
@@ -123,7 +123,7 @@ class HomePage extends StatelessWidget {
           if (recent.isNotEmpty) ...[
             Text('最近', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
-            Card(
+            GlassCard(
               child: Column(children: [for (final t in recent) TransactionTile(tx: t)]),
             ),
           ],

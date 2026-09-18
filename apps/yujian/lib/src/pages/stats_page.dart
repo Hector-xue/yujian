@@ -44,7 +44,7 @@ class _StatsPageState extends State<StatsPage> {
     final byCat = app.engine.run(QueryDsl(types: [rank == 'income' ? TransactionType.income : TransactionType.expense], timeRange: range, groupBy: GroupBy.category, limit: 50)).rows.where((x) => x.valueMinor > 0 && x.currency == 'CNY').toList();
     final catTotal = byCat.fold<int>(0, (a, x) => a + x.valueMinor);
 
-    Widget section(String title, Widget child, {Widget? trailing}) => Card(
+    Widget section(String title, Widget child, {Widget? trailing}) => GlassCard(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             child: Column(

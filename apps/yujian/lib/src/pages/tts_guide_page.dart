@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../theme.dart';
 
 /// 怎么开通短剧级配音：豆包语音（火山引擎）和 MiniMax 各一节，每步一个动作，只讲余见要填的那几样。
 class TtsGuidePage extends StatelessWidget {
@@ -46,7 +47,7 @@ class TtsGuidePage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Card(
+          GlassCard(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -65,12 +66,12 @@ class TtsGuidePage extends StatelessWidget {
           step(2, '控制台顶部搜索「豆包语音」（也叫「语音技术」），进入后找「语音合成大模型」→ 开通。新账号有一份免费试用额度，够听很久。', url: 'https://console.volcengine.com/speech', urlLabel: 'console.volcengine.com/speech'),
           step(3, '左侧「应用管理」→ 创建一个应用（名字随便起，比如"余见"），勾上「语音合成大模型」。'),
           step(4, '拿密钥：新版控制台在应用里直接有「API Key」，复制它；老版控制台给的是「App ID」和「Access Token」两样，也行。'),
-          step(5, '回到余见：更多 → 语音 → 选「豆包语音」，粘贴 API Key（老账号点「高级」填 App ID + Access Token），挑个音色，点「试听当前选的」。'),
+          step(5, '回到余见：更多 → 模型与语音 → 语音 → 选「豆包语音」，粘贴 API Key（老账号点「高级」填 App ID + Access Token），挑个音色，点「试听当前选的」。'),
           p('试听报「鉴权失败」多半是两种：key 复制少了字符，或第 2 步的服务没开通。报「invalid speaker」是音色没开通——2.0 音色要在控制台的音色列表里点「开通」（免费）。'),
           h('MiniMax'),
           step(1, '注册 MiniMax 开放平台，完成实名。', url: 'https://platform.minimaxi.com', urlLabel: 'platform.minimaxi.com'),
           step(2, '左侧「账户管理」→「接口密钥」→ 创建，复制 key。新账号有赠送额度。', url: 'https://platform.minimaxi.com/user-center/basic-information/interface-key', urlLabel: 'platform.minimaxi.com → 接口密钥'),
-          step(3, '回到余见：更多 → 语音 → 选「MiniMax」，粘贴 API Key，挑个音色，试听。老账号如果报错提示要 GroupId，点「高级」填上（在「账户信息」页能看到）。'),
+          step(3, '回到余见：更多 → 模型与语音 → 语音 → 选「MiniMax」，粘贴 API Key，挑个音色，试听。老账号如果报错提示要 GroupId，点「高级」填上（在「账户信息」页能看到）。'),
           h('语气'),
           p('语音页有一栏「语气（可选）」，写一句话就行，比如"用撒娇甜蜜的语气"、"沉稳一点"。豆包会照着念；MiniMax 只认几种情绪（开心 / 伤心 / 生气 / 平静……），会从你写的话里挑最接近的。'),
           h('花了多少'),

@@ -68,7 +68,7 @@ class _CalendarPageState extends State<CalendarPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
         children: [
-          Card(
+          GlassCard(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
               child: Column(
@@ -132,7 +132,7 @@ class _CalendarPageState extends State<CalendarPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Card(
+          GlassCard(
             child: Column(
               children: [
                 Padding(

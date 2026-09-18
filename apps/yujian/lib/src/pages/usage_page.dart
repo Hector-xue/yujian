@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../usage/usage_meter.dart';
 
 String fmtTokens(int n) {
@@ -57,7 +58,7 @@ class UsagePage extends StatelessWidget {
         final month = app.usage.summary(from: DateTime(n.year, n.month, 1));
         final all = app.usage.summary();
         Widget stat(String label, UsageSummary s) => Expanded(
-              child: Card(
+              child: GlassCard(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
