@@ -15,6 +15,7 @@ import 'package:sync_client/sync_client.dart';
 import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
+import 'notifications/screenshot_source.dart';
 import 'notifications/share_source.dart';
 import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platform/avatar_files_web.dart';
 import 'platform/home_widget_bridge.dart';
@@ -28,6 +29,7 @@ class AppState extends ChangeNotifier {
   final QueryEngine engine;
   final SettingsStore settingsStore;
   final NotificationSource notifications;
+  final ScreenshotSource screenshots;
   TemplateMatcher matcher = TemplateMatcher();
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
@@ -47,10 +49,11 @@ class AppState extends ChangeNotifier {
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
 
-  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications, this.homeWidget})
+  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications, ScreenshotSource? screenshots, this.homeWidget})
       : engine = QueryEngine(ledger),
         settingsStore = settingsStore ?? MemorySettingsStore(),
-        notifications = notifications ?? FakeNotificationSource();
+        notifications = notifications ?? FakeNotificationSource(),
+        screenshots = screenshots ?? FakeScreenshotSource();
 
   /// 读设置并按它装配解析器与人格。启动时和保存设置后各调一次。
   Future<void> loadSettings() async {
@@ -65,7 +68,7 @@ class AppState extends ChangeNotifier {
 
   /// 首页「自动记账还没开」的提示卡：两条路都没开才显示；用户关掉后不再出现。
   bool autoHintDismissed = false;
-  bool get showAutoHint => notifications.supported && !autoHintDismissed && !settings.notificationsWanted && !settings.screenWanted;
+  bool get showAutoHint => notifications.supported && !autoHintDismissed && !settings.notificationsWanted && !settings.screenWanted && !settings.screenshotWanted;
 
   Future<void> dismissAutoHint() async {
     autoHintDismissed = true;
@@ -378,6 +381,147 @@ class AppState extends ChangeNotifier {
     return n;
   }
 
+  // ------------------------------------------------------------ 截图自动记账
+
+  /// 最近处理过的截图（环形 20 条）：给自动记账页看"哪张记了、哪张忽略了、为什么"。
+  final List<ScreenshotOutcome> screenshotLog = [];
+  static const _screenshotLogCap = 20;
+  StreamSubscription<void>? _shotSub;
+  Future<void>? _shotRun; // 正在跑的一批，串行处理，别两批同时调模型
+
+  Future<void> _loadScreenshotLog() async {
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString('screenshot_log');
+      if (raw == null) return;
+      screenshotLog
+        ..clear()
+        ..addAll([for (final j in jsonDecode(raw) as List) ScreenshotOutcome.fromJson((j as Map).cast<String, Object?>())]);
+    } catch (_) {}
+  }
+
+  Future<void> _saveScreenshotLog() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString('screenshot_log', jsonEncode([for (final o in screenshotLog) o.toJson()]));
+    } catch (_) {}
+  }
+
+  /// 启动：开关开着就把队列吃掉 + 补扫上次检查之后的截图，再订阅实时通知。
+  Future<int> startScreenshots() async {
+    await _loadScreenshotLog();
+    await screenshots.setWanted(settings.screenshotWanted);
+    if (!settings.screenshotWanted) return 0;
+    final p = await SharedPreferences.getInstance();
+    await screenshots.catchUp(p.getInt('screenshot_checked_at') ?? DateTime.now().millisecondsSinceEpoch);
+    await p.setInt('screenshot_checked_at', DateTime.now().millisecondsSinceEpoch);
+    _shotSub ??= screenshots.live.listen((_) => drainScreenshots());
+    return drainScreenshots();
+  }
+
+  /// 打开 / 关闭截图自动记账：开的时候要相册权限；拿不到就不开。返回最终状态。
+  Future<bool> setScreenshotWanted(bool v) async {
+    if (v) {
+      final st = await screenshots.status();
+      if (!st.permitted && !await screenshots.requestPermission()) return false;
+    }
+    await saveSettings(settings.copyWith(screenshotWanted: v));
+    await screenshots.setWanted(v);
+    if (v) {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('screenshot_checked_at', DateTime.now().millisecondsSinceEpoch);
+      _shotSub ??= screenshots.live.listen((_) => drainScreenshots());
+    } else {
+      await _shotSub?.cancel();
+      _shotSub = null;
+    }
+    return v;
+  }
+
+  /// 把原生队列里的截图逐张过一遍视觉模型。串行：上一批没跑完就接在后面。返回这批新生成的草稿 / 入账数。
+  Future<int> drainScreenshots() {
+    final prev = _shotRun;
+    final run = () async {
+      if (prev != null) await prev;
+      final events = await screenshots.drain();
+      return ingestScreenshots(events);
+    }();
+    _shotRun = run;
+    return run;
+  }
+
+  /// 截图 → 视觉模型（严格模式：不是交易凭证就空） → 草稿；按自动记账模式决定是否直接入账。
+  Future<int> ingestScreenshots(List<ScreenshotEvent> events) async {
+    if (events.isEmpty) return 0;
+    var n = 0;
+    for (final e in events) {
+      final v = vision;
+      if (v == null) {
+        _noteScreenshot(e, 'skipped', '没配置模型');
+        continue;
+      }
+      final bytes = await screenshots.readImage(e.uri);
+      if (bytes == null) {
+        _noteScreenshot(e, 'skipped', '图已不在（被删了？）');
+        continue;
+      }
+      try {
+        final r = await v.interpret([ImageInput(bytes, 'image/jpeg')], context(), autoScan: true);
+        if (r.drafts.isEmpty) {
+          _noteScreenshot(e, 'ignored', '不是交易截图', modelUsed: r.modelUsed);
+          continue;
+        }
+        final inputs = <DraftInput>[];
+        for (var i = 0; i < r.drafts.length; i++) {
+          final d = r.drafts[i];
+          final payload = {...d.payload, 'metadata': {...?(d.payload['metadata'] as Map?)?.cast<String, Object?>(), 'screenshot': {'name': e.name, 'added_ms': e.addedMs}}};
+          // 指纹按 截图 id + 第几笔：同一张图再扫到（观察者与补扫重叠）不会重复起草
+          inputs.add(DraftInput(payload: payload, confidence: d.confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true));
+        }
+        final drafts = ledger.propose(inputs, source: Source.screenshot, actor: Actor.automation, interpreter: 'vision:auto', modelUsed: r.modelUsed);
+        if (drafts.isEmpty) {
+          _noteScreenshot(e, 'ignored', '这张图已经记过', modelUsed: r.modelUsed);
+          continue;
+        }
+        var committed = 0;
+        for (final d in drafts) {
+          final auto = switch (settings.automationMode) {
+            AutomationMode.confirm => false,
+            AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && (d.confidence ?? 0) >= 0.7,
+            AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
+          };
+          if (!auto) continue;
+          try {
+            ledger.commit(d.id);
+            committed++;
+          } on LedgerException {
+            // 留在收件箱
+          }
+        }
+        n += drafts.length;
+        final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
+        _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts', modelUsed: r.modelUsed);
+      } on UnsupportedError {
+        _noteScreenshot(e, 'error', '当前模型不支持看图');
+      } on ProviderException catch (ex) {
+        _noteScreenshot(e, 'error', '模型出错：${ex.message}');
+      } catch (ex) {
+        _noteScreenshot(e, 'error', '$ex');
+      }
+    }
+    unawaited(_saveScreenshotLog());
+    if (n > 0) {
+      notifyListeners();
+      unawaited(pushHomeWidget());
+    }
+    return n;
+  }
+
+  void _noteScreenshot(ScreenshotEvent e, String outcome, String detail, {String? modelUsed}) {
+    screenshotLog.insert(0, ScreenshotOutcome(name: e.name, atMs: DateTime.now().millisecondsSinceEpoch, outcome: outcome, detail: detail, modelUsed: modelUsed));
+    if (screenshotLog.length > _screenshotLogCap) screenshotLog.removeRange(_screenshotLogCap, screenshotLog.length);
+    unawaited(screenshots.log({'what': outcome, 'name': e.name, 'detail': detail}));
+  }
+
   /// 用户粘贴一段通知文案试模板（也是贡献模板的入口）。
   Extraction tryTemplate(String packageName, String? title, String text) =>
       matcher.extract(NotificationEvent(packageName: packageName, title: title, text: text, postedAtMs: DateTime.now().millisecondsSinceEpoch));
@@ -385,6 +529,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _liveSub?.cancel();
+    _shotSub?.cancel();
     super.dispose();
   }
 
@@ -662,5 +807,24 @@ class RecentNotice {
         postedAtMs: (j['posted_at_ms'] as num?)?.toInt() ?? 0,
         templateId: (j['template'] as String?) ?? 'none',
         usable: j['usable'] == true,
+      );
+}
+
+/// 一张截图的处理结果（只存文件名和结论，不存图）。outcome：recorded / inbox / ignored / skipped / error。
+class ScreenshotOutcome {
+  final String name;
+  final int atMs;
+  final String outcome;
+  final String detail;
+  final String? modelUsed;
+  const ScreenshotOutcome({required this.name, required this.atMs, required this.outcome, required this.detail, this.modelUsed});
+
+  Map<String, Object?> toJson() => {'name': name, 'at_ms': atMs, 'outcome': outcome, 'detail': detail, 'model': modelUsed};
+  factory ScreenshotOutcome.fromJson(Map<String, Object?> j) => ScreenshotOutcome(
+        name: (j['name'] as String?) ?? '',
+        atMs: (j['at_ms'] as num?)?.toInt() ?? 0,
+        outcome: (j['outcome'] as String?) ?? 'ignored',
+        detail: (j['detail'] as String?) ?? '',
+        modelUsed: j['model'] as String?,
       );
 }

@@ -17,6 +17,8 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   bool? systemEnabled;
   bool? screenEnabled;
   Map<String, Object?> screenDiag = const {};
+  ({bool permitted, bool partial})? shotStatus;
+  Map<String, Object?> shotDiag = const {};
   final testText = TextEditingController();
   String? testResult;
 
@@ -43,13 +45,58 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     final v = await n.isEnabled();
     final sc = await n.isScreenEnabled();
     final diag = await n.screenDiagnostics();
+    final shots = AppScope.of(context).screenshots;
+    final ss = await shots.status();
+    final sd = await shots.diagnostics();
     if (mounted) {
       setState(() {
         systemEnabled = v;
         screenEnabled = sc;
         screenDiag = diag;
+        shotStatus = ss;
+        shotDiag = sd;
       });
     }
+  }
+
+  /// 截图自动记账的处理记录：每张图记了 / 进收件箱 / 忽略 / 出错，一眼看出模型怎么判的。
+  Widget _screenshotLog(BuildContext context, AppState app) {
+    final theme = Theme.of(context);
+    final log = app.screenshotLog;
+    final observing = shotDiag['observing'] == true;
+    final pending = (shotDiag['pending'] as num?)?.toInt() ?? 0;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(child: Text('截图处理记录', style: theme.textTheme.titleSmall)),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
+            ]),
+            Text('${observing ? '正在盯着相册' : '观察者没在（App 进后台被杀后，下次打开会补扫最近 24 小时）'}${pending > 0 ? ' · $pending 张待处理' : ''}', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 6),
+            if (log.isEmpty)
+              Text('还没处理过截图。截一张支付页 / 订单页试试', style: theme.textTheme.bodySmall)
+            else
+              for (final o in log.take(8))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(
+                      switch (o.outcome) { 'recorded' => Icons.check_circle_outline, 'inbox' => Icons.inbox_outlined, 'error' => Icons.error_outline, _ => Icons.remove_circle_outline },
+                      size: 16,
+                      color: switch (o.outcome) { 'recorded' || 'inbox' => theme.colorScheme.primary, 'error' => theme.colorScheme.error, _ => theme.textTheme.bodySmall?.color },
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text('${fmtRelativeMs(o.atMs)} · ${o.detail}${o.modelUsed != null ? ' · ${o.modelUsed}' : ''}', style: theme.textTheme.bodySmall)),
+                  ]),
+                ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 支付页识别的诊断面板：把原生侧每一步的记录摆出来，没识别到时能看出卡在哪一环。
@@ -153,7 +200,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('两条路，建议都开：微信 / 支付宝付款时 App 在前台，系统不弹通知，只有「支付页识别」能抓到；银行、购物平台的到账 / 支付通知则由「通知自动记账」读。都只在本机处理，不读短信，关掉随时生效。', style: theme.textTheme.bodySmall),
+          Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」让视觉模型看一眼。前两条只在本机处理；截图会发给你配置的模型。关掉随时生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -214,6 +261,41 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               alignment: Alignment.centerLeft,
               child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('打开应用信息页')),
             ),
+          ],
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('截图自动记账'),
+            subtitle: Text(
+              !supported
+                  ? '仅 Android 支持'
+                  : !app.hasModel
+                      ? '要先配置一个能看图的模型（更多 → 模型与人格）'
+                      : shotStatus?.partial == true
+                          ? '相册权限只给了「部分照片」，看不到新截图：到应用信息页改成「允许全部」'
+                          : s.screenshotWanted
+                              ? '相册里新出现的截图会发给模型判断：是支付页 / 订单 / 账单 / 小票就按下面的模式记账，不是就忽略'
+                              : '截一张支付页、订单页或小票，不用打开余见也能记。需要相册读取权限；每张新截图都会发给你配置的模型',
+              style: theme.textTheme.bodySmall,
+            ),
+            value: s.screenshotWanted,
+            onChanged: !supported || !app.hasModel
+                ? null
+                : (v) async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await app.setScreenshotWanted(v);
+                    if (v && !ok) messenger.showSnackBar(const SnackBar(content: Text('没拿到相册权限，截图自动记账没打开')));
+                    _refresh();
+                  },
+          ),
+          if (supported && s.screenshotWanted && shotStatus?.partial == true)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('去应用信息页改权限')),
+            ),
+          if (supported && s.screenshotWanted) ...[
+            Text('后台也能记的前提是余见进程还活着：开了「通知自动记账」或「支付页识别」系统会替它留着；国产系统还得在设置里允许余见自启动 / 后台运行。进程被杀期间截的图，下次打开余见时补扫最近 24 小时。', style: theme.textTheme.bodySmall),
+            Padding(padding: const EdgeInsets.only(top: 4), child: _screenshotLog(context, app)),
           ],
           const SizedBox(height: 16),
           Text('模式', style: theme.textTheme.titleMedium),

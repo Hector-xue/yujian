@@ -39,6 +39,7 @@ class PaymentScreenService : AccessibilityService() {
         super.onServiceConnected()
         prefs(this).edit().putLong(KEY_CONNECTED_AT, System.currentTimeMillis()).apply()
         log(this, JSONObject().put("what", "connected"))
+        ScreenshotWatcher.ensureStarted(applicationContext) // 常驻服务，顺手挂截图观察者
     }
 
     override fun onUnbind(intent: Intent?): Boolean {

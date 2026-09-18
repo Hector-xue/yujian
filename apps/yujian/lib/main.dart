@@ -12,6 +12,7 @@ import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
 import 'src/platform/home_widget_bridge.dart';
 import 'src/notifications/notification_source.dart';
+import 'src/notifications/screenshot_source.dart';
 import 'src/settings_store.dart';
 import 'src/theme.dart';
 import 'src/update/update_sheet.dart';
@@ -19,15 +20,37 @@ import 'src/update/update_sheet.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await openAppDatabase();
-  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
+  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
   await state.loadSettings();
   state.generateRecurring();
   await state.startNotifications();
   await state.startShare();
   runApp(YujianApp(state: state));
   unawaited(state.syncNow()); // 启动后台同步，不挡首屏
+  unawaited(state.startScreenshots()); // 截图队列要调视觉模型，不挡首屏
   unawaited(state.pushHomeWidget());
   unawaited(state.checkUpdate());
+}
+
+/// 无头引擎入口：App 没开着、但进程被通知监听 / 无障碍留着时，原生 ScreenshotBridge 起这个入口把截图队列处理掉。
+/// 只做一件事——吃队列、按模式入账、刷小部件——然后告诉原生销毁引擎。不 runApp。
+@pragma('vm:entry-point')
+Future<void> screenshotBackground() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final shots = AndroidScreenshotSource();
+  try {
+    final db = await openAppDatabase();
+    final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: shots, homeWidget: HomeWidgetBridge.ifSupported());
+    await state.loadSettings();
+    if (state.settings.screenshotWanted) {
+      await state.ingestScreenshots(await shots.drain());
+      await state.pushHomeWidget();
+    }
+  } catch (e) {
+    await shots.log({'what': 'background_error', 'err': '$e'});
+  } finally {
+    await shots.backgroundDone();
+  }
 }
 
 class YujianApp extends StatelessWidget {
