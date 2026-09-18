@@ -19,6 +19,7 @@ import 'persona_page.dart';
 import 'recurring_page.dart';
 import 'stats_page.dart';
 import 'sync_page.dart';
+import 'tts_guide_page.dart';
 import 'usage_page.dart';
 import 'voice_page.dart';
 import 'widgets_page.dart';
@@ -60,7 +61,7 @@ class MorePage extends StatelessWidget {
 
     final s = app.settings;
     final modelLine = app.hasModel ? '${s.model}${(s.visionModel ?? '').isNotEmpty ? ' · 看图 ${s.visionModel}' : ''}' : '未配置，用规则解析';
-    final voiceLine = (s.speechModel ?? '').isNotEmpty ? '云端合成 ${s.speechModel}' : '系统朗读；可装离线包或配云端';
+    final voiceLine = switch (s.speechEngine) { 'doubao' => '朗读：豆包语音', 'minimax' => '朗读：MiniMax', 'cloud' => '朗读：云端 ${s.speechModel ?? ''}', 'omni' => '朗读：主模型自带语音', 'offline' => '朗读：离线语音包', _ => '朗读：手机系统' };
     final upd = app.availableUpdate;
 
     return Scaffold(
@@ -85,6 +86,7 @@ class MorePage extends StatelessWidget {
             item(Icons.help_outline, '怎么申请 API', subtitle: '拿 DeepSeek、硅基流动举例，看完能一键填入', onTap: () => go(const ApiGuidePage())),
             item(Icons.data_usage_outlined, '用量与花费', subtitle: _usageLine(app), onTap: () => go(const UsagePage())),
             item(Icons.mic_none, '语音', subtitle: voiceLine, onTap: () => go(const VoicePage())),
+            item(Icons.record_voice_over_outlined, '怎么开通真人感配音', subtitle: '豆包 / MiniMax 注册到填入，一步步来', onTap: () => go(const TtsGuidePage())),
             item(Icons.face_outlined, '人格与角色', subtitle: app.persona.name, onTap: () => go(const PersonaPage())),
           ]),
           group('外观', [

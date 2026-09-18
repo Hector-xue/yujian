@@ -34,10 +34,19 @@ class Settings {
   final String? speechVoice; // 音色名，各服务不同（alloy / anna / …）
   final String? speechStyle; // 语气说明，只有 gpt-4o-mini-tts 这类认；空不发
   final int offlineVoiceSid; // 离线语音包的音色编号（Kokoro sid）
-  final String speechEngine; // 朗读用哪个：system | offline | cloud
+  final String speechEngine; // 朗读用哪个：system | offline | cloud | doubao | minimax
+  final String? doubaoApiKey; // 豆包语音（火山引擎新控制台的 API Key，安全存储）
+  final String? doubaoAppId; // 老账号：App ID + Access Key
+  final String? doubaoAccessKey;
+  final String doubaoVoice; // voice_type
+  final String? minimaxApiKey;
+  final String? minimaxGroupId;
+  final String minimaxVoice; // voice_id
+  final String minimaxModel;
+  final String omniVoice; // 多模态模型自带语音的音色（Qwen-Omni：Cherry / Serena / Ethan / Chelsie）
   final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
   final double backgroundOpacity; // 背景图可见度 0–1
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.offlineVoiceSid = 3, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.offlineVoiceSid = 3, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -46,6 +55,9 @@ class Settings {
     }
     return null;
   }
+
+  DoubaoTtsConfig get doubaoTts => DoubaoTtsConfig(apiKey: doubaoApiKey, appId: doubaoAppId, accessKey: doubaoAccessKey, voice: doubaoVoice);
+  MiniMaxTtsConfig get minimaxTts => MiniMaxTtsConfig(apiKey: minimaxApiKey ?? '', groupId: minimaxGroupId, model: minimaxModel, voice: minimaxVoice);
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
@@ -56,7 +68,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, int? offlineVoiceSid, String? speechEngine, String? backgroundImage, double? backgroundOpacity}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, int? offlineVoiceSid, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -85,6 +97,15 @@ class Settings {
         speechEngine: speechEngine ?? this.speechEngine,
         backgroundImage: backgroundImage ?? this.backgroundImage,
         backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
+        doubaoApiKey: doubaoApiKey ?? this.doubaoApiKey,
+        doubaoAppId: doubaoAppId ?? this.doubaoAppId,
+        doubaoAccessKey: doubaoAccessKey ?? this.doubaoAccessKey,
+        doubaoVoice: doubaoVoice ?? this.doubaoVoice,
+        minimaxApiKey: minimaxApiKey ?? this.minimaxApiKey,
+        minimaxGroupId: minimaxGroupId ?? this.minimaxGroupId,
+        minimaxVoice: minimaxVoice ?? this.minimaxVoice,
+        minimaxModel: minimaxModel ?? this.minimaxModel,
+        omniVoice: omniVoice ?? this.omniVoice,
       );
 }
 
@@ -102,10 +123,16 @@ class PlatformSettingsStore implements SettingsStore {
     String? key;
     String? syncToken;
     String? passphrase;
+    String? doubaoKey;
+    String? doubaoAccess;
+    String? minimaxKey;
     try {
       key = await _secure.read(key: 'llm_api_key');
       syncToken = await _secure.read(key: 'sync_token');
       passphrase = await _secure.read(key: 'backup_passphrase');
+      doubaoKey = await _secure.read(key: 'doubao_api_key');
+      doubaoAccess = await _secure.read(key: 'doubao_access_key');
+      minimaxKey = await _secure.read(key: 'minimax_api_key');
     } catch (_) {
       key = null; // 安全存储不可用（如无 keyring 的桌面）：当作没配
     }
@@ -139,6 +166,15 @@ class PlatformSettingsStore implements SettingsStore {
       speechEngine: p.getString('speech_engine') ?? ((p.getString('speech_model') ?? '').isNotEmpty ? 'cloud' : 'system'),
       backgroundImage: _emptyToNull(p.getString('background_image')),
       backgroundOpacity: p.getDouble('background_opacity') ?? 0.6,
+      doubaoApiKey: _emptyToNull(doubaoKey),
+      doubaoAppId: _emptyToNull(p.getString('doubao_app_id')),
+      doubaoAccessKey: _emptyToNull(doubaoAccess),
+      doubaoVoice: _emptyToNull(p.getString('doubao_voice')) ?? 'zh_female_vv_uranus_bigtts',
+      minimaxApiKey: _emptyToNull(minimaxKey),
+      minimaxGroupId: _emptyToNull(p.getString('minimax_group_id')),
+      minimaxVoice: _emptyToNull(p.getString('minimax_voice')) ?? 'female-shaonv',
+      minimaxModel: _emptyToNull(p.getString('minimax_model')) ?? 'speech-02-hd',
+      omniVoice: _emptyToNull(p.getString('omni_voice')) ?? 'Cherry',
     );
   }
 
@@ -171,8 +207,14 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('speech_engine', s.speechEngine);
     await p.setString('background_image', s.backgroundImage ?? '');
     await p.setDouble('background_opacity', s.backgroundOpacity);
+    await p.setString('doubao_app_id', s.doubaoAppId ?? '');
+    await p.setString('doubao_voice', s.doubaoVoice);
+    await p.setString('minimax_group_id', s.minimaxGroupId ?? '');
+    await p.setString('minimax_voice', s.minimaxVoice);
+    await p.setString('minimax_model', s.minimaxModel);
+    await p.setString('omni_voice', s.omniVoice);
     try {
-      for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase}.entries) {
+      for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase, 'doubao_api_key': s.doubaoApiKey, 'doubao_access_key': s.doubaoAccessKey, 'minimax_api_key': s.minimaxApiKey}.entries) {
         if (e.value == null || e.value!.isEmpty) {
           await _secure.delete(key: e.key);
         } else {

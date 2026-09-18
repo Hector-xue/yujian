@@ -6,7 +6,9 @@ import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/l
 import '../voice/local_tts_native.dart' if (dart.library.js_interop) '../voice/local_tts_web.dart';
 import '../voice/offline_asr_sheet.dart';
 import '../voice/speech_output.dart';
+import '../voice/vendor_voices.dart';
 import '../widgets/model_picker.dart';
+import 'tts_guide_page.dart';
 
 /// 语音：听（离线识别包 / 云端转写）和说（三选一：系统朗读 / 离线语音包 / 云端合成）。
 /// 「说」是明确的单选，选哪个用哪个；填空只在选了云端时才露出来。
@@ -21,6 +23,13 @@ class _VoicePageState extends State<VoicePage> {
   late final TextEditingController speechModel;
   late final TextEditingController speechVoice;
   late final TextEditingController speechStyle;
+  late final TextEditingController doubaoKey;
+  late final TextEditingController doubaoAppId;
+  late final TextEditingController doubaoAccess;
+  late final TextEditingController minimaxKey;
+  late final TextEditingController minimaxGroup;
+  late final TextEditingController minimaxModel;
+  var showKeys = false;
   final _preview = SpeechOutput();
   String? result;
   var testing = false;
@@ -36,6 +45,12 @@ class _VoicePageState extends State<VoicePage> {
     speechModel = TextEditingController(text: s.speechModel ?? '');
     speechVoice = TextEditingController(text: s.speechVoice ?? '');
     speechStyle = TextEditingController(text: s.speechStyle ?? '');
+    doubaoKey = TextEditingController(text: s.doubaoApiKey ?? '');
+    doubaoAppId = TextEditingController(text: s.doubaoAppId ?? '');
+    doubaoAccess = TextEditingController(text: s.doubaoAccessKey ?? '');
+    minimaxKey = TextEditingController(text: s.minimaxApiKey ?? '');
+    minimaxGroup = TextEditingController(text: s.minimaxGroupId ?? '');
+    minimaxModel = TextEditingController(text: s.minimaxModel);
     _probe();
   }
 
@@ -53,14 +68,23 @@ class _VoicePageState extends State<VoicePage> {
   @override
   void dispose() {
     _preview.dispose();
-    for (final c in [transcribeModel, speechModel, speechVoice, speechStyle]) {
+    for (final c in [transcribeModel, speechModel, speechVoice, speechStyle, doubaoKey, doubaoAppId, doubaoAccess, minimaxKey, minimaxGroup, minimaxModel]) {
       c.dispose();
     }
     super.dispose();
   }
 
   Settings _draft() => AppScope.of(context).settings.copyWith(
-      transcribeModel: transcribeModel.text.trim(), speechModel: speechModel.text.trim(), speechVoice: speechVoice.text.trim(), speechStyle: speechStyle.text.trim());
+      transcribeModel: transcribeModel.text.trim(),
+      speechModel: speechModel.text.trim(),
+      speechVoice: speechVoice.text.trim(),
+      speechStyle: speechStyle.text.trim(),
+      doubaoApiKey: doubaoKey.text.trim(),
+      doubaoAppId: doubaoAppId.text.trim(),
+      doubaoAccessKey: doubaoAccess.text.trim(),
+      minimaxApiKey: minimaxKey.text.trim(),
+      minimaxGroupId: minimaxGroup.text.trim(),
+      minimaxModel: minimaxModel.text.trim().isEmpty ? 'speech-02-hd' : minimaxModel.text.trim());
 
   Future<void> _pick(TextEditingController target) async {
     final s = AppScope.of(context).settings;
@@ -83,7 +107,7 @@ class _VoicePageState extends State<VoicePage> {
       await _probe();
       if (!ok) return;
     }
-    if (engine == 'cloud' && app.settings.providerConfig == null) {
+    if ((engine == 'cloud' || engine == 'omni') && app.settings.providerConfig == null) {
       messenger.showSnackBar(const SnackBar(content: Text('云端合成用「模型与 API」里的端点，先去那里配好')));
       return;
     }
@@ -100,17 +124,19 @@ class _VoicePageState extends State<VoicePage> {
     const line = '主人好呀，今天想记点什么？';
     String r;
     switch (d.speechEngine) {
-      case 'cloud':
-        if (!SpeechOutput.cloudConfigured(d)) {
-          r = d.providerConfig == null ? '先到「模型与 API」配好端点' : '先填云端语音合成模型';
-        } else {
-          r = await _preview.speakCloud(line, d) ? '云端合成成功，已播放' : '云端合成失败：${_preview.lastError}';
-        }
-      case 'offline':
-        r = await _preview.speakOffline(line, d) ? '离线合成成功，已播放' : '离线合成失败：${_preview.lastError}';
-      default:
-        await _preview.speakSystem(line);
+      case 'omni' when d.providerConfig == null:
+        r = '先到「模型与 API」配好端点';
+      case 'cloud' when !SpeechOutput.cloudConfigured(d):
+        r = d.providerConfig == null ? '先到「模型与 API」配好端点' : '先填云端语音合成模型';
+      case 'doubao' when !d.doubaoTts.configured:
+        r = '先粘贴豆包的 API Key';
+      case 'minimax' when !d.minimaxTts.configured:
+        r = '先粘贴 MiniMax 的 API Key';
+      case 'system':
+        await _preview.speakWith('system', line, d);
         r = '已交给系统朗读（没声音 = 手机没装语音引擎）';
+      default:
+        r = await _preview.speakWith(d.speechEngine, line, d) ? '合成成功，已播放' : '合成失败：${_preview.lastError}';
     }
     if (!mounted) return;
     setState(() {
@@ -118,6 +144,35 @@ class _VoicePageState extends State<VoicePage> {
       result = r;
     });
   }
+
+  Widget _keyField(TextEditingController c, String label, {String? helper}) => TextField(
+        controller: c,
+        obscureText: !showKeys,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helper,
+          helperMaxLines: 2,
+          suffixIcon: IconButton(icon: Icon(showKeys ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKeys = !showKeys)),
+        ),
+      );
+
+  Widget _voicePicker(String label, List<({String id, String name})> voices, String current, void Function(String) onPick) => DropdownButtonFormField<String>(
+        initialValue: voices.any((v) => v.id == current) ? current : voices.first.id,
+        decoration: InputDecoration(labelText: label, isDense: true),
+        items: [for (final v in voices) DropdownMenuItem(value: v.id, child: Text(v.name))],
+        onChanged: (v) {
+          if (v != null) onPick(v);
+        },
+      );
+
+  Widget _guideLink(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const TtsGuidePage())),
+          icon: const Icon(Icons.help_outline, size: 18),
+          label: const Text('还没开通？看教程'),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -221,9 +276,62 @@ class _VoicePageState extends State<VoicePage> {
                 ],
               ),
               engineTile(
+                'omni',
+                '主模型自带语音',
+                hasEndpoint ? '主模型是多模态 Omni 模型（如 Qwen-Omni）时不用再配别的，同一把 key 直接开口' : '先到「模型与 API」配好端点；主模型要是 Omni 多模态模型',
+                body: [
+                  _voicePicker('音色', const [(id: 'Cherry', name: 'Cherry · 女'), (id: 'Serena', name: 'Serena · 女'), (id: 'Chelsie', name: 'Chelsie · 女'), (id: 'Ethan', name: 'Ethan · 男')], s.omniVoice,
+                      (v) => app.saveSettings(app.settings.copyWith(omniVoice: v))),
+                  const SizedBox(height: 6),
+                  Text('主模型不是 Omni 的话试听会报「没有返回音频」，那就选下面的豆包 / MiniMax。', style: muted),
+                ],
+              ),
+              engineTile(
+                'doubao',
+                '豆包语音（推荐）',
+                s.doubaoTts.configured ? '已配好。抖音短剧同款，有情绪；按字数计费' : '抖音短剧同款，有情绪，中文最自然；要一个火山引擎的 API Key',
+                body: [
+                  _keyField(doubaoKey, 'API Key', helper: '火山引擎 → 豆包语音 → 应用里复制；只存本机安全存储'),
+                  const SizedBox(height: 16),
+                  _voicePicker('音色', doubaoVoices, s.doubaoVoice, (v) => app.saveSettings(app.settings.copyWith(doubaoVoice: v))),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text('高级：老账号用 App ID + Access Token', style: theme.textTheme.bodySmall),
+                    children: [
+                      TextField(controller: doubaoAppId, decoration: const InputDecoration(labelText: 'App ID')),
+                      const SizedBox(height: 8),
+                      _keyField(doubaoAccess, 'Access Token'),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                  _guideLink(context),
+                ],
+              ),
+              engineTile(
+                'minimax',
+                'MiniMax 语音',
+                s.minimaxTts.configured ? '已配好。speech-02-hd，有情绪；按字数计费' : '有情绪、很自然；要一个 MiniMax 的 API Key',
+                body: [
+                  _keyField(minimaxKey, 'API Key', helper: 'MiniMax 开放平台 → 接口密钥；只存本机安全存储'),
+                  const SizedBox(height: 16),
+                  _voicePicker('音色', minimaxVoices, s.minimaxVoice, (v) => app.saveSettings(app.settings.copyWith(minimaxVoice: v))),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text('高级', style: theme.textTheme.bodySmall),
+                    children: [
+                      TextField(controller: minimaxGroup, decoration: const InputDecoration(labelText: 'GroupId（老账号才要）')),
+                      const SizedBox(height: 8),
+                      TextField(controller: minimaxModel, decoration: const InputDecoration(labelText: '模型', hintText: 'speech-02-hd')),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                  _guideLink(context),
+                ],
+              ),
+              engineTile(
                 'cloud',
-                '云端语音合成',
-                hasEndpoint ? '用「模型与 API」的端点，按字符计费；最像真人' : '先到「模型与 API」配好端点',
+                'OpenAI 兼容语音合成',
+                hasEndpoint ? '用「模型与 API」的端点（硅基流动 CosyVoice、OpenAI tts）' : '先到「模型与 API」配好端点',
                 body: [
                   TextField(
                     controller: speechModel,
@@ -235,14 +343,22 @@ class _VoicePageState extends State<VoicePage> {
                   ),
                   const SizedBox(height: 10),
                   TextField(controller: speechVoice, decoration: const InputDecoration(labelText: '音色', hintText: 'alloy / nova / FunAudioLLM/CosyVoice2-0.5B:anna', helperText: '各家音色名不同，看服务商文档；留空用 alloy', helperMaxLines: 2)),
-                  const SizedBox(height: 10),
-                  TextField(controller: speechStyle, decoration: const InputDecoration(labelText: '语气说明（可选）', hintText: '温柔、慢一点', helperText: '只有 gpt-4o-mini-tts 这类认，其他会忽略', helperMaxLines: 2)),
-                  const SizedBox(height: 4),
-                  Text('改了模型名记得点下面「保存」再试听。', style: muted),
                 ],
               ),
             ]),
           ),
+          if (engine == 'doubao' || engine == 'minimax' || engine == 'cloud' || engine == 'omni') ...[
+            const SizedBox(height: 4),
+            TextField(
+              controller: speechStyle,
+              decoration: InputDecoration(
+                labelText: '语气（可选）',
+                hintText: '用撒娇甜蜜的语气 / 沉稳一点',
+                helperText: engine == 'minimax' ? 'MiniMax 只认开心 / 伤心 / 生气 / 平静这几种，会挑最接近的' : engine == 'cloud' ? '只有 gpt-4o-mini-tts 这类认，其他会忽略' : '写一句话，它会照着念',
+                helperMaxLines: 2,
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(children: [
             OutlinedButton.icon(onPressed: testing ? null : _test, icon: const Icon(Icons.volume_up_outlined, size: 18), label: Text(testing ? '合成中…' : '试听当前选的')),

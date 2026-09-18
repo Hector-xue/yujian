@@ -11,6 +11,7 @@ class FakeServer {
   final List<Map<String, Object?>> requests = [];
   Object? Function(Map<String, Object?> body)? handler;
   List<int>? binaryReply; // 设了就回裸二进制（audio/mpeg），模拟 /audio/speech
+  String? textReply; // 设了就原样回这段文本（NDJSON / SSE 之类）
   int status = 200;
 
   Future<void> start() async {
@@ -23,7 +24,14 @@ class FakeServer {
       } on FormatException {
         body = {'raw': raw, 'content-type': req.headers.contentType?.toString()};
       }
-      requests.add({'path': req.uri.path, 'method': req.method, 'auth': req.headers.value('authorization'), 'x-api-key': req.headers.value('x-api-key'), 'body': body});
+      requests.add({'path': req.uri.path, 'query': req.uri.query, 'method': req.method, 'auth': req.headers.value('authorization'), 'x-api-key': req.headers.value('x-api-key'), 'x-api-resource-id': req.headers.value('x-api-resource-id'), 'x-api-app-id': req.headers.value('x-api-app-id'), 'body': body});
+      if (textReply != null) {
+        req.response.statusCode = status;
+        req.response.headers.contentType = ContentType.text;
+        req.response.write(textReply);
+        await req.response.close();
+        return;
+      }
       if (binaryReply != null && status == 200) {
         req.response.statusCode = 200;
         req.response.headers.contentType = ContentType('audio', 'mpeg');
@@ -286,5 +294,70 @@ void main() {
     await expectLater(p.complete(system: 's', user: 'u'), throwsA(isA<ProviderException>()));
     expect(events.length, 2);
     s.status = 200;
+  });
+
+  test('doubaoSynthesize: new-console key header, resource id, additions as string, NDJSON/SSE chunks joined; error code surfaced', () async {
+    final base = 'http://127.0.0.1:${s.server.port}';
+    s.textReply = '{"code":20000000,"message":"OK","data":"${base64Encode([1, 2])}"}\ndata: {"code":20000000,"data":"${base64Encode([3])}"}\n{"code":20000003,"message":"done"}\n';
+    final a = await doubaoSynthesize(DoubaoTtsConfig(apiKey: 'k', voice: 'zh_female_vv_uranus_bigtts', baseUrl: base), '你好', style: '用撒娇甜蜜的语气');
+    expect(a, [1, 2, 3]);
+    final req = s.requests.last;
+    expect(req['path'], '/api/v3/tts/unidirectional');
+    expect(req['x-api-key'], 'k');
+    expect(req['x-api-resource-id'], 'seed-tts-2.0');
+    final rp = (req['body'] as Map)['req_params'] as Map;
+    expect(rp['speaker'], 'zh_female_vv_uranus_bigtts');
+    expect(rp['additions'], isA<String>());
+    expect(jsonDecode(rp['additions'] as String), {'context_texts': ['用撒娇甜蜜的语气']});
+    // 老账号：App ID + Access Key
+    await doubaoSynthesize(DoubaoTtsConfig(appId: 'app', accessKey: 'ak', voice: 'v', baseUrl: base), 'x');
+    expect(s.requests.last['x-api-app-id'], 'app');
+    expect(s.requests.last['x-api-key'], isNull);
+    // 错误码
+    s.textReply = '{"code":45000001,"message":"invalid speaker"}\n';
+    await expectLater(doubaoSynthesize(DoubaoTtsConfig(apiKey: 'k', voice: 'bad', baseUrl: base), 'x'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', contains('invalid speaker'))));
+    // 没配好
+    await expectLater(doubaoSynthesize(const DoubaoTtsConfig(voice: 'v'), 'x'), throwsA(isA<ProviderException>()));
+    s.textReply = null;
+  });
+
+  test('minimaxSynthesize: bearer, GroupId query only when given, emotion mapping, hex audio decoded; base_resp errors surfaced', () async {
+    final base = 'http://127.0.0.1:${s.server.port}';
+    s.handler = (_) => {'data': {'audio': '010203'}, 'base_resp': {'status_code': 0, 'status_msg': 'success'}};
+    final a = await minimaxSynthesize(MiniMaxTtsConfig(apiKey: 'mk', voice: 'female-shaonv', baseUrl: base), '你好', emotion: minimaxEmotionOf('开心一点'));
+    expect(a, [1, 2, 3]);
+    var req = s.requests.last;
+    expect(req['path'], '/v1/t2a_v2');
+    expect(req['query'], '');
+    expect(req['auth'], 'Bearer mk');
+    expect(((req['body'] as Map)['voice_setting'] as Map)['emotion'], 'happy');
+    expect((req['body'] as Map)['model'], 'speech-02-hd');
+    await minimaxSynthesize(MiniMaxTtsConfig(apiKey: 'mk', groupId: 'g1', voice: 'v', baseUrl: base), 'x');
+    req = s.requests.last;
+    expect(req['query'], 'GroupId=g1');
+    expect(((req['body'] as Map)['voice_setting'] as Map).containsKey('emotion'), isFalse);
+    expect(minimaxEmotionOf('温柔、慢一点'), 'calm');
+    expect(minimaxEmotionOf(''), isNull);
+    s.handler = (_) => {'base_resp': {'status_code': 1004, 'status_msg': 'login fail'}};
+    await expectLater(minimaxSynthesize(MiniMaxTtsConfig(apiKey: 'bad', voice: 'v', baseUrl: base), 'x'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', contains('鉴权失败'))));
+  });
+
+  test('omniSynthesize: streams chat completion with modalities audio, joins base64 PCM chunks into a WAV', () async {
+    s.textReply = 'data: {"choices":[{"delta":{"content":"你","audio":{"data":"${base64Encode([1, 0])}"}}}]}\n\n'
+        'data: {"choices":[{"delta":{"audio":{"data":"${base64Encode([2, 0, 3, 0])}","transcript":"你好"}}}]}\n\n'
+        'data: [DONE]\n';
+    final wav = await omniSynthesize(cfg(), '你好', voice: 'Cherry');
+    expect(wav.length, 44 + 6);
+    expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
+    expect(wav.sublist(44), [1, 0, 2, 0, 3, 0]);
+    final req = s.requests.last;
+    expect(req['path'], '/v1/chat/completions');
+    expect((req['body'] as Map)['modalities'], ['text', 'audio']);
+    expect(((req['body'] as Map)['audio'] as Map)['voice'], 'Cherry');
+    expect((req['body'] as Map)['stream'], isTrue);
+    // 没音频（不是 omni 模型）
+    s.textReply = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n';
+    await expectLater(omniSynthesize(cfg(), 'x'), throwsA(isA<ProviderException>().having((e) => e.message, 'message', contains('Omni'))));
+    s.textReply = null;
   });
 }
