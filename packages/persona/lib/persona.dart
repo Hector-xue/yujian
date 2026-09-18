@@ -3,6 +3,7 @@ library;
 
 export 'src/builtin.dart';
 export 'src/companion.dart';
+export 'src/custom.dart';
 export 'src/pack.dart';
 export 'src/prompt.dart';
 export 'src/replier.dart';

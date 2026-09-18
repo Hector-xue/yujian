@@ -256,7 +256,7 @@ void main() {
         {'id': 'broken', 'text_re': '(('}, // 坏模板被跳过
       ],
       personaId: 'pirate',
-      customPersona: {'id': 'pirate', 'name': '海盗', 'tagline': 'arr', 'style': '像海盗一样说话', 'templates': {for (final e in PersonaEvent.values) e.name: 'arr {n}'}},
+      customPersonas: [{'id': 'pirate', 'name': '海盗', 'tagline': 'arr', 'style': '像海盗一样说话', 'templates': {for (final e in PersonaEvent.values) e.name: 'arr {n}'}}],
     ));
     expect(st.persona.name, '海盗');
     expect(st.replier.template(PersonaEvent.recorded, n: 2), 'arr 2');
@@ -264,6 +264,22 @@ void main() {
     await st.startNotifications();
     expect(st.inbox.single.payload['amount_minor'], 1250);
     expect(st.inbox.single.interpreter, 'notification:canteen');
+  });
+
+  test('custom role from the form: upsert selects it, prompt carries the profile, remove falls back', () async {
+    const profile = PersonaProfile(id: 'sis', name: '小雨', gender: '女', age: 22, traits: ['温柔'], userCall: '小懒', catchphrase: '～');
+    await state.upsertCustomPersona(profile.buildPack());
+    expect(state.settings.personaId, 'sis');
+    expect(state.persona.name, '小雨');
+    expect(state.persona.style, contains('22 岁'));
+    expect(state.replier.template(PersonaEvent.recorded, n: 3), '记好了，3 笔进账本～');
+    // 再存一次同 id 是覆盖不是追加
+    await state.upsertCustomPersona(const PersonaProfile(id: 'sis', name: '小雨2').buildPack());
+    expect(state.settings.customPersonas.length, 1);
+    expect(state.persona.name, '小雨2');
+    await state.removeCustomPersona('sis');
+    expect(state.settings.customPersonas, isEmpty);
+    expect(state.persona.id, 'minimalist');
   });
 
   testWidgets('transaction edit sheet updates amount/category/time via update draft', (tester) async {

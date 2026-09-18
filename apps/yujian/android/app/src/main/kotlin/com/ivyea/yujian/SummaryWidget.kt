@@ -107,10 +107,13 @@ open class SummaryWidget : AppWidgetProvider() {
                         cell.setTextColor(R.id.widget_cell_day, if (d == today) 0xFF1B6BC7.toInt() else 0xFF1C2430.toInt())
                         if (e > 0) { cell.setTextViewText(R.id.widget_cell_exp, "-" + short(e)); cell.setViewVisibility(R.id.widget_cell_exp, View.VISIBLE) }
                         if (i > 0) { cell.setTextViewText(R.id.widget_cell_inc, "+" + short(i)); cell.setViewVisibility(R.id.widget_cell_inc, View.VISIBLE) }
-                        when {
-                            d == today -> cell.setInt(R.id.widget_cell, "setBackgroundResource", R.drawable.widget_cell_today_bg)
-                            e > 0 || i > 0 -> cell.setInt(R.id.widget_cell, "setBackgroundResource", R.drawable.widget_cell_bg)
+                        // 有账的天按净值上色（花得多粉红、进得多浅绿），今天再加蓝框；没账的天留白
+                        val bg = when {
+                            e == 0L && i == 0L -> if (d == today) R.drawable.widget_cell_today_bg else 0
+                            i >= e -> if (d == today) R.drawable.widget_cell_today_inc_bg else R.drawable.widget_cell_inc_bg
+                            else -> if (d == today) R.drawable.widget_cell_today_exp_bg else R.drawable.widget_cell_exp_bg
                         }
+                        if (bg != 0) cell.setInt(R.id.widget_cell, "setBackgroundResource", bg)
                     }
                     row.addView(R.id.widget_cal_row, cell)
                 }

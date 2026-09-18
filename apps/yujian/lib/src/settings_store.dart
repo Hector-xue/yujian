@@ -21,14 +21,23 @@ class Settings {
   final String? syncToken;
   final String? backupPassphrase;
   final List<Map<String, Object?>> userTemplates; // 用户通知模板（notification_templates JSON）
-  final Map<String, Object?>? customPersona; // 自定义人格包 JSON
+  final List<Map<String, Object?>> customPersonas; // 自定义人格包 JSON（表单建的带 profile，导入的没有）
+  final Map<String, String> personaAvatars; // 人格 id → 自定义头像文件路径（本机）
   final String providerType; // openai | anthropic
   final bool localOnly; // 仅本地模型：端点不在本机/内网就不调
   final bool redact; // 发送前脱敏
   final String? assistantName; // 对话页显示名，空 = 人格名
   final String themeId; // 外观主题
   final String? transcribeModel; // 语音转写模型（/audio/transcriptions），空 = 不用云转写
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersona, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel});
+
+  /// 找某个 id 的自定义人格包；没有返回 null。
+  Map<String, Object?>? customPersonaById(String id) {
+    for (final c in customPersonas) {
+      if (c['id'] == id) return c;
+    }
+    return null;
+  }
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
@@ -39,7 +48,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, Map<String, Object?>? customPersona, bool clearCustomPersona = false, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -52,7 +61,8 @@ class Settings {
         syncToken: syncToken ?? this.syncToken,
         backupPassphrase: backupPassphrase ?? this.backupPassphrase,
         userTemplates: userTemplates ?? this.userTemplates,
-        customPersona: clearCustomPersona ? null : (customPersona ?? this.customPersona),
+        customPersonas: customPersonas ?? this.customPersonas,
+        personaAvatars: personaAvatars ?? this.personaAvatars,
         providerType: providerType ?? this.providerType,
         localOnly: localOnly ?? this.localOnly,
         redact: redact ?? this.redact,
@@ -96,7 +106,8 @@ class PlatformSettingsStore implements SettingsStore {
       syncToken: syncToken,
       backupPassphrase: passphrase,
       userTemplates: _jsonList(p.getString('user_templates')),
-      customPersona: _jsonMap(p.getString('custom_persona')),
+      customPersonas: _customPersonas(p),
+      personaAvatars: (_jsonMap(p.getString('persona_avatars')) ?? const {}).map((k, v) => MapEntry(k, '$v')),
       providerType: p.getString('provider_type') ?? 'openai',
       localOnly: p.getBool('local_only') ?? false,
       redact: p.getBool('redact') ?? true,
@@ -118,7 +129,9 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('llm_vision_model', s.visionModel ?? '');
     await p.setString('sync_url', s.syncUrl ?? '');
     await p.setString('user_templates', jsonEncode(s.userTemplates));
-    await p.setString('custom_persona', s.customPersona == null ? '' : jsonEncode(s.customPersona));
+    await p.setString('custom_personas', jsonEncode(s.customPersonas));
+    await p.remove('custom_persona'); // 旧单个键：已并进列表，留着会在用户删掉它之后复活
+    await p.setString('persona_avatars', jsonEncode(s.personaAvatars));
     await p.setString('provider_type', s.providerType);
     await p.setBool('local_only', s.localOnly);
     await p.setBool('redact', s.redact);
@@ -165,3 +178,11 @@ class MemorySettingsStore implements SettingsStore {
 }
 
 String? _emptyToNull(String? v) => v == null || v.isEmpty ? null : v;
+
+/// 自定义人格：新键 `custom_personas`（列表）；0.8.1 及之前只有一个 `custom_persona`，第一次读到就并进列表，下次保存时删旧键。
+List<Map<String, Object?>> _customPersonas(SharedPreferences p) {
+  final list = _jsonList(p.getString('custom_personas'));
+  final old = _jsonMap(p.getString('custom_persona'));
+  if (old != null && old['id'] is String && !list.any((c) => c['id'] == old['id'])) return [old, ...list];
+  return list;
+}

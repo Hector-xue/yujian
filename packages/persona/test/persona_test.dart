@@ -19,6 +19,7 @@ class Fake extends ChatProvider {
 }
 
 void main() {
+  _customPersonaTests();
   companionTests();
   test('six builtin personas, all events covered', () {
     expect(builtinPersonas.length, 6);
@@ -124,5 +125,40 @@ void companionTests() {
     await r.reply(PersonaEvent.recorded, n: 1);
     expect(f.lastSystem, contains('【记住的事】'));
     expect(f.lastSystem, contains('东家爱喝咖啡'));
+  });
+}
+
+void _customPersonaTests() {
+  group('PersonaProfile', () {
+    const p = PersonaProfile(id: 'my_sis', name: '小雨', gender: '女', age: 22, identity: '邻家学姐', traits: ['温柔', '话痨'], userCall: '小懒', tone: '爱用"啦"结尾', catchphrase: '～', emoji: '🌧️', accent: 0x8A63D2);
+    test('style carries identity/personality/user call', () {
+      final s = p.buildStyle();
+      expect(s, contains('你叫「小雨」，女性，22 岁，邻家学姐'));
+      expect(s, contains('性格：温柔、话痨'));
+      expect(s, contains('称呼用户「小懒」'));
+      expect(s, contains('口头禅'));
+    });
+    test('pack is complete and round-trips the profile', () {
+      final pack = p.buildPack();
+      final pk = PersonaPack.fromJson(pack);
+      expect(pk.id, 'my_sis');
+      expect(pk.emoji, '🌧️');
+      expect(pk.accent, 0x8A63D2);
+      for (final e in PersonaEvent.values) {
+        expect(pk.templates.containsKey(e.name), isTrue, reason: e.name);
+      }
+      expect(pk.templates['recorded'], '记好了，{n} 笔进账本～');
+      final back = PersonaProfile.fromPack(pack)!;
+      expect(back.age, 22);
+      expect(back.traits, ['温柔', '话痨']);
+      expect(back.userCall, '小懒');
+      expect(PersonaProfile.fromPack({'id': 'x', 'name': 'x'}), isNull);
+    });
+    test('empty optional fields produce sane defaults', () {
+      const q = PersonaProfile(id: 'q', name: '阿Q');
+      expect(q.buildStyle(), contains('你叫「阿Q」。'));
+      expect(q.buildStyle(), contains('称呼用户「你」'));
+      expect(q.buildTemplates()['greeting'], '你今天花了什么，告诉我');
+    });
   });
 }

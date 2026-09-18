@@ -679,7 +679,7 @@ class _ChatPageState extends State<ChatPage> {
           onTap: _renameAssistant,
           borderRadius: BorderRadius.circular(8),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            PersonaAvatar(app.persona, size: 30),
+            PersonaAvatar(app.persona, size: 36),
             const SizedBox(width: 10),
             Text(app.settings.assistantName ?? app.persona.name),
             const SizedBox(width: 6),
@@ -700,7 +700,7 @@ class _ChatPageState extends State<ChatPage> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                PersonaAvatar(app.persona, size: 56),
+                                PersonaAvatar(app.persona, size: 96),
                                 const SizedBox(height: 16),
                                 Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}',
                                     textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
@@ -815,8 +815,8 @@ class _ChatPageState extends State<ChatPage> {
     Widget withAvatar(Widget child) => Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            PersonaAvatar(app.persona, size: 30),
-            const SizedBox(width: 8),
+            PersonaAvatar(app.persona, size: 42),
+            const SizedBox(width: 10),
             Expanded(child: child),
           ],
         );

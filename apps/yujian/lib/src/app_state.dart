@@ -15,6 +15,7 @@ import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/share_source.dart';
+import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platform/avatar_files_web.dart';
 import 'platform/home_widget_bridge.dart';
 import 'settings_store.dart';
 import 'update/updater.dart';
@@ -78,13 +79,47 @@ class AppState extends ChangeNotifier {
     _apply();
   }
 
+  // ------------------------------------------------------------ 人格 / 头像
+
+  /// 新建或覆盖一个自定义人格包（按 id）；[select] 时顺手切过去。
+  Future<void> upsertCustomPersona(Map<String, Object?> pack, {bool select = true}) async {
+    final id = pack['id'] as String;
+    final list = [...settings.customPersonas.where((c) => c['id'] != id), pack];
+    await saveSettings(settings.copyWith(customPersonas: list, personaId: select ? id : null));
+  }
+
+  /// 删自定义人格；正在用它就退回极简助手；它的头像文件一起删。
+  Future<void> removeCustomPersona(String id) async {
+    final avatars = Map<String, String>.from(settings.personaAvatars);
+    final path = avatars.remove(id);
+    if (path != null) await deleteAvatarImage(path);
+    await saveSettings(settings.copyWith(
+      customPersonas: settings.customPersonas.where((c) => c['id'] != id).toList(),
+      personaAvatars: avatars,
+      personaId: settings.personaId == id ? builtinPersonas.first.id : null,
+    ));
+  }
+
+  /// 给某个人格换头像：[bytes] 为 null = 恢复默认 emoji。
+  Future<void> setPersonaAvatar(String personaId, Uint8List? bytes, {String ext = 'jpg'}) async {
+    final avatars = Map<String, String>.from(settings.personaAvatars);
+    final old = avatars.remove(personaId);
+    if (bytes == null) {
+      if (old != null) await deleteAvatarImage(old);
+    } else {
+      final path = await saveAvatarImage(personaId, bytes, ext);
+      if (path != null) avatars[personaId] = path;
+    }
+    await saveSettings(settings.copyWith(personaAvatars: avatars));
+  }
+
   void _apply() {
     final cfg = settings.providerConfig;
     final ChatProvider? p = cfg == null ? null : (cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg));
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
     vision = p == null ? null : VisionInterpreter(p);
-    final custom = settings.customPersona;
-    persona = custom != null && custom['id'] == settings.personaId ? PersonaPack.fromJson(custom) : personaById(settings.personaId);
+    final custom = settings.customPersonaById(settings.personaId);
+    persona = custom != null ? PersonaPack.fromJson(custom) : personaById(settings.personaId);
     replier = PersonaReplier(persona, provider: p, memory: () => memory.lines);
     companion = p == null ? null : CompanionReplier(persona, p);
     final userTemplates = <NotificationTemplate>[];
@@ -575,4 +610,5 @@ class AppScope extends InheritedNotifier<AppState> {
   const AppScope({super.key, required AppState state, required super.child}) : super(notifier: state);
 
   static AppState of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
+  static AppState? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()?.notifier;
 }

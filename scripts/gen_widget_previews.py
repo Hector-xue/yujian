@@ -128,7 +128,7 @@ def calendar():
         if yuan >= 10000: return f'{yuan / 10000:.1f}w'
         if yuan >= 100: return f'{yuan:.0f}'
         return f'{yuan:.0f}' if yuan == int(yuan) else f'{yuan:.1f}'
-    fd, fa = font(11), font(8)
+    fd, fa = font(11), font(8, True)
     for r in range(rows):
         for c in range(7):
             n = r * 7 + c - leading + 1
@@ -136,10 +136,12 @@ def calendar():
             x0, y0 = p + colw * c + 1 * S, grid_top + rowh * r + 1 * S
             x1, y1 = p + colw * (c + 1) - 1 * S, grid_top + rowh * (r + 1) - 1 * S
             e, i_ = exp.get(n, 0), inc.get(n, 0)
+            # 和 CalendarWidget 同一规则：有账按净值上色（粉红 / 浅绿），今天加蓝框
+            fill = None if not (e or i_) else ((0xE4, 0xF5, 0xEA, 255) if i_ >= e else (0xFF, 0xED, 0xEA, 255))
             if n == today:
-                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=(0x1B, 0x6B, 0xC7, 26), outline=BLUE, width=S)
-            elif e or i_:
-                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=(0x1B, 0x6B, 0xC7, 15))
+                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=fill or (0xE8, 0xF0, 0xFB, 255), outline=BLUE, width=int(1.2 * S))
+            elif fill:
+                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=fill)
             lines = [('今' if n == today else str(n), fd, BLUE if n == today else INK)]
             if e: lines.append(('-' + short(e), fa, RED))
             if i_: lines.append(('+' + short(i_), fa, GREEN))

@@ -88,6 +88,9 @@ class _CalendarPageState extends State<CalendarPage> {
                             final inc = incByDay[iso] ?? 0;
                             final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
                             final isSel = iso == selIso;
+                            // 有账的天按当天净值上色：花得多粉红、进得多浅绿，一眼看出哪天破费；没账的天留白
+                            final tint = exp == 0 && inc == 0 ? null : (inc >= exp ? y.income : y.expense);
+                            final fill = tint == null ? (isSel ? theme.colorScheme.primary.withValues(alpha: 0.12) : Colors.transparent) : tint.withValues(alpha: isSel ? 0.30 : 0.16);
                             return Padding(
                               padding: const EdgeInsets.all(2),
                               child: InkWell(
@@ -96,9 +99,11 @@ class _CalendarPageState extends State<CalendarPage> {
                                 child: Container(
                                   height: 54,
                                   decoration: BoxDecoration(
-                                    color: isSel ? theme.colorScheme.primary.withValues(alpha: 0.16) : (exp > 0 || inc > 0 ? y.cardFill : Colors.transparent),
+                                    color: fill,
                                     borderRadius: BorderRadius.circular(12),
-                                    border: isToday ? Border.all(color: theme.colorScheme.primary, width: 1.2) : (isSel ? null : Border.all(color: y.cardBorder.withValues(alpha: 0.5), width: 0.5)),
+                                    border: isToday
+                                        ? Border.all(color: theme.colorScheme.primary, width: 1.4)
+                                        : (isSel ? Border.all(color: (tint ?? theme.colorScheme.primary).withValues(alpha: 0.6), width: 1) : Border.all(color: y.cardBorder.withValues(alpha: 0.5), width: 0.5)),
                                   ),
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -106,8 +111,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                       Text(isToday ? '今' : '$d',
                                           style: theme.textTheme.bodyMedium
                                               ?.copyWith(fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w500, color: isToday ? theme.colorScheme.primary : null)),
-                                      if (exp > 0) Text('-${_short(exp)}', style: TextStyle(fontSize: 10, color: y.expense.withValues(alpha: 0.85)), maxLines: 1),
-                                      if (inc > 0) Text('+${_short(inc)}', style: TextStyle(fontSize: 10, color: y.income), maxLines: 1),
+                                      if (exp > 0) Text('-${_short(exp)}', style: TextStyle(fontSize: 10, color: y.expense, fontWeight: FontWeight.w600), maxLines: 1),
+                                      if (inc > 0) Text('+${_short(inc)}', style: TextStyle(fontSize: 10, color: y.income, fontWeight: FontWeight.w600), maxLines: 1),
                                     ],
                                   ),
                                 ),
