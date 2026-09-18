@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart' hide Intent;
@@ -55,6 +56,7 @@ class AppState extends ChangeNotifier {
   Future<void> loadSettings() async {
     settings = await settingsStore.load();
     await memory.load();
+    await _loadRecentNotices();
     try {
       autoHintDismissed = (await SharedPreferences.getInstance()).getBool('auto_hint_dismissed') ?? false;
     } catch (_) {}
@@ -294,6 +296,33 @@ class AppState extends ChangeNotifier {
     return n;
   }
 
+  /// 最近收到的原始通知（环形 30 条，含没认出来的）：「教它认一种通知」从这里选例子，不用用户手抄文案。
+  final List<RecentNotice> recentNotices = [];
+  static const _recentNoticesCap = 30;
+
+  Future<void> _loadRecentNotices() async {
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString('recent_notices');
+      if (raw == null) return;
+      recentNotices
+        ..clear()
+        ..addAll([for (final j in jsonDecode(raw) as List) RecentNotice.fromJson(j as Map<String, Object?>)]);
+    } catch (_) {
+      // 坏数据丢掉，不影响启动
+    }
+  }
+
+  void _remember(NotificationEvent e, Extraction x) {
+    recentNotices.insert(0, RecentNotice(packageName: e.packageName, title: e.title, text: e.text, postedAtMs: e.postedAtMs, templateId: x.templateId, usable: x.usable && !x.ignored));
+    if (recentNotices.length > _recentNoticesCap) recentNotices.removeRange(_recentNoticesCap, recentNotices.length);
+  }
+
+  Future<void> _saveRecentNotices() async {
+    try {
+      await (await SharedPreferences.getInstance()).setString('recent_notices', jsonEncode([for (final n in recentNotices) n.toJson()]));
+    } catch (_) {}
+  }
+
   /// 通知 → 模板抽取 → 草稿；按模式决定是否自动落账。返回新草稿/入账数。
   int ingestNotifications(List<NotificationEvent> events) {
     if (events.isEmpty) return 0;
@@ -302,6 +331,7 @@ class AppState extends ChangeNotifier {
     var n = 0;
     for (final e in events) {
       final x = matcher.extract(e);
+      _remember(e, x);
       // 认不出金额/方向的（验证码、聊天消息之类）不进收件箱：那不是账
       if (x.ignored || !x.usable) continue;
       final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
@@ -343,6 +373,7 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    unawaited(_saveRecentNotices()); // 一批只落一次盘（启动 drain 可能几百条）
     if (n > 0) notifyListeners();
     return n;
   }
@@ -611,4 +642,25 @@ class AppScope extends InheritedNotifier<AppState> {
 
   static AppState of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
   static AppState? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()?.notifier;
+}
+
+/// 一条最近收到的通知 + 当时的识别结果（只存文案，给「教它认一种通知」选例子）。
+class RecentNotice {
+  final String packageName;
+  final String? title;
+  final String text;
+  final int postedAtMs;
+  final String templateId; // ignore / none / 某模板
+  final bool usable; // 当时是否认出了金额和方向
+  const RecentNotice({required this.packageName, this.title, required this.text, required this.postedAtMs, required this.templateId, required this.usable});
+
+  Map<String, Object?> toJson() => {'package': packageName, 'title': title, 'text': text, 'posted_at_ms': postedAtMs, 'template': templateId, 'usable': usable};
+  factory RecentNotice.fromJson(Map<String, Object?> j) => RecentNotice(
+        packageName: j['package'] as String,
+        title: j['title'] as String?,
+        text: (j['text'] as String?) ?? '',
+        postedAtMs: (j['posted_at_ms'] as num?)?.toInt() ?? 0,
+        templateId: (j['template'] as String?) ?? 'none',
+        usable: j['usable'] == true,
+      );
 }
