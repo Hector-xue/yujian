@@ -39,6 +39,11 @@ object NotificationBridge {
                     PaymentScreenService.setWanted(ctx, call.arguments as? Boolean ?: false)
                     result.success(null)
                 }
+                "screenDiagnostics" -> result.success(PaymentScreenService.diagnostics(ctx))
+                "clearScreenLog" -> {
+                    PaymentScreenService.clearLog(ctx)
+                    result.success(null)
+                }
                 "openAccessibilitySettings" -> {
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     ctx.startActivity(intent)

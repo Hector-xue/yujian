@@ -97,8 +97,63 @@ def mini():
     return img
 
 
+RED = (0xD9, 0x53, 0x4F)
+GREY = (0x9A, 0xA3, 0xAD)
+
+
+def calendar():
+    """4x4 日历：照 widget_calendar.xml + 代码铺的格子画（2026 年 9 月，周日开头）。"""
+    W = 280
+    img, d = card(W, W)
+    p = 12 * S
+    d.text((p + 4 * S, 12 * S), '9 月', font=font(15, True), fill=BLUE)
+    d.text((p + 50 * S, 12 * S), '支出 ¥ 3,832.90', font=font(10), fill=MUTED)
+    d.text((p + 50 * S, 25 * S), '收入 ¥ 8,000.00', font=font(10), fill=GREEN)
+    button(d, W * S - p - 76 * S, 12 * S, 76 * S, 26 * S, '＋ 记一笔', size=12)
+    top = 48 * S
+    colw = (W * S - 2 * p) / 7
+    f9 = font(9)
+    for i, w in enumerate('日一二三四五六'):
+        tw = d.textlength(w, font=f9)
+        d.text((p + colw * i + (colw - tw) / 2, top), w, font=f9, fill=GREY)
+    grid_top = top + 16 * S
+    grid_h = W * S - 10 * S - grid_top
+    leading, days, today = 2, 30, 18  # 2026-09-01 是周二
+    rows = (leading + days + 6) // 7
+    rowh = grid_h / rows
+    exp = {1: 2000, 2: 3350, 3: 9000, 5: 6800, 8: 14000, 9: 1200, 11: 5000, 12: 3000, 15: 15000, 16: 1000, 17: 1380, 18: 2280, 22: 24000}
+    inc = {5: 800000, 12: 500, 17: 9000}
+    def short(minor):
+        yuan = minor / 100
+        if yuan >= 10000: return f'{yuan / 10000:.1f}w'
+        if yuan >= 100: return f'{yuan:.0f}'
+        return f'{yuan:.0f}' if yuan == int(yuan) else f'{yuan:.1f}'
+    fd, fa = font(11), font(8)
+    for r in range(rows):
+        for c in range(7):
+            n = r * 7 + c - leading + 1
+            if n < 1 or n > days: continue
+            x0, y0 = p + colw * c + 1 * S, grid_top + rowh * r + 1 * S
+            x1, y1 = p + colw * (c + 1) - 1 * S, grid_top + rowh * (r + 1) - 1 * S
+            e, i_ = exp.get(n, 0), inc.get(n, 0)
+            if n == today:
+                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=(0x1B, 0x6B, 0xC7, 26), outline=BLUE, width=S)
+            elif e or i_:
+                d.rounded_rectangle([x0, y0, x1, y1], radius=8 * S, fill=(0x1B, 0x6B, 0xC7, 15))
+            lines = [('今' if n == today else str(n), fd, BLUE if n == today else INK)]
+            if e: lines.append(('-' + short(e), fa, RED))
+            if i_: lines.append(('+' + short(i_), fa, GREEN))
+            th = sum(f.size for _, f, _ in lines) + (len(lines) - 1) * 1 * S
+            y = y0 + ((y1 - y0) - th) / 2
+            for text, f, col in lines:
+                tw = d.textlength(text, font=f)
+                d.text(((x0 + x1 - tw) / 2, y - 1 * S), text, font=f, fill=col)
+                y += f.size + 1 * S
+    return img
+
+
 if __name__ == '__main__':
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, fn in [('summary', summary), ('large', large), ('compact', compact), ('mini', mini)]:
+    for name, fn in [('summary', summary), ('large', large), ('compact', compact), ('mini', mini), ('calendar', calendar)]:
         fn().save(OUT / f'widget_preview_{name}.png')
         print('wrote', name)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 日历小部件的一个格子：日期 + 当天支出 + 当天收入（没有的行 GONE） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_cell"
+    android:layout_width="0dp"
+    android:layout_weight="1"
+    android:layout_height="match_parent"
+    android:layout_margin="1dp"
+    android:orientation="vertical"
+    android:gravity="center">
+    <TextView android:id="@+id/widget_cell_day" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1" android:textSize="11sp" android:textColor="#1C2430" android:includeFontPadding="false" android:maxLines="1"/>
+    <TextView android:id="@+id/widget_cell_exp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textSize="8sp" android:textColor="#D9534F" android:includeFontPadding="false" android:maxLines="1" android:visibility="gone"/>
+    <TextView android:id="@+id/widget_cell_inc" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textSize="8sp" android:textColor="#2E9A5C" android:includeFontPadding="false" android:maxLines="1" android:visibility="gone"/>
+</LinearLayout>

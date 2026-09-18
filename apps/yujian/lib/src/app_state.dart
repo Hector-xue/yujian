@@ -203,7 +203,28 @@ class AppState extends ChangeNotifier {
       final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
       final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${latest.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
-      await w.update(balance: fmtMoney(balance, 'CNY'), expense: fmtMoney(expense, 'CNY'), income: fmtMoney(income, 'CNY'), month: '${now.month} 月', recent: recent, today: fmtMoney(todayExp, 'CNY'));
+      // 4×4 日历：本月逐日支出 / 收入（分），按日序逗号分隔，缺的天是 0
+      final expByDay = List<int>.filled(last, 0);
+      final incByDay = List<int>.filled(last, 0);
+      void fill(List<int> into, List<QueryRow> rows) {
+        for (final r in rows) {
+          final d = int.tryParse(r.key.length >= 10 ? r.key.substring(8, 10) : r.key) ?? 0;
+          if (d >= 1 && d <= last && r.currency == 'CNY') into[d - 1] += r.valueMinor;
+        }
+      }
+      fill(expByDay, engine.run(QueryDsl(timeRange: DateRange(from, to), groupBy: GroupBy.day, limit: 62)).rows);
+      fill(incByDay, engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to), groupBy: GroupBy.day, limit: 62)).rows);
+      await w.update(
+        balance: fmtMoney(balance, 'CNY'),
+        expense: fmtMoney(expense, 'CNY'),
+        income: fmtMoney(income, 'CNY'),
+        month: '${now.month} 月',
+        recent: recent,
+        today: fmtMoney(todayExp, 'CNY'),
+        calYm: from.substring(0, 7),
+        calExp: expByDay.join(','),
+        calInc: incByDay.join(','),
+      );
     } catch (_) {}
   }
 
@@ -229,6 +250,9 @@ class AppState extends ChangeNotifier {
 
   /// 启动：把 App 关着时攒下的通知吃掉，再订阅实时流。
   Future<int> startNotifications() async {
+    // 原生侧的「支付页识别」开关每次启动都跟 App 设置对齐：它只在拨开关那一刻写过一次，清数据 / 换机 / 旧版本升上来都可能对不上，
+    // 对不上就是服务绑着但什么都不做，且无从察觉
+    await notifications.setScreenWanted(settings.screenWanted);
     if (!settings.notificationsWanted && !settings.screenWanted) return 0;
     final n = ingestNotifications(await notifications.drain());
     _liveSub ??= notifications.live.listen((e) => ingestNotifications([e]));

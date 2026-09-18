@@ -10,6 +10,7 @@ import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/notifications/notification_source.dart';
 import 'package:yujian/src/settings_store.dart';
+import 'package:yujian/src/widgets/fmt.dart';
 
 void main() {
   late AppState state;
@@ -231,6 +232,18 @@ void main() {
       expect(await st.startNotifications(), 0);
       expect(st.inbox, isEmpty);
     });
+
+    test('startNotifications syncs the native screen switch with the App setting every time', () async {
+      // 原生侧开关只在拨开关那一刻写过；清数据 / 升级后对不上 = 服务绑着但什么都不做，启动时必须对齐
+      final src = FakeNotificationSource(enabled: false)..screenWanted = false;
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(screenWanted: true));
+      await st.startNotifications();
+      expect(src.screenWanted, isTrue);
+      await st.saveSettings(const Settings(screenWanted: false));
+      await st.startNotifications();
+      expect(src.screenWanted, isFalse);
+    });
   });
 
   test('user notification templates and custom persona are honored', () async {
@@ -305,4 +318,16 @@ class _FakeChat extends ChatProvider {
   @override
   Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
       ChatResult(text: out, model: model, latency: Duration.zero);
+
+  group('fmtRelativeMs', () {
+    final now = DateTime(2026, 9, 18, 10, 30);
+    int ms(DateTime t) => t.millisecondsSinceEpoch;
+    test('buckets', () {
+      expect(fmtRelativeMs(ms(now.subtract(const Duration(seconds: 5))), now: now), '刚刚');
+      expect(fmtRelativeMs(ms(now.subtract(const Duration(minutes: 3))), now: now), '3 分钟前');
+      expect(fmtRelativeMs(ms(now.subtract(const Duration(hours: 2))), now: now), '2 小时前');
+      expect(fmtRelativeMs(ms(DateTime(2026, 9, 17, 14, 5)), now: now), '昨天 14:05');
+      expect(fmtRelativeMs(ms(DateTime(2026, 9, 12, 14, 5)), now: now), '9/12 14:05');
+    });
+  });
 }

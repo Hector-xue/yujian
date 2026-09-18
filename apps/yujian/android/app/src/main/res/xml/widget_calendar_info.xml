@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4x4 日历。不给 previewLayout：格子是代码铺的，静态布局预览会是空的，让启动器用 previewImage。
+     每小时刷一次是为了过了零点「今」能挪到新的一天（数据仍由 App 推）。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="250dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="4"
+    android:updatePeriodMillis="3600000"
+    android:initialLayout="@layout/widget_calendar"
+    android:previewImage="@drawable/widget_preview_calendar"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_calendar_description"/>

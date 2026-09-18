@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4x4 日历：月收支 + 记一笔 + 星期行 + 月历格子（格子由 CalendarWidget 用 addView 动态铺进 widget_grid） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="10dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_month" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="9 月" android:textSize="15sp" android:textColor="#1B6BC7" android:textStyle="bold" android:paddingLeft="4dp"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:paddingLeft="12dp">
+            <TextView android:id="@+id/widget_expense" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="支出 ¥ 0.00" android:textSize="10sp" android:textColor="#6C7580" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+            <TextView android:id="@+id/widget_income" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="收入 ¥ 0.00" android:textSize="10sp" android:textColor="#2E9A5C" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false" android:layout_marginTop="1dp"/>
+        </LinearLayout>
+        <TextView
+            android:id="@+id/widget_add"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_button_bg"
+            android:paddingLeft="12dp" android:paddingRight="12dp"
+            android:paddingTop="6dp" android:paddingBottom="6dp"
+            android:text="＋ 记一笔" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="8dp">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="日" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="一" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="二" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="三" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="四" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="五" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="center" android:text="六" android:textSize="9sp" android:textColor="#9AA3AD" android:includeFontPadding="false"/>
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/widget_grid"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:orientation="vertical"/>
+</LinearLayout>

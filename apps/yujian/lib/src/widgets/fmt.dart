@@ -34,3 +34,17 @@ String todayLocal() {
   final n = DateTime.now();
   return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
 }
+
+/// 毫秒时间戳 → 「刚刚 / 3 分钟前 / 2 小时前 / 昨天 14:05 / 9/12 14:05」。
+String fmtRelativeMs(int ms, {DateTime? now}) {
+  final t = DateTime.fromMillisecondsSinceEpoch(ms);
+  final n = now ?? DateTime.now();
+  final diff = n.difference(t);
+  if (diff.inSeconds < 60) return '刚刚';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+  if (diff.inHours < 24 && t.day == n.day) return '${diff.inHours} 小时前';
+  final hm = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  final yesterday = DateTime(n.year, n.month, n.day - 1);
+  if (t.year == yesterday.year && t.month == yesterday.month && t.day == yesterday.day) return '昨天 $hm';
+  return '${t.month}/${t.day} $hm';
+}

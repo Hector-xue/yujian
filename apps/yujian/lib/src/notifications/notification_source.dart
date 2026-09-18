@@ -20,6 +20,10 @@ abstract class NotificationSource {
   Future<bool> isScreenEnabled();
   Future<void> openScreenSettings();
   Future<void> setScreenWanted(bool v);
+
+  /// 支付页识别的诊断快照（原生侧记的：系统是否已开 / 服务是否绑着 / 最近事件 / 每一步的日志）。非 Android 为空 map。
+  Future<Map<String, Object?>> screenDiagnostics();
+  Future<void> clearScreenLog();
 }
 
 class AndroidNotificationSource implements NotificationSource {
@@ -78,6 +82,27 @@ class AndroidNotificationSource implements NotificationSource {
   }
 
   @override
+  Future<Map<String, Object?>> screenDiagnostics() async {
+    if (!supported) return const {};
+    try {
+      final s = await _m.invokeMethod<String>('screenDiagnostics') ?? '{}';
+      return (jsonDecode(s) as Map).cast<String, Object?>();
+    } on PlatformException {
+      return const {};
+    }
+  }
+
+  @override
+  Future<void> clearScreenLog() async {
+    if (!supported) return;
+    try {
+      await _m.invokeMethod<void>('clearScreenLog');
+    } on PlatformException {
+      // 旧原生层没有：忽略
+    }
+  }
+
+  @override
   Future<List<NotificationEvent>> drain() async {
     if (!supported) return const [];
     try {
@@ -115,6 +140,11 @@ class FakeNotificationSource implements NotificationSource {
   Future<void> openScreenSettings() async => screenEnabled = true;
   @override
   Future<void> setScreenWanted(bool v) async => screenWanted = v;
+  Map<String, Object?> diagnostics = const {};
+  @override
+  Future<Map<String, Object?>> screenDiagnostics() async => diagnostics;
+  @override
+  Future<void> clearScreenLog() async => diagnostics = const {};
   @override
   Future<List<NotificationEvent>> drain() async {
     final out = [...queue];

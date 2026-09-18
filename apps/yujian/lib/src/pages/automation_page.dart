@@ -15,6 +15,7 @@ class AutomationPage extends StatefulWidget {
 class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObserver {
   bool? systemEnabled;
   bool? screenEnabled;
+  Map<String, Object?> screenDiag = const {};
   final testText = TextEditingController();
   String? testResult;
 
@@ -40,12 +41,103 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     final n = AppScope.of(context).notifications;
     final v = await n.isEnabled();
     final sc = await n.isScreenEnabled();
+    final diag = await n.screenDiagnostics();
     if (mounted) {
       setState(() {
         systemEnabled = v;
         screenEnabled = sc;
+        screenDiag = diag;
       });
     }
+  }
+
+  /// 支付页识别的诊断面板：把原生侧每一步的记录摆出来，没识别到时能看出卡在哪一环。
+  Widget _screenDiagnostics(BuildContext context, AppState app) {
+    final theme = Theme.of(context);
+    final d = screenDiag;
+    final connectedAt = (d['connected_at'] as num?)?.toInt() ?? 0;
+    final lastEventAt = (d['last_event_at'] as num?)?.toInt() ?? 0;
+    final lastPkg = d['last_event_pkg'] as String? ?? '';
+    final wanted = d['wanted'] == true;
+    final log = ((d['log'] as List?) ?? const []).cast<Map>().reversed.toList();
+    String when(int ms) => ms <= 0 ? '—' : fmtRelativeMs(ms);
+    final lines = <String>[
+      '系统无障碍：${screenEnabled == true ? '已开' : '未开'}',
+      '余见开关（原生侧）：${wanted ? '开' : '关'}',
+      '服务连接：${connectedAt > 0 ? '已连接（${when(connectedAt)}）' : '未连接'}',
+      '最近事件：${lastEventAt > 0 ? '${when(lastEventAt)} · ${_appName(lastPkg)}' : '还没收到过'}',
+    ];
+    final verdict = screenEnabled != true
+        ? '系统里还没打开，服务不会启动'
+        : !wanted
+            ? '原生侧开关是关的，重新拨一次上面的开关'
+            : connectedAt <= 0
+                ? '系统说已开但服务没连上：小米 / HyperOS 常在 App 更新或重启后把无障碍服务掐掉，去系统无障碍页关一下再开；应用信息页里把「自启动」打开'
+                : lastEventAt <= 0
+                    ? '服务在，但还没收到过支付 / 购物 App 的事件：去微信付一笔看这里会不会变'
+                    : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(child: Text('识别诊断', style: theme.textTheme.titleSmall)),
+          TextButton(onPressed: _refresh, child: const Text('刷新')),
+          TextButton(
+            onPressed: () async {
+              await app.notifications.clearScreenLog();
+              await _refresh();
+            },
+            child: const Text('清空'),
+          ),
+        ]),
+        for (final l in lines) Text(l, style: theme.textTheme.bodySmall),
+        if (verdict != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(verdict, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error))),
+        if (log.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          for (final e in log.take(30)) Text(_logLine(e), style: theme.textTheme.bodySmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+        ],
+      ],
+    );
+  }
+
+  static const _appNames = {
+    'com.tencent.mm': '微信',
+    'com.eg.android.AlipayGphone': '支付宝',
+    'com.unionpay': '云闪付',
+    'com.taobao.taobao': '淘宝',
+    'com.tmall.wireless': '天猫',
+    'com.jingdong.app.mall': '京东',
+    'com.xunmeng.pinduoduo': '拼多多',
+    'com.sankuai.meituan': '美团',
+    'com.sankuai.meituan.takeoutnew': '美团外卖',
+    'me.ele': '饿了么',
+    'com.ss.android.ugc.aweme': '抖音',
+    'com.xingin.xhs': '小红书',
+    'com.sdu.didi.psnger': '滴滴',
+    'com.MobileTicket': '12306',
+    'ctrip.android.view': '携程',
+    'com.dianping.v1': '大众点评',
+  };
+  static String _appName(String pkg) => _appNames[pkg] ?? pkg;
+
+  static String _logLine(Map e) {
+    final t = (e['t'] as num?)?.toInt() ?? 0;
+    final time = t > 0 ? DateTime.fromMillisecondsSinceEpoch(t).toIso8601String().substring(5, 16).replaceFirst('T', ' ') : '';
+    final pkg = _appName(e['pkg'] as String? ?? '');
+    final count = (e['count'] as num?)?.toInt() ?? 1;
+    final n = (e['n'] as num?)?.toInt();
+    final what = switch (e['what']) {
+      'connected' => '服务已连接',
+      'unbound' => '服务被系统解绑',
+      'not_wanted' => '$pkg 有事件，但余见开关是关的',
+      'no_root' => '$pkg 有事件，但读不到窗口内容',
+      'no_success_text' => '$pkg 页面里没有「支付成功」字样（${n ?? 0} 段文字）',
+      'no_amount' => '$pkg 有「支付成功」但没读到金额：${((e['sample'] as List?) ?? const []).join(' | ')}',
+      'dup' => '$pkg ¥${e['amount']} 两分钟内重复，跳过',
+      'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱',
+      _ => '${e['what']}',
+    };
+    return '$time  $what${count > 1 ? ' ×$count' : ''}';
   }
 
   Future<void> _addTemplate(BuildContext context) async {
@@ -158,6 +250,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('应用信息页')),
             ]),
           ],
+          if (supported && s.screenWanted) Padding(padding: const EdgeInsets.only(top: 4), child: _screenDiagnostics(context, app)),
           const SizedBox(height: 4),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

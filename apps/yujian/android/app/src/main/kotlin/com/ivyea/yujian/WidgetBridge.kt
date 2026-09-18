@@ -4,7 +4,7 @@ import android.content.Context
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/** Flutter → 小部件：存四个字符串，刷新所有实例。 */
+/** Flutter → 小部件：存几个字符串（含日历用的逐日支出 / 收入），刷新所有实例。 */
 object WidgetBridge {
     private const val CHANNEL = "yujian/widget"
 
@@ -14,7 +14,7 @@ object WidgetBridge {
                 "update" -> {
                     val args = call.arguments as? Map<*, *>
                     val p = ctx.getSharedPreferences(SummaryWidget.PREFS, Context.MODE_PRIVATE).edit()
-                    for (k in listOf("balance", "expense", "income", "month", "recent", "today")) p.putString(k, args?.get(k) as? String ?: "")
+                    for (k in listOf("balance", "expense", "income", "month", "recent", "today", "cal_ym", "cal_exp", "cal_inc")) p.putString(k, args?.get(k) as? String ?: "")
                     p.apply()
                     SummaryWidget.refreshAll(ctx)
                     result.success(null)
