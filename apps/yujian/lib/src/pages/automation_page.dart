@@ -41,11 +41,12 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   }
 
   Future<void> _refresh() async {
-    final n = AppScope.of(context).notifications;
+    final app = AppScope.of(context);
+    final n = app.notifications;
     final v = await n.isEnabled();
     final sc = await n.isScreenEnabled();
     final diag = await n.screenDiagnostics();
-    final shots = AppScope.of(context).screenshots;
+    final shots = app.screenshots;
     final ss = await shots.status();
     final sd = await shots.diagnostics();
     if (mounted) {
