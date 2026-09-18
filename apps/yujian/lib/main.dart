@@ -102,6 +102,9 @@ class _ShellState extends State<Shell> {
       bottomNavigationBar: Dock(
           child: NavigationBar(
         backgroundColor: Colors.transparent,
+        // 高度跟着系统字号走：内容 = 指示胶囊 32 + 标签上距 4 + 标签一行(字号 12，NavigationBar 内部把标签缩放封顶 1.3)，
+        // 再留上下各 ~6。写死 60 在大字号手机上内容会顶出底栏（选中胶囊贴着/超出上边）
+        height: 48 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18),
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
