@@ -16,6 +16,7 @@ import 'recurring_page.dart';
 import 'settings_page.dart';
 import 'stats_page.dart';
 import 'sync_page.dart';
+import 'widgets_page.dart';
 
 class MorePage extends StatelessWidget {
   const MorePage({super.key});
@@ -40,6 +41,7 @@ class MorePage extends StatelessWidget {
           item(Icons.savings_outlined, '预算', const BudgetsPage()),
           item(Icons.event_repeat_outlined, '周期账单', const RecurringPage()),
           item(Icons.notifications_active_outlined, '自动记账', const AutomationPage()),
+          item(Icons.widgets_outlined, '桌面小部件', const WidgetsPage()),
           item(Icons.account_balance_wallet_outlined, '账户', const AccountsPage()),
           item(Icons.label_outline, '分类', const CategoriesPage()),
           item(Icons.history, '审计日志', const _AuditPage()),

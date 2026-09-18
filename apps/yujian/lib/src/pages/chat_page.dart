@@ -602,6 +602,16 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickImage() async {
     final app = AppScope.of(context);
+    if (app.vision == null) {
+      // 没配模型就别先开相册再报错：直接指路
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: const Text('识别截图需要先配置模型'),
+          action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()))),
+        ));
+      return;
+    }
     final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
     if (x == null || !mounted) return;
     final bytes = await x.readAsBytes();
@@ -724,11 +734,12 @@ class _ChatPageState extends State<ChatPage> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               children: [
+                // 识别截图放第一位：常用，且在末尾要横滑一下才看得见
+                _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
                 _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
                 _chip(Icons.calendar_month_outlined, '日历', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()))),
                 _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
-                if (app.vision != null) _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(_speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', _toggleSpeak),
               ],
             ),

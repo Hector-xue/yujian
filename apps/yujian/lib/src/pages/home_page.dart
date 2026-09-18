@@ -11,8 +11,7 @@ import 'transactions_page.dart';
 
 /// 首页：本月支出/收入、账户合计、最近几笔。
 class HomePage extends StatelessWidget {
-  final VoidCallback onGoChat;
-  const HomePage({super.key, required this.onGoChat});
+  const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -68,8 +67,6 @@ class HomePage extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          FilledButton.tonalIcon(onPressed: onGoChat, icon: const Icon(Icons.edit_outlined), label: const Text('说一句话记一笔')),
           if (app.showAutoHint) ...[
             const SizedBox(height: 14),
             Card(

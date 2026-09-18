@@ -89,7 +89,7 @@ class _ShellState extends State<Shell> {
       WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => _index = chatIndex));
     }
     final pages = [
-      HomePage(onGoChat: () => setState(() => _index = chatIndex)),
+      const HomePage(),
       const InboxPage(),
       const ChatPage(),
       const TransactionsPage(),

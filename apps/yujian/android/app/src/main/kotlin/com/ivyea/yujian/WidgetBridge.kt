@@ -1,6 +1,9 @@
 package com.ivyea.yujian
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -19,8 +22,29 @@ object WidgetBridge {
                     SummaryWidget.refreshAll(ctx)
                     result.success(null)
                 }
+                // 桌面小部件页：桌面是否支持「从 App 内添加」（Android 8+，且桌面实现了 pin）
+                "pinSupported" -> result.success(pinSupported(ctx))
+                // 弹系统的「添加到主屏幕」确认框；kind 是小部件种类。返回 false = 桌面不支持，让用户手动长按桌面添加
+                "pin" -> {
+                    val kind = (call.arguments as? Map<*, *>)?.get("kind") as? String
+                    val cls = when (kind) {
+                        "summary" -> SummaryWidget::class.java
+                        "compact" -> CompactWidget::class.java
+                        "large" -> LargeWidget::class.java
+                        "mini" -> MiniWidget::class.java
+                        "calendar" -> CalendarWidget::class.java
+                        else -> null
+                    }
+                    if (cls == null) { result.error("bad_kind", "unknown widget kind: $kind", null); return@setMethodCallHandler }
+                    result.success(try {
+                        pinSupported(ctx) && AppWidgetManager.getInstance(ctx).requestPinAppWidget(ComponentName(ctx, cls), null, null)
+                    } catch (_: Exception) { false })
+                }
                 else -> result.notImplemented()
             }
         }
     }
+
+    private fun pinSupported(ctx: Context): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && try { AppWidgetManager.getInstance(ctx).isRequestPinAppWidgetSupported } catch (_: Exception) { false }
 }
