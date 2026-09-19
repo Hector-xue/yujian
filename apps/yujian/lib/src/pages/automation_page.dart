@@ -123,6 +123,9 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     final isTool = d['tool'] != false; // 老 App 没这个字段 → 当没问题
     final log = ((d['log'] as List?) ?? const []).cast<Map>().reversed.toList();
     final emptyTrees = log.where((e) => e['what'] == 'empty_tree').length;
+    final shotFails = log.where((e) => e['what'] == 'shot_failed').length;
+    final shotOk = log.where((e) => e['how'] == 'ocr').length; // 截屏 OCR 走通过（不管最后有没有读到金额）
+    final lastShotErr = (log.firstWhere((e) => e['what'] == 'shot_failed', orElse: () => const {})['err'] as String?) ?? '';
     String when(int ms) => ms <= 0 ? '—' : fmtRelativeMs(ms);
     final status = screenEnabled != true
         ? '系统无障碍未开'
@@ -137,9 +140,11 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 ? '系统说已开但服务没连上：小米 / HyperOS 常在 App 更新或重启后把无障碍服务掐掉，去系统无障碍页关一下再开；应用信息页里把「自启动」打开'
                 : !isTool
                     ? '这次更新把服务声明成了「无障碍工具」（Android 14 起微信 / 支付宝的支付页只对这类服务开放），但系统还记着旧声明：去系统无障碍页把「余见 · 支付页识别」关一下再开'
-                    : emptyTrees > 0
-                        ? '有窗口但读不到一段文字：Android 14 起支付页对普通无障碍服务屏蔽。这次更新已声明成「无障碍工具」，去系统无障碍页关一下再开就能读到'
-                        : lastEventAt <= 0
+                    : shotFails > 0 && shotOk == 0
+                        ? '页面没有可读的文字，改截屏识别也失败了（${lastShotErr.isEmpty ? '系统没给截屏' : lastShotErr}）：去系统无障碍页把「余见 · 支付页识别」关一下再开，让系统重新授予截屏能力'
+                        : emptyTrees > 0 && shotOk == 0 && shotFails == 0
+                            ? '微信这类 App 的支付页是自绘界面，节点树里没有文字。这次更新起读不到字时会截一帧屏幕在本机 OCR（不落盘不上传），再付一笔看这里'
+                            : lastEventAt <= 0
                             ? '服务在，但还没收到过支付 / 购物 App 的事件：去微信付一笔看这里会不会变'
                             : null;
     return GlassCard(
@@ -167,7 +172,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 const SizedBox(width: 6),
                 Expanded(child: Text(verdict, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error))),
               ]),
-              if (screenEnabled == true && (!isTool || emptyTrees > 0))
+              if (screenEnabled == true && (!isTool || (shotFails > 0 && shotOk == 0)))
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(onPressed: () => app.notifications.openScreenSettings(), icon: const Icon(Icons.accessibility_new, size: 18), label: const Text('去无障碍设置')),
@@ -206,13 +211,13 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
         'connected' => Icons.link,
         'unbound' => Icons.link_off,
         'dup' => Icons.copy_outlined,
-        'no_root' || 'empty_tree' || 'no_amount' => Icons.error_outline,
+        'no_root' || 'empty_tree' || 'no_amount' || 'shot_failed' || 'shot_empty' => Icons.error_outline,
         _ => Icons.remove_circle_outline,
       };
 
   static Color? _logColor(Map e, ThemeData theme) => switch (e['what']) {
         'enqueued' || 'connected' => theme.colorScheme.primary,
-        'no_root' || 'empty_tree' || 'no_amount' || 'unbound' => theme.colorScheme.error,
+        'no_root' || 'empty_tree' || 'no_amount' || 'unbound' || 'shot_failed' || 'shot_empty' => theme.colorScheme.error,
         _ => theme.textTheme.bodySmall?.color,
       };
 
@@ -247,11 +252,13 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       'unbound' => '服务被系统解绑',
       'not_wanted' => '$pkg 有事件，但余见开关是关的',
       'no_root' => '$pkg 有事件，但读不到窗口内容',
-      'empty_tree' => '$pkg 有窗口，但一段文字都读不到（页面对无障碍屏蔽）',
-      'no_success_text' => '$pkg 页面里没有「支付成功」字样（${n ?? 0} 段文字）',
-      'no_amount' => '$pkg 有「支付成功」但没读到金额：${((e['sample'] as List?) ?? const []).join(' | ')}',
+      'empty_tree' => '$pkg 有窗口，但节点树里没有文字（自绘页面），转截屏识别',
+      'shot_failed' => '$pkg 截屏识别失败：${e['err'] ?? ''}',
+      'shot_empty' => '$pkg 截屏后 OCR 一段文字都没有',
+      'no_success_text' => '$pkg ${e['how'] == 'ocr' ? '截屏 OCR' : '页面'}里没有「支付成功」字样（${n ?? 0} 段文字）',
+      'no_amount' => '$pkg ${e['how'] == 'ocr' ? '截屏 OCR ' : ''}有「支付成功」但没读到金额：${((e['sample'] as List?) ?? const []).join(' | ')}',
       'dup' => '$pkg ¥${e['amount']} 两分钟内重复，跳过',
-      'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱',
+      'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱${e['how'] == 'ocr' ? '（截屏本机识别）' : ''}',
       _ => '${e['what']}',
     };
     return '$time $what${count > 1 ? ' ×$count' : ''}';

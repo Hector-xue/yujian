@@ -1,6 +1,7 @@
 package com.ivyea.yujian
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -20,6 +21,13 @@ object Ocr {
         } catch (e: Exception) {
             cb(null, "read_failed: $e"); return
         }
+        process(image, cb)
+    }
+
+    /** 内存里的位图（支付页识别截屏用）：识别完就丢，不落盘。 */
+    fun recognize(bitmap: Bitmap, cb: (List<Map<String, Any>>?, String?) -> Unit) = process(InputImage.fromBitmap(bitmap, 0), cb)
+
+    private fun process(image: InputImage, cb: (List<Map<String, Any>>?, String?) -> Unit) {
         recognizer.process(image)
             .addOnSuccessListener { vt ->
                 val lines = ArrayList<Map<String, Any>>()
