@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/picker_field.dart';
 
 class CategoriesPage extends StatelessWidget {
   const CategoriesPage({super.key});
@@ -58,8 +59,8 @@ class CategoriesPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                initialValue: parentId,
+              PickerField<String?>(
+                value: parentId,
                 decoration: const InputDecoration(labelText: '上级分类'),
                 items: [const DropdownMenuItem(value: null, child: Text('无（顶级）')), for (final p in parents) DropdownMenuItem(value: p.id, child: Text(p.name))],
                 onChanged: (v) => setState(() => parentId = v),

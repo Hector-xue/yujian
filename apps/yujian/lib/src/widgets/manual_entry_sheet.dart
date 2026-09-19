@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import 'picker_field.dart';
 import 'category_icon.dart';
 
 /// 手动记一笔：金额 / 类型 / 分类 / 账户 / 时间 / 说明，直接入账（表单本身就是确认）。返回记好的交易。
@@ -119,16 +120,16 @@ class _FormState extends State<_Form> {
             ),
             const SizedBox(height: 12),
           ],
-          DropdownButtonFormField<String>(
-            initialValue: accountId,
+          PickerField<String>(
+            value: accountId,
             decoration: InputDecoration(labelText: type == 'transfer' ? '转出账户' : '账户'),
             items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
             onChanged: (v) => setState(() => accountId = v),
           ),
           if (type == 'transfer') ...[
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: toAccountId,
+            PickerField<String>(
+              value: toAccountId,
               decoration: const InputDecoration(labelText: '转入账户'),
               items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
               onChanged: (v) => setState(() => toAccountId = v),

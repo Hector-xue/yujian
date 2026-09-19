@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../widgets/fmt.dart';
+import '../widgets/picker_field.dart';
 
 class RecurringPage extends StatelessWidget {
   const RecurringPage({super.key});
@@ -88,20 +89,20 @@ class RecurringPage extends StatelessWidget {
                     onSelectionChanged: (s) => setState(() => type = s.first),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                      initialValue: categoryId,
+                  PickerField<String>(
+                      value: categoryId,
                       decoration: const InputDecoration(labelText: '分类'),
                       items: [for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name))],
                       onChanged: (v) => setState(() => categoryId = v)),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                      initialValue: accountId,
+                  PickerField<String>(
+                      value: accountId,
                       decoration: const InputDecoration(labelText: '账户'),
                       items: [for (final a in app.accounts) DropdownMenuItem(value: a.id, child: Text(a.name))],
                       onChanged: (v) => setState(() => accountId = v)),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<Frequency>(
-                      initialValue: freq,
+                  PickerField<Frequency>(
+                      value: freq,
                       decoration: const InputDecoration(labelText: '频率'),
                       items: [for (final f in Frequency.values) DropdownMenuItem(value: f, child: Text(freqLabel[f]!))],
                       onChanged: (v) => setState(() => freq = v ?? freq)),

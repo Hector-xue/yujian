@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import 'picker_field.dart';
 
 /// 收件箱里改一条 create 草稿：金额 / 分类 / 账户 / 说明。返回 edits（只含改动的字段），取消返回 null。
 Future<Map<String, Object?>?> showDraftEditSheet(BuildContext context, Draft draft) {
@@ -87,9 +88,9 @@ class _EditFormState extends State<_EditForm> {
           TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: '金额（$currency）')),
           const SizedBox(height: 12),
           if (type == 'expense' || type == 'income')
-            DropdownButtonFormField<String>(
+            PickerField<String>(
               key: ValueKey('cat-${cats.length}-$categoryId'),
-              initialValue: categoryId,
+              value: categoryId,
               decoration: const InputDecoration(labelText: '分类'),
               items: [
                 for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name)),
@@ -105,16 +106,16 @@ class _EditFormState extends State<_EditForm> {
               },
             ),
           if (type == 'expense' || type == 'income') const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: accountId,
+          PickerField<String>(
+            value: accountId,
             decoration: InputDecoration(labelText: type == 'transfer' ? '转出账户' : '账户'),
             items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
             onChanged: (v) => setState(() => accountId = v),
           ),
           if (type == 'transfer') ...[
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: toAccountId,
+            PickerField<String>(
+              value: toAccountId,
               decoration: const InputDecoration(labelText: '转入账户'),
               items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
               onChanged: (v) => setState(() => toAccountId = v),

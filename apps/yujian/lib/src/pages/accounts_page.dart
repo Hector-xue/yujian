@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../widgets/fmt.dart';
+import '../widgets/picker_field.dart';
 
 class AccountsPage extends StatelessWidget {
   const AccountsPage({super.key});
@@ -61,8 +62,8 @@ class AccountsPage extends StatelessWidget {
             children: [
               TextField(controller: name, decoration: const InputDecoration(labelText: '名称')),
               const SizedBox(height: 12),
-              DropdownButtonFormField<AccountType>(
-                initialValue: type,
+              PickerField<AccountType>(
+                value: type,
                 decoration: const InputDecoration(labelText: '类型'),
                 items: [for (final e in _typeLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
                 onChanged: (v) => setState(() => type = v ?? type),
@@ -114,15 +115,15 @@ class AccountsPage extends StatelessWidget {
             children: [
               TextField(controller: name, decoration: const InputDecoration(labelText: '名称'), autofocus: true),
               const SizedBox(height: 12),
-              DropdownButtonFormField<AccountType>(
-                initialValue: type,
+              PickerField<AccountType>(
+                value: type,
                 decoration: const InputDecoration(labelText: '类型'),
                 items: [for (final e in _typeLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
                 onChanged: (v) => setState(() => type = v ?? type),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: currency,
+              PickerField<String>(
+                value: currency,
                 decoration: const InputDecoration(labelText: '币种'),
                 items: [
                   for (final c in const ['CNY', 'USD', 'HKD', 'JPY', 'EUR', 'GBP', 'TWD', 'SGD', 'AUD', 'CAD']) DropdownMenuItem(value: c, child: Text(c))
