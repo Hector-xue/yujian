@@ -435,7 +435,8 @@ class Dock extends StatelessWidget {
     final r = BorderRadius.circular(999); // 胶囊：圆角 = 半高，着色器里 SDF 也按胶囊算
     final inner = MediaQuery.removePadding(context: context, removeBottom: true, child: child);
     final Widget pill = y.glass
-        ? LiquidGlass(spec: y.glassSpec, radius: 999, blur: 18, fallback: y.cardFill, child: inner)
+        // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
+        ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: y.glassTint * 0.7), thickness: 22, refract: 14, light: 0.6), radius: 999, blur: 22, fallback: y.cardFill, child: inner)
         : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: Border.all(color: y.cardBorder, width: 0.6)), child: inner);
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, inset > 0 ? inset + 2 : 10), // 胶囊宽一点、贴底一点

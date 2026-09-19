@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import 'picker_field.dart';
 
 /// 编辑已确认交易：金额 / 类型 / 分类 / 账户 / 时间 / 商户 / 说明。走 update 草稿 → 立即确认（表单本身就是确认）。
 Future<bool> showTransactionEditSheet(BuildContext context, Transaction tx) async {
@@ -74,24 +75,24 @@ class _FormState extends State<_Form> {
           TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: '金额（${t.currency}）')),
           const SizedBox(height: 12),
           if (type == 'expense' || type == 'income') ...[
-            DropdownButtonFormField<String>(
-              initialValue: categoryId,
+            PickerField<String>(
+              value: categoryId,
               decoration: const InputDecoration(labelText: '分类'),
               items: [for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.parentId == null ? c.name : '　${c.name}'))],
               onChanged: (v) => setState(() => categoryId = v),
             ),
             const SizedBox(height: 12),
           ],
-          DropdownButtonFormField<String>(
-            initialValue: accountId,
+          PickerField<String>(
+            value: accountId,
             decoration: InputDecoration(labelText: type == 'transfer' ? '转出账户' : '账户'),
             items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.isArchived ? '${a.name}（已归档）' : a.name))],
             onChanged: (v) => setState(() => accountId = v),
           ),
           if (type == 'transfer') ...[
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: toAccountId,
+            PickerField<String>(
+              value: toAccountId,
               decoration: const InputDecoration(labelText: '转入账户'),
               items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
               onChanged: (v) => setState(() => toAccountId = v),

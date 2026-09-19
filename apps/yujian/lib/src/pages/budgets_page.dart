@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
+import '../widgets/picker_field.dart';
 
 class BudgetsPage extends StatelessWidget {
   const BudgetsPage({super.key});
@@ -55,8 +56,8 @@ class BudgetsPage extends StatelessWidget {
               const SizedBox(height: 12),
               TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '上限（CNY）')),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                initialValue: categoryId,
+              PickerField<String?>(
+                value: categoryId,
                 decoration: const InputDecoration(labelText: '范围'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('全部支出')),
@@ -65,8 +66,8 @@ class BudgetsPage extends StatelessWidget {
                 onChanged: (v) => setState(() => categoryId = v),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<BudgetPeriod>(
-                initialValue: period,
+              PickerField<BudgetPeriod>(
+                value: period,
                 decoration: const InputDecoration(labelText: '周期'),
                 items: const [
                   DropdownMenuItem(value: BudgetPeriod.weekly, child: Text('每周')),

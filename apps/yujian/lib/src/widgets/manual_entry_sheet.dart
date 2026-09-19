@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import 'picker_field.dart';
 import 'category_icon.dart';
 
 /// 手动记一笔：金额 / 类型 / 分类 / 账户 / 时间 / 说明，直接入账（表单本身就是确认）。返回记好的交易。
@@ -10,7 +11,7 @@ Future<Transaction?> showManualEntrySheet(BuildContext context, {String type = '
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom), child: _Form(initialType: type)),
+    builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom), child: _Form(initialType: type)),
   );
 }
 
@@ -29,14 +30,55 @@ class _FormState extends State<_Form> {
   String? accountId;
   String? toAccountId;
   DateTime when = DateTime.now();
+  final amountFocus = FocusNode();
+  var _focusArmed = false;
+  // 分类 / 账户查一次缓存：键盘升起的每一帧都会因 viewInsets 变化重建整张表单，别每帧查库
+  List<Category>? _cats;
+  CategoryKind? _catsKind;
+  List<Account>? _accs;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_focusArmed) return;
+    _focusArmed = true;
+    // 等底部弹层滑到位再叫键盘：弹层动画和键盘动画叠在一起、外加每帧重建表单，就是"弹出略卡"的来源
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == null || anim.status == AnimationStatus.completed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusAmount());
+      return;
+    }
+    void onStatus(AnimationStatus st) {
+      if (st != AnimationStatus.completed) return;
+      anim.removeStatusListener(onStatus);
+      _focusAmount();
+    }
+    anim.addStatusListener(onStatus);
+  }
+
+  void _focusAmount() {
+    if (mounted) amountFocus.requestFocus();
+  }
+
+  @override
+  void dispose() {
+    amount.dispose();
+    desc.dispose();
+    amountFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final kind = type == 'income' ? CategoryKind.income : CategoryKind.expense;
-    final cats = app.ledger.listCategories(kind: kind);
-    final accs = app.ledger.listAccounts();
+    if (_catsKind != kind) {
+      _cats = app.ledger.listCategories(kind: kind);
+      _catsKind = kind;
+    }
+    final cats = _cats!;
+    final accs = _accs ??= app.ledger.listAccounts();
     final currency = accs.isEmpty ? 'CNY' : (accs.firstWhere((a) => a.id == accountId, orElse: () => accs.first).currency);
     accountId ??= accs.isEmpty ? null : accs.first.id;
     if (categoryId != null && !cats.any((c) => c.id == categoryId)) categoryId = null;
@@ -56,7 +98,7 @@ class _FormState extends State<_Form> {
           const SizedBox(height: 12),
           TextField(
               controller: amount,
-              autofocus: true,
+              focusNode: amountFocus,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               style: theme.textTheme.headlineSmall,
               decoration: InputDecoration(labelText: '金额（$currency）', hintText: '0.00')),
@@ -78,16 +120,16 @@ class _FormState extends State<_Form> {
             ),
             const SizedBox(height: 12),
           ],
-          DropdownButtonFormField<String>(
-            initialValue: accountId,
+          PickerField<String>(
+            value: accountId,
             decoration: InputDecoration(labelText: type == 'transfer' ? '转出账户' : '账户'),
             items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
             onChanged: (v) => setState(() => accountId = v),
           ),
           if (type == 'transfer') ...[
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: toAccountId,
+            PickerField<String>(
+              value: toAccountId,
               decoration: const InputDecoration(labelText: '转入账户'),
               items: [for (final a in accs) DropdownMenuItem(value: a.id, child: Text(a.name))],
               onChanged: (v) => setState(() => toAccountId = v),

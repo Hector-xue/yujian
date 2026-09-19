@@ -8,6 +8,7 @@ import '../voice/offline_asr_sheet.dart';
 import '../voice/speech_output.dart';
 import '../voice/vendor_voices.dart';
 import '../widgets/model_picker.dart';
+import '../widgets/picker_field.dart';
 import 'tts_guide_page.dart';
 
 /// 语音：听（离线识别包 / 云端转写）和说（单选：系统朗读 / 主模型自带语音 / 豆包 / MiniMax / OpenAI 兼合成）。
@@ -152,8 +153,8 @@ class _VoicePageState extends State<VoicePage> {
         ),
       );
 
-  Widget _voicePicker(String label, List<({String id, String name})> voices, String current, void Function(String) onPick) => DropdownButtonFormField<String>(
-        initialValue: voices.any((v) => v.id == current) ? current : voices.first.id,
+  Widget _voicePicker(String label, List<({String id, String name})> voices, String current, void Function(String) onPick) => PickerField<String>(
+        value: voices.any((v) => v.id == current) ? current : voices.first.id,
         decoration: InputDecoration(labelText: label, isDense: true),
         items: [for (final v in voices) DropdownMenuItem(value: v.id, child: Text(v.name))],
         onChanged: (v) {
