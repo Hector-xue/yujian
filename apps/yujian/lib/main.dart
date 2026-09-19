@@ -179,13 +179,18 @@ class _ShellState extends State<Shell> {
       const TransactionsPage(),
       const MorePage(),
     ];
-    // 底栏是 Navigator 外面的悬浮胶囊，页面从它下面滑过；各页列表底部按 MediaQuery.padding.bottom 留位，这里把胶囊的高度加进去
-    final mq = MediaQuery.of(context);
+    // 底栏是 Navigator 外面的悬浮胶囊，页面从它下面滑过；各页列表底部按 MediaQuery.padding.bottom 留位，这里把胶囊的高度加进去。
+    // 必须用 Scaffold 体内的 MediaQuery 改（Builder）：外层的还带着键盘 viewInsets，塞回体内会让里面的 Scaffold 再让一次键盘高度，
+    // 对话页的输入框就被顶到屏幕上半截。键盘弹出时胶囊被键盘盖着，不再额外留位
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
-      body: MediaQuery(
-        data: mq.copyWith(padding: mq.padding.copyWith(bottom: dockTotalHeight(context))),
-        child: ListenableBuilder(listenable: dockController, builder: (_, _) => IndexedStack(index: dockController.tab, children: pages)),
-      ),
+      body: Builder(builder: (ctx) {
+        final mq = MediaQuery.of(ctx);
+        return MediaQuery(
+          data: keyboard ? mq : mq.copyWith(padding: mq.padding.copyWith(bottom: dockTotalHeight(ctx))),
+          child: ListenableBuilder(listenable: dockController, builder: (_, _) => IndexedStack(index: dockController.tab, children: pages)),
+        );
+      }),
     );
   }
 }
