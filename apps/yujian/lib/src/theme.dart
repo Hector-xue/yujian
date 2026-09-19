@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'dock_host.dart';
 import 'glass.dart';
 
 /// 金额语义色：主题各自定义，页面别再写死。
@@ -431,8 +432,7 @@ class Dock extends StatelessWidget {
   Widget build(BuildContext context) {
     final y = YujianColors.of(context);
     final theme = Theme.of(context);
-    final inset = MediaQuery.paddingOf(context).bottom;
-    final r = BorderRadius.circular(999); // 胶囊：圆角 = 半高，着色器里 SDF 也按胶囊算
+    final r = BorderRadius.circular(999); // 胶囊：圆角 = 半高
     // NavigationBar 自带 SafeArea（四边都算）。以前它在 Scaffold 的底栏槽里，Scaffold 替它去掉了顶部安全区；
     // 现在挂在 Navigator 外面没人替它去，状态栏那几十像素会被塞进胶囊里（胶囊突然变高）——四边一起去掉，安全区由外层 Padding 负责
     final inner = MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, removeLeft: true, removeRight: true, child: child);
@@ -441,7 +441,7 @@ class Dock extends StatelessWidget {
         ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: y.glassTint * 0.7), thickness: 22, refract: 14, light: 0.6), radius: 999, blur: 22, fallback: y.cardFill, child: inner)
         : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: Border.all(color: y.cardBorder, width: 0.6)), child: inner);
     return Padding(
-      padding: EdgeInsets.fromLTRB(10, 0, 10, inset > 0 ? inset + 2 : 10), // 胶囊宽一点、贴底一点
+      padding: EdgeInsets.fromLTRB(10, 0, 10, dockBottomMargin(context)), // 胶囊宽一点、贴底一点；边距按 viewPadding，键盘动的时候不跳
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: r,
