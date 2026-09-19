@@ -546,7 +546,29 @@ class Ledger implements ValidationContext {
       'SELECT t.* FROM transactions t WHERE ${where.join(' AND ')} ORDER BY t.occurred_at_ms DESC, t.created_at DESC LIMIT ?',
       [...params, limit],
     );
-    return [for (final r in rows) Transaction.fromRow(r, _postingsOf(r['id'] as String))];
+    // postings 一次成批取，别每笔再查一次（N+1：几千笔就是几千条 SQL，在 UI 线程上直接掉帧）
+    final postings = _postingsOfAll([for (final r in rows) r['id'] as String]);
+    return [for (final r in rows) Transaction.fromRow(r, postings[r['id'] as String] ?? const [])];
+  }
+
+  /// 只数笔数，不实例化（更多页 / 数据页 / 同步页显示「N 笔记录」用）。
+  int countTransactions({TransactionStatus status = TransactionStatus.confirmed}) =>
+      _db.select('SELECT COUNT(*) AS n FROM transactions WHERE status = ?', [status.db]).first['n'] as int;
+
+  Map<String, List<Posting>> _postingsOfAll(List<String> txIds) {
+    final out = <String, List<Posting>>{};
+    const chunk = 500; // SQLite 绑定变量上限之内
+    for (var i = 0; i < txIds.length; i += chunk) {
+      final ids = txIds.sublist(i, i + chunk > txIds.length ? txIds.length : i + chunk);
+      final rows = _db.select(
+        'SELECT * FROM postings WHERE transaction_id IN (${List.filled(ids.length, '?').join(',')}) ORDER BY amount_minor',
+        ids,
+      );
+      for (final r in rows) {
+        (out[r['transaction_id'] as String] ??= []).add(Posting.fromRow(r));
+      }
+    }
+    return out;
   }
 
   // ----------------------------------------------------------------- restore

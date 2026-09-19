@@ -41,8 +41,17 @@ Future<String?> saveBackgroundImage(Uint8List bytes, String ext) async {
 }
 
 /// 路径 → 铺满的背景图；文件没了返回 null。
-Widget? backgroundImage(String path) {
+/// 全局背景图。[cacheWidth] 按屏幕物理宽度解码（照片原图几千像素宽，全分辨率解码是几十 MB 纹理，每帧都采样一遍）；
+/// [opacity] 走画笔 alpha，不用 Opacity 包一层全屏 saveLayer。
+Widget? backgroundImage(String path, {int? cacheWidth, double opacity = 1}) {
   final f = File(path);
   if (!f.existsSync()) return null;
-  return Image.file(f, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium);
+  return Image.file(f, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium, cacheWidth: cacheWidth, opacity: AlwaysStoppedAnimation(opacity));
+}
+
+/// 和 [backgroundImage] 同一份解码缓存的 provider（截背景前先 precache）。
+ImageProvider? backgroundImageProvider(String path, {int? cacheWidth}) {
+  final f = File(path);
+  if (!f.existsSync()) return null;
+  return ResizeImage.resizeIfNeeded(cacheWidth, null, FileImage(f));
 }

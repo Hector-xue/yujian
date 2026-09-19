@@ -205,6 +205,13 @@ class AppState extends ChangeNotifier {
   ReleaseInfo? availableUpdate;
   bool updatePrompted = false;
 
+  /// 性能层（帧时间条）：更多页长按版本号切换，给用户截图定位卡顿用。
+  bool perfOverlay = false;
+  void togglePerfOverlay() {
+    perfOverlay = !perfOverlay;
+    notifyListeners();
+  }
+
   /// 启动时最多一天查一次；「检查更新」按钮 force。被跳过的版本不再弹。
   Future<ReleaseInfo?> checkUpdate({bool force = false}) async {
     final p = await SharedPreferences.getInstance();

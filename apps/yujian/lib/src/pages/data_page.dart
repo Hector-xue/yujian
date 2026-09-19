@@ -38,7 +38,7 @@ class _DataPageState extends State<DataPage> {
   }
 
   Future<bool?> _confirmReplace(BuildContext context, AppState app) {
-    final n = app.ledger.listTransactions(limit: 1 << 30).length;
+    final n = app.ledger.countTransactions();
     return showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(

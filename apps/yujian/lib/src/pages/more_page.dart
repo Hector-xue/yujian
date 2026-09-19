@@ -30,13 +30,14 @@ class MorePage extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = YujianColors.of(context).muted;
     void go(Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
-    Widget item(IconData icon, String title, {String? subtitle, Widget? trailing, required VoidCallback onTap}) => ListTile(
+    Widget item(IconData icon, String title, {String? subtitle, Widget? trailing, required VoidCallback onTap, VoidCallback? onLongPress}) => ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           leading: Icon(icon, color: theme.colorScheme.primary),
           title: Text(title),
           subtitle: subtitle == null ? null : Text(subtitle, style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
           trailing: trailing ?? Icon(Icons.chevron_right, color: muted),
           onTap: onTap,
+          onLongPress: onLongPress,
         );
     Widget group(String title, List<Widget> items) => Padding(
           padding: const EdgeInsets.only(bottom: 14),
@@ -95,6 +96,11 @@ class MorePage extends StatelessWidget {
               '检查更新',
               subtitle: upd != null ? '有新版本 ${upd.version}' : '当前 $appVersion',
               trailing: upd != null ? Badge(label: const Text('新'), child: Icon(Icons.chevron_right, color: muted)) : null,
+              // 长按：显示 / 隐藏性能层（每帧耗时条），卡顿时截个图就能定位是 UI 线程还是 GPU
+              onLongPress: () {
+                app.togglePerfOverlay();
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(app.perfOverlay ? '性能层已开：上面一条是 GPU，下面一条是 UI 线程，绿线以上就是掉帧' : '性能层已关')));
+              },
               onTap: () async {
                 final messenger = ScaffoldMessenger.of(context);
                 final r = await app.checkUpdate(force: true);
@@ -109,7 +115,7 @@ class MorePage extends StatelessWidget {
           ]),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.listTransactions(limit: 100000).length} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.countTransactions()} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
       ),

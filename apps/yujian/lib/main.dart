@@ -5,6 +5,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import 'src/app_state.dart';
 import 'src/db/open_db.dart';
+import 'src/glass.dart';
 import 'src/pages/chat_page.dart';
 import 'src/pages/home_page.dart';
 import 'src/pages/inbox_page.dart';
@@ -23,6 +24,7 @@ Future<void> main() async {
   final db = await openAppDatabase();
   final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
   await state.loadSettings();
+  await GlassShaders.load(); // 玻璃着色器：一次编译，全 App 共用
   state.generateRecurring();
   await state.startNotifications();
   await state.startShare();
@@ -69,18 +71,36 @@ class YujianApp extends StatelessWidget {
           final spec = themeById(state.settings.themeId);
           final base = spec.build(accent);
           final bgPath = state.settings.backgroundImage ?? '';
-          final custom = bgPath.isEmpty ? null : backgroundImage(bgPath); // 文件没了就当没设
+          final bgOpacity = state.settings.backgroundOpacity.clamp(0.0, 1.0);
+          final bgWidth = View.of(context).physicalSize.width.round(); // 按屏幕物理宽度解码，别把几千像素的原图整张塞进显存
+          final custom = bgPath.isEmpty ? null : backgroundImage(bgPath, cacheWidth: bgWidth, opacity: bgOpacity); // 文件没了就当没设
           // 全局背景层：主题自己的渐变（或纯色）在最下面，用户的背景图按可见度叠在上面，页面 Scaffold 透明
           Widget background(BuildContext context) => Stack(fit: StackFit.expand, children: [
                 spec.background?.call(context, accent) ?? ColoredBox(color: base.colorScheme.surface),
-                if (custom != null) Opacity(opacity: state.settings.backgroundOpacity.clamp(0.0, 1.0), child: custom),
+                ?custom,
               ]);
           final hasBg = spec.background != null || custom != null;
+          final y = base.extension<YujianColors>()!;
           return MaterialApp(
             title: '余见',
             theme: custom == null ? base : withCustomBackground(base, background),
             debugShowCheckedModeBanner: false,
-            builder: (context, child) => !hasBg ? child! : Stack(children: [Positioned.fill(child: background(context)), ?child]),
+            showPerformanceOverlay: state.perfOverlay,
+            // 背景层截一次图、模糊一次，所有玻璃卡片从它上面取样（见 glass.dart）
+            builder: (context, child) => !hasBg
+                ? child!
+                : GlassBackdrop(
+                    signature: (spec.id, accent.toARGB32(), bgPath, bgOpacity, bgWidth),
+                    sigma: y.blur,
+                    warmUp: custom == null
+                        ? null
+                        : (ctx) async {
+                            final p = backgroundImageProvider(bgPath, cacheWidth: bgWidth);
+                            if (p != null) await precacheImage(p, ctx);
+                          },
+                    background: background(context),
+                    child: child!,
+                  ),
             home: const Shell(),
           );
         },

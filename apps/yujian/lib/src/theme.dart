@@ -2,6 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'glass.dart';
+
 /// 金额语义色：主题各自定义，页面别再写死。
 @immutable
 class YujianColors extends ThemeExtension<YujianColors> {
@@ -17,7 +19,8 @@ class YujianColors extends ThemeExtension<YujianColors> {
   final Color chromeFill; // 顶栏 / 底栏底色（半透明，真磨砂在 Frosted / Dock 里做）
   final double radius;
   final bool glass; // 底栏 / 顶栏是否真磨砂（所有主题都是；留着给以后想做"纸感"主题关掉）
-  final double blur; // 卡片磨砂的模糊半径；卡片是真玻璃：半透明填充 + 背后模糊 + 顶部一道高光
+  final double blur; // 玻璃背后的模糊半径（预模糊背景 / 底栏真磨砂共用）
+  final double glassTint; // 玻璃面的着色强度（0 全透 → 1 实色）；苹果是 0.1~0.2，我们要在卡片上排字，稍高
 
   const YujianColors({
     required this.balance,
@@ -33,6 +36,7 @@ class YujianColors extends ThemeExtension<YujianColors> {
     required this.radius,
     required this.glass,
     this.blur = 22,
+    this.glassTint = 0.28,
   });
 
   static YujianColors of(BuildContext context) => Theme.of(context).extension<YujianColors>()!;
@@ -41,7 +45,10 @@ class YujianColors extends ThemeExtension<YujianColors> {
   Color get solidFill => cardFill.withValues(alpha: (cardFill.a + 0.15).clamp(0.0, 1.0));
 
   @override
-  YujianColors copyWith({Color? balance}) => YujianColors(balance: balance ?? this.balance, income: income, expense: expense, danger: danger, warning: warning, muted: muted, hairline: hairline, cardFill: cardFill, cardBorder: cardBorder, chromeFill: chromeFill, radius: radius, glass: glass, blur: blur);
+  YujianColors copyWith({Color? balance}) => YujianColors(balance: balance ?? this.balance, income: income, expense: expense, danger: danger, warning: warning, muted: muted, hairline: hairline, cardFill: cardFill, cardBorder: cardBorder, chromeFill: chromeFill, radius: radius, glass: glass, blur: blur, glassTint: glassTint);
+
+  /// 玻璃面的材质：着色取卡片底色的色相、强度按主题；折射 / 亮边各主题一致。
+  GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint));
 
   @override
   YujianColors lerp(YujianColors? other, double t) {
@@ -60,6 +67,7 @@ class YujianColors extends ThemeExtension<YujianColors> {
       radius: lerpDouble(radius, other.radius, t)!,
       glass: t < 0.5 ? glass : other.glass,
       blur: lerpDouble(blur, other.blur, t)!,
+      glassTint: lerpDouble(glassTint, other.glassTint, t)!,
     );
   }
 }
@@ -210,6 +218,7 @@ final _glass = AppThemeSpec(
       radius: 20,
       glass: true,
       blur: 26,
+      glassTint: 0.22,
     );
     return _base(accent: accent, surface: const Color(0xFFF4F6F9), ink: const Color(0xFF1C2430), soft: const Color(0xFF6C7580), y: y, transparentScaffold: true, background: (ctx, a) => _GlassBackdrop(accent: a), buttonRadius: 14, titleWeight: 700);
   },
@@ -237,6 +246,7 @@ final _ink0 = AppThemeSpec(
       radius: 12,
       glass: true,
       blur: 18,
+      glassTint: 0.34,
     );
     return _base(accent: accent, surface: const Color(0xFFFBFAF7), ink: _ink, soft: _inkSoft, y: y, transparentScaffold: true, background: _paperBg, buttonRadius: 10);
   },
@@ -267,6 +277,7 @@ final _fresh = AppThemeSpec(
       radius: 16,
       glass: true,
       blur: 22,
+      glassTint: 0.26,
     );
     return _base(accent: accent, surface: const Color(0xFFF2FAF9), ink: const Color(0xFF243447), soft: const Color(0xFF7A8794), y: y, transparentScaffold: true, background: _freshBg, titleWeight: 500, buttonRadius: 14);
   },
@@ -302,6 +313,7 @@ final _cartoon = AppThemeSpec(
       radius: 18,
       glass: true,
       blur: 18,
+      glassTint: 0.40,
     );
     return _base(accent: accent, surface: const Color(0xFFFFF6D8), ink: outline, soft: const Color(0xFF6A6A6A), y: y, transparentScaffold: true, background: _cartoonBg, titleWeight: 800, cardSide: const BorderSide(color: outline, width: 2), navIndicator: accent.withValues(alpha: 0.35), buttonRadius: 16, appBarTitle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: outline));
   },
@@ -332,6 +344,7 @@ final _sakura = AppThemeSpec(
       radius: 20,
       glass: true,
       blur: 22,
+      glassTint: 0.28,
     );
     return _base(accent: accent, surface: const Color(0xFFFFF5F8), ink: const Color(0xFF3A2E3B), soft: const Color(0xFF8C7A8E), y: y, transparentScaffold: true, background: _sakuraBg, titleWeight: 600, buttonRadius: 16);
   },
@@ -350,7 +363,8 @@ AppThemeSpec themeById(String id) => appThemes.firstWhere((t) => t.id == id, orE
 /// 兼容旧调用。
 ThemeData buildTheme({Color accent = const Color(0xFF2F6B4F), String themeId = 'glass'}) => themeById(themeId).build(accent);
 
-/// 玻璃主题的底：三块带强调色的模糊色斑，卡片浮在上面才有"磨砂"感。
+/// 玻璃主题的底：三块带强调色的柔光色斑。用径向渐变直接画出"模糊圆"，
+/// 不再用全屏 sigma 60 的 BackdropFilter（那是每帧一次全屏回读 + 模糊，白白吃掉几毫秒）。
 class _GlassBackdrop extends StatelessWidget {
   final Color accent;
   const _GlassBackdrop({required this.accent});
@@ -362,10 +376,9 @@ class _GlassBackdrop extends StatelessWidget {
       child: ClipRect(
         child: Stack(
           children: [
-            Positioned(top: -120, left: -80, child: _Blob(color: accent.withValues(alpha: 0.28), size: 360)),
-            Positioned(top: 260, right: -140, child: _Blob(color: const Color(0xFF7CC6F5).withValues(alpha: 0.30), size: 380)),
-            Positioned(bottom: -160, left: 40, child: _Blob(color: const Color(0xFFF6C1D6).withValues(alpha: 0.30), size: 340)),
-            Positioned.fill(child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60), child: const SizedBox.expand())),
+            Positioned(top: -260, left: -220, child: _Blob(color: accent.withValues(alpha: 0.30), size: 640)),
+            Positioned(top: 140, right: -300, child: _Blob(color: const Color(0xFF7CC6F5).withValues(alpha: 0.32), size: 680)),
+            Positioned(bottom: -320, left: -120, child: _Blob(color: const Color(0xFFF6C1D6).withValues(alpha: 0.32), size: 620)),
           ],
         ),
       ),
@@ -378,10 +391,19 @@ class _Blob extends StatelessWidget {
   final double size;
   const _Blob({required this.color, required this.size});
   @override
-  Widget build(BuildContext context) => Container(width: size, height: size, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
+  Widget build(BuildContext context) => SizedBox(
+        width: size,
+        height: size,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: [color, color.withValues(alpha: color.a * 0.55), color.withValues(alpha: 0)], stops: const [0.0, 0.45, 1.0]),
+          ),
+        ),
+      );
 }
 
-/// 玻璃主题下给顶栏 / 底栏加真实磨砂；其他主题原样返回。
+/// 顶栏这类贴边的悬浮层加真实磨砂（一屏只该有一两个 BackdropFilter，别拿它包内容）。
 class Frosted extends StatelessWidget {
   final Widget child;
   const Frosted({super.key, required this.child});
@@ -398,47 +420,40 @@ class Frosted extends StatelessWidget {
   }
 }
 
-/// 底栏：悬浮长胶囊，四边留空、页面从它下面滑过，没有贴边的分界线。
-/// 玻璃主题真磨砂；其他主题用卡片的底色和描边（卡通主题自然带粗描边）。
+/// 底栏：悬浮胶囊，页面从它下面滑过——全 App 唯一一块真玻璃（BackdropFilter）：
+/// Impeller 上是模糊 + 着色器折射 / 亮边（滚过的内容在边缘弯一下，和 iOS 26 的 Dock 一个做法），Skia 退回模糊 + 半透明。
 /// 配合 Scaffold.extendBody 使用：系统底部安全区算在胶囊外面，内部 NavigationBar 不再自己垫一次。
 class Dock extends StatelessWidget {
   final Widget child;
   const Dock({super.key, required this.child});
 
-  static const _radius = 32.0;
-
   @override
   Widget build(BuildContext context) {
     final y = YujianColors.of(context);
     final theme = Theme.of(context);
-    final shape = theme.cardTheme.shape;
-    final side = shape is RoundedRectangleBorder ? shape.side : BorderSide(color: y.cardBorder, width: 0.6);
     final inset = MediaQuery.paddingOf(context).bottom;
-    final r = BorderRadius.circular(_radius);
-    Widget pill = DecoratedBox(
-      decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: Border.fromBorderSide(side)),
-      child: MediaQuery.removePadding(context: context, removeBottom: true, child: child),
-    );
-    if (y.glass) {
-      pill = ClipRRect(borderRadius: r, child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: pill));
-    }
+    final r = BorderRadius.circular(999); // 胶囊：圆角 = 半高，着色器里 SDF 也按胶囊算
+    final inner = MediaQuery.removePadding(context: context, removeBottom: true, child: child);
+    final Widget pill = y.glass
+        ? LiquidGlass(spec: y.glassSpec, radius: 999, blur: 18, fallback: y.cardFill, child: inner)
+        : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: Border.all(color: y.cardBorder, width: 0.6)), child: inner);
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, inset > 0 ? inset + 2 : 10), // 胶囊宽一点、贴底一点
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: r,
-          boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.10), blurRadius: 28, offset: const Offset(0, 10))],
+          boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))],
         ),
-        child: pill,
+        child: ClipRRect(borderRadius: r, child: pill),
       ),
     );
   }
 }
 
-/// 真玻璃卡片（所有主题、所有页面统一用它，别再用 Card）：
-/// 背后模糊（BackdropFilter）+ 半透明填充 + 顶部一道白色高光 + 发丝描边 + 很轻的投影。
-/// 自定义背景图下透得出图，主题自带渐变下是磨砂色块。里面垫了透明 Material，ListTile / InkWell 的水波能画。
-/// 模糊是全屏回读，一屏最多也就几张卡，代价可接受；列表行 / 聊天气泡 / chip 不走这里，只用半透明填充。
+/// 玻璃卡片（所有主题、所有页面统一用它，别再用 Card）。
+/// 不是 BackdropFilter：从预模糊的全局背景（[GlassBackdrop]）按自己的屏幕位置取样，加折射 / 饱和 / 极淡着色 / 沿光向亮边，
+/// 背景是静止的所以和真磨砂看不出差别，而每帧只是一次 drawRect——一屏放十张也不掉帧。
+/// 里面垫了透明 Material，ListTile / InkWell 的水波能画。
 class GlassCard extends StatelessWidget {
   final Widget? child;
   final EdgeInsetsGeometry? margin;
@@ -451,28 +466,22 @@ class GlassCard extends StatelessWidget {
     final theme = Theme.of(context);
     final y = YujianColors.of(context);
     final shape = theme.cardTheme.shape;
-    final side = shape is RoundedRectangleBorder ? shape.side : BorderSide(color: y.cardBorder, width: 0.6);
+    final side = shape is RoundedRectangleBorder ? shape.side : BorderSide.none;
     final r = BorderRadius.circular(y.radius);
-    final fill = color ?? y.cardFill;
-    Widget body = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: r,
-        border: Border.fromBorderSide(side),
-        // 顶部亮一点、底部透一点：玻璃片受光的那道高光（BoxDecoration 有 gradient 就不看 color）
-        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [fill.withValues(alpha: (fill.a + 0.12).clamp(0.0, 1.0)), fill]),
-      ),
+    final spec = color == null ? y.glassSpec : y.glassSpec.copyWith(tint: color!.withValues(alpha: (color!.a * 0.6).clamp(y.glassTint, 0.9)));
+    Widget body = GlassSurface(
+      radius: y.radius,
+      spec: spec,
+      fallback: color ?? y.cardFill,
       child: Material(type: MaterialType.transparency, child: child),
     );
-    body = ClipRRect(
-      borderRadius: r,
-      clipBehavior: clipBehavior == Clip.none ? Clip.antiAlias : clipBehavior,
-      child: y.blur > 0 ? BackdropFilter(filter: ImageFilter.blur(sigmaX: y.blur, sigmaY: y.blur), child: body) : body,
-    );
+    // 卡通主题的粗描边是它的辨识度，留着；其他主题的边由着色器画亮边，不再叠一圈白线
+    if (side.width >= 1.5) body = DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body);
     return Padding(
       padding: margin ?? EdgeInsets.zero,
       child: DecoratedBox(
-        decoration: BoxDecoration(borderRadius: r, boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.07), blurRadius: 22, offset: const Offset(0, 8))]),
-        child: body,
+        decoration: BoxDecoration(borderRadius: r, boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))]),
+        child: ClipRRect(borderRadius: r, clipBehavior: clipBehavior == Clip.none ? Clip.antiAlias : clipBehavior, child: body),
       ),
     );
   }
