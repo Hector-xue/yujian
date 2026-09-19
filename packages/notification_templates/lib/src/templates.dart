@@ -3,10 +3,14 @@ import 'package:ledger_core/ledger_core.dart';
 import 'event.dart';
 
 /// 一条模板：匹配包名 + 文案正则，命名分组 amount / merchant；direction 固定或按关键词判。
+///
+/// [titleRe] 只匹配通知标题；微信把多条未读合成一条时标题是「微信」、正文以「微信支付: …」开头，这种用 [textPrefixRe]
+/// 认正文开头（允许「[2条]」前缀）。以前 titleRe 也去整段正文里找，朋友消息里提一句「微信支付」就会被当成支付通知。
 class NotificationTemplate {
   final String id;
   final Set<String> packages; // 空 = 任意包
   final RegExp? titleRe;
+  final RegExp? textPrefixRe;
   final RegExp textRe;
   final String? direction; // 固定方向；null 则按关键词
   final String? accountHint;
@@ -17,6 +21,7 @@ class NotificationTemplate {
     required this.id,
     this.packages = const {},
     this.titleRe,
+    this.textPrefixRe,
     required this.textRe,
     this.direction,
     this.accountHint,
@@ -85,6 +90,20 @@ const shoppingPackages = <String, String>{
   'com.unionpay': '云闪付',
 };
 
+/// 聊天软件：通知大多是人发的消息，「我付了 200 元」不是账。泛用兜底模板对这些包要求正文里有 ¥ 符号（服务号 / 商家通知几乎都带）。
+const imPackages = <String>{
+  'com.tencent.mm',
+  'com.tencent.mobileqq',
+  'com.tencent.wework',
+  'com.alibaba.android.rimet',
+  'com.ss.android.lark',
+  'org.telegram.messenger',
+  'com.whatsapp',
+};
+
+/// 微信官方服务号的名字：合并通知里正文以它开头才算支付通知。
+final _wechatServiceRe = RegExp(r'^(?:\[\d+条\])?\s*(?:微信支付|微信收款助手|微信支付分|微信收款商业版)\s*[:：]');
+
 /// 与交易无关的通知：验证码、营销、红包提醒等。
 final _ignoreRe = RegExp('验证码|优惠券|领取|活动|推荐|会员日|红包待领|积分|广告|通知权限|账单日|还款提醒|待还|限时|立减|已发货|已签收|派送中|运输中|待评价|物流|快递|包裹|好评|开始配送|骑手|已接单|预计送达|订单已完成');
 
@@ -100,6 +119,7 @@ final builtinTemplates = <NotificationTemplate>[
     id: 'wechat_pay',
     packages: {'com.tencent.mm'},
     titleRe: RegExp('微信支付|微信收款|收款到账'),
+    textPrefixRe: _wechatServiceRe,
     textRe: RegExp(r'(?:已支付|支付成功|成功支付|付款)\s*[¥￥]?\s*(?<amount>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*元?(?:[，,\s]*(?:商户|向|付款给|给)[:：]?\s*(?<merchant>[^，,。\s]{1,20}))?'),
     direction: 'expense',
     accountHint: '微信',
@@ -109,6 +129,7 @@ final builtinTemplates = <NotificationTemplate>[
     id: 'wechat_income',
     packages: {'com.tencent.mm'},
     titleRe: RegExp('微信支付|微信收款|收款到账|转账'),
+    textPrefixRe: _wechatServiceRe,
     textRe: RegExp(r'(?:收款|到账|转账)\s*[¥￥]?\s*(?<amount>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*元?'),
     direction: 'income',
     accountHint: '微信',
@@ -180,7 +201,7 @@ class TemplateMatcher {
     }
     for (final t in templates) {
       if (t.packages.isNotEmpty && !t.packages.contains(e.packageName)) continue;
-      if (t.titleRe != null && !(t.titleRe!.hasMatch(e.title ?? '') || t.titleRe!.hasMatch(e.text))) continue;
+      if (t.titleRe != null && !(t.titleRe!.hasMatch(e.title ?? '') || (t.textPrefixRe?.hasMatch(e.text) ?? false))) continue;
       final m = t.textRe.firstMatch(e.text);
       if (m == null) continue;
       if (t.id == 'generic') {
@@ -221,6 +242,8 @@ class TemplateMatcher {
   Extraction? _generic(NotificationEvent e, String text, (String, bool) fp) {
     final dir = _directionOf(text);
     if (dir == null) return null;
+    // 聊天软件里的人话（「我付了 200 元」）不是账：兜底模板只认带 ¥ 的
+    if (imPackages.contains(e.packageName) && !RegExp(r'[¥￥]').hasMatch(e.text)) return null;
     final m = _amountRe.allMatches(text).where((x) => RegExp(r'[¥￥元]').hasMatch(text.substring(x.start, (x.end + 1).clamp(0, text.length))) || RegExp(r'[¥￥]').hasMatch(x.group(0)!)).firstOrNull;
     if (m == null) return null;
     final amount = _minor(m.group(1)!);

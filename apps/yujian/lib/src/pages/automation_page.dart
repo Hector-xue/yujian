@@ -210,7 +210,8 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
         'enqueued' => Icons.check_circle_outline,
         'connected' => Icons.link,
         'unbound' => Icons.link_off,
-        'dup' => Icons.copy_outlined,
+        'dup' || 'rejected' => Icons.copy_outlined,
+        'shot_deferred' => Icons.schedule_outlined,
         'no_root' || 'empty_tree' || 'no_amount' || 'shot_failed' || 'shot_empty' => Icons.error_outline,
         _ => Icons.remove_circle_outline,
       };
@@ -241,6 +242,24 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   };
   static String _appName(String pkg) => _appNames[pkg] ?? pkg;
 
+  /// 页面结构不像成功页的原因（原生 PaymentScreenParser.analyze 给的 reason）。
+  static String _reason(String r) => switch (r) {
+        'multi_success' => '一屏里有多个「支付成功」（聊天记录 / 账单列表）',
+        'success_low' => '「支付成功」不在屏幕上半区',
+        'history' => '页面上的时间是 10 分钟以前（历史账单）',
+        'chat_markers' => '有聊天 / 账单页的标志',
+        'many_amounts' => '上半区金额太多（列表页）',
+        'amount_small' => '金额不是大字（页面很满）',
+        _ => r,
+      };
+
+  /// Activity 类名只留最后一段（com.tencent.mm.plugin.wallet.pay.ui.WalletPayUI → WalletPayUI），攒真实类名给下一步做正向过滤。
+  static String _cls(Map e) {
+    final c = (e['cls'] as String?) ?? '';
+    if (c.isEmpty) return '';
+    return ' · ${c.substring(c.lastIndexOf('.') + 1)}';
+  }
+
   static String _logLine(Map e) {
     final t = (e['t'] as num?)?.toInt() ?? 0;
     final time = t > 0 ? DateTime.fromMillisecondsSinceEpoch(t).toIso8601String().substring(5, 16).replaceFirst('T', ' ') : '';
@@ -258,7 +277,9 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       'no_success_text' => '$pkg ${e['how'] == 'ocr' ? '截屏 OCR' : '页面'}里没有「支付成功」字样（${n ?? 0} 段文字）',
       'no_amount' => '$pkg ${e['how'] == 'ocr' ? '截屏 OCR ' : ''}有「支付成功」但没读到金额：${((e['sample'] as List?) ?? const []).join(' | ')}',
       'dup' => '$pkg ¥${e['amount']} 两分钟内重复，跳过',
-      'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱${e['how'] == 'ocr' ? '（截屏本机识别）' : ''}',
+      'rejected' => '$pkg 有「支付成功」但不像刚付完款的页面：${_reason((e['reason'] as String?) ?? '')}${_cls(e)}',
+      'shot_deferred' => '$pkg 截屏限速，${e['ms'] ?? ''}ms 后补截',
+      'enqueued' => '$pkg ¥${e['amount']} ${e['merchant'] ?? ''} → 已送进收件箱${e['how'] == 'ocr' ? '（截屏本机识别）' : ''}${_cls(e)}',
       _ => '${e['what']}',
     };
     return '$time $what${count > 1 ? ' ×$count' : ''}';
