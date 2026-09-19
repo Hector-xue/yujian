@@ -60,12 +60,15 @@ void main() {
   col = mix(col, uTint.rgb, uTint.a);
 
   vec2 L = normalize(vec2(-0.45, -0.89)); // 光从左上来
-  float rim = pow(1.0 - depth, 3.0);
   float lit = max(dot(n, L), 0.0);
   float shade = max(dot(n, -L), 0.0);
-  col += rim * lit * uLight * 0.9;
-  col -= rim * shade * uLight * 0.22;
-  col += uLight * 0.08 * (1.0 - smoothstep(0.0, 0.6, p.y / rect.y)); // 顶部一道柔和面光
+  float rimW = 2.2;
+  float rim = 1.0 - smoothstep(0.0, rimW, -sd); // 最外 2px：一圈细亮边，受光侧最亮，背光侧也留一点反光
+  float fresnel = smoothstep(rimW, rimW + 1.5, -sd) * (1.0 - smoothstep(rimW + 1.5, rimW + 7.0, -sd)); // 亮边内侧一道极淡的暗线，玻璃才有厚度
+  col += rim * (0.25 + 0.75 * lit) * uLight;
+  col -= rim * shade * uLight * 0.10;
+  col -= fresnel * uLight * 0.07;
+  col += uLight * 0.07 * (1.0 - smoothstep(0.0, 0.6, p.y / rect.y)); // 顶部一道柔和面光
   col = clamp(col, 0.0, 1.0);
   fragColor = vec4(col * aa, aa);
 }
