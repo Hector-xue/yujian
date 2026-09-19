@@ -231,6 +231,24 @@ void main() {
       expect(st.showAutoHint, isFalse);
     });
 
+    test('screen recognition: same app + same amount within 10 minutes is not drafted again; 11 minutes later it is', () async {
+      // 成功页按「完成」回到聊天页时页面里还是那张凭证：原生侧只挡 2 分钟、指纹按分钟桶，靠这层兜住
+      final now = DateTime.now().millisecondsSinceEpoch;
+      NotificationEvent shot(int atMs, {String amount = '9.00'}) => NotificationEvent(
+          packageName: 'com.tencent.mm', title: '微信支付 支付成功页', text: '支付成功 ¥$amount 商户：楚效兵', postedAtMs: atMs, key: 'screen:com.tencent.mm:$amount:${atMs ~/ 60000}', source: 'screen');
+      final src = FakeNotificationSource(enabled: false);
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();
+      await st.saveSettings(const Settings(screenWanted: true));
+      await st.startNotifications();
+      expect(st.ingestNotifications([shot(now)]), 1);
+      expect(st.ingestNotifications([shot(now + 3 * 60000)]), 0, reason: '3 分钟后同金额（不同分钟桶）不再起草');
+      expect(st.ingestNotifications([shot(now + 4 * 60000, amount: '12.00')]), 1, reason: '不同金额照常');
+      expect(st.ingestNotifications([shot(now + 11 * 60000)]), 1, reason: '11 分钟后同金额是新的一笔');
+      expect(st.inbox.where((d) => d.payload['amount_minor'] == 900).length, 2);
+      // 系统通知不受这层影响：同金额两条不同 key 都起草
+      expect(st.ingestNotifications([wechat('已支付¥9.00', key: 'n1'), wechat('已支付¥9.00', key: 'n2')]), 2);
+    });
+
     test('notifications off → nothing ingested', () async {
       final src = FakeNotificationSource(enabled: true)..queue.add(wechat('已支付¥1.00', key: 'z'));
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), notifications: src)..bootstrap();

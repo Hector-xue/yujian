@@ -98,6 +98,25 @@ void main() {
     expect(j.amountMinor, 19900);
   });
 
+  test('chat messages on IM apps are not transactions', () {
+    // 朋友消息（标题=人名）：正文里提到「微信支付」「已支付」也不是支付通知
+    final a = m.extract(ev('com.tencent.mm', '张三', '微信支付已支付¥20，你看一下'));
+    expect(a.templateId, isNot('wechat_pay'));
+    // 兜底模板：聊天软件里没有 ¥ 的人话不起草
+    final b = m.extract(ev('com.tencent.mm', '张三', '我已支付 200 元，你记一下'));
+    expect(b.usable, isFalse);
+    final c = m.extract(ev('com.tencent.mm', '李四', '转账 100 元给你了'));
+    expect(c.usable, isFalse);
+    // 合并通知：标题「微信」、正文以服务号名开头 → 仍认
+    final d = m.extract(ev('com.tencent.mm', '微信', '[2条]微信支付: 已支付¥19.90，商户：瑞幸咖啡'));
+    expect(d.templateId, 'wechat_pay');
+    expect(d.amountMinor, 1990);
+    // 短信 / 银行 App 不受影响：没有 ¥ 也走兜底
+    final e = m.extract(ev('com.android.mms', '95555', '您尾号1234的账户消费58.00元'));
+    expect(e.usable, isTrue);
+    expect(e.direction, 'expense');
+  });
+
   test('user template takes priority and round-trips json', () {
     final t = NotificationTemplate.fromJson({'id': 'my_canteen', 'packages': ['com.school.canteen'], 'text_re': r'消费(?<amount>\d+\.\d\d)元', 'direction': 'expense', 'account_hint': '饭卡', 'confidence': 0.95});
     final mm = TemplateMatcher(userTemplates: [t]);

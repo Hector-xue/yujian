@@ -45,6 +45,53 @@ void main() {
       expect(r.looksLikeTransaction, isFalse); // 没有 ¥ / 两位小数的金额，连"像交易"都算不上
     });
 
+    test('direction: sign on the chosen amount wins over any word on the page', () {
+      // 微信账单详情：支出写 -25.00，页面上却有「退回」「已收款」这种词
+      final out = ScreenshotOcrParser.parse(lines(['账单详情', '天福便利店', '-25.00', '当前状态', '支付成功', '支持退回', '商户全称 天福便利店', '支付方式 零钱'], heights: {2: 90}), fallbackTime: shotAt);
+      expect(out.direction, 'expense');
+      expect(out.amountMinor, 2500);
+      final inc = ScreenshotOcrParser.parse(lines(['账单详情', '张三', '+25.00', '当前状态', '已存入零钱', '支付方式 零钱'], heights: {2: 90}), fallbackTime: shotAt);
+      expect(inc.direction, 'income');
+      expect(inc.amountMinor, 2500);
+    });
+
+    test('direction: transfer sent to a friend shows 已收款 / 将退回 but is an expense', () {
+      final r = ScreenshotOcrParser.parse(lines(['19:42', '转账给 李四', '¥100.00', '已收款', '转账时间 2026-09-19 11:20:00', '收款时间 2026-09-19 11:21:03', '1天内未收款将退回'], heights: {2: 90}), fallbackTime: shotAt);
+      expect(r.usable, isTrue);
+      expect(r.direction, 'expense');
+      expect(r.amountMinor, 10000);
+      expect(r.merchant, '李四');
+    });
+
+    test('direction: transfer received shows 已存入零钱 → income', () {
+      final r = ScreenshotOcrParser.parse(lines(['来自 李四', '¥100.00', '已存入零钱', '收款时间 2026-09-19 11:21:03'], heights: {1: 90}), fallbackTime: shotAt);
+      expect(r.direction, 'income');
+      expect(r.amountMinor, 10000);
+    });
+
+    test('direction: page with only 收款方 + 支付方式 is an expense (label words are not income)', () {
+      final r = ScreenshotOcrParser.parse(lines(['支付宝', '交易成功', '¥18.00', '收款方 盒马鲜生', '支付方式 余额宝', '入账账户 无'], heights: {2: 90}), fallbackTime: shotAt);
+      expect(r.direction, 'expense');
+      final bank = ScreenshotOcrParser.parse(lines(['交易详情', '收款方 盒马鲜生', '付款金额 18.00元', '付款方式 招商银行储蓄卡', '入账账户 盒马鲜生']), fallbackTime: shotAt);
+      expect(bank.direction, 'expense');
+      expect(bank.amountMinor, 1800);
+    });
+
+    test('direction: headline decides before body words', () {
+      final refund = ScreenshotOcrParser.parse(lines(['退款成功', '¥18.00', '收款方 盒马鲜生', '支付方式 余额宝'], heights: {1: 90}), fallbackTime: shotAt);
+      expect(refund.direction, 'income');
+      final recv = ScreenshotOcrParser.parse(lines(['收款成功', '¥66.00', '付款方 王五', '备注 饭钱'], heights: {1: 90}), fallbackTime: shotAt);
+      expect(recv.direction, 'income');
+      final xfer = ScreenshotOcrParser.parse(lines(['转账成功', '¥500.00', '转入 招商银行 尾号1234'], heights: {1: 90}), fallbackTime: shotAt);
+      expect(xfer.direction, 'transfer');
+    });
+
+    test('amount label: 优惠金额 is not the paid amount', () {
+      final r = ScreenshotOcrParser.parse(lines(['订单详情', '商品金额 ¥45.00', '优惠金额 -¥5.00', '实付金额 ¥40.00', '商家 瑞幸咖啡']), fallbackTime: shotAt);
+      expect(r.amountMinor, 4000);
+      expect(r.direction, 'expense');
+    });
+
     test('future dates on the image are distrusted', () {
       final r = ScreenshotOcrParser.parse(lines(['支付成功', '¥9.90', '有效期至 2027-01-01 00:00']), fallbackTime: shotAt);
       expect(r.usable, isTrue);

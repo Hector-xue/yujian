@@ -340,9 +340,22 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _remember(NotificationEvent e, Extraction x) {
-    recentNotices.insert(0, RecentNotice(packageName: e.packageName, title: e.title, text: e.text, postedAtMs: e.postedAtMs, templateId: x.templateId, usable: x.usable && !x.ignored));
+  void _remember(NotificationEvent e, Extraction x, {bool drafted = false}) {
+    recentNotices.insert(0, RecentNotice(packageName: e.packageName, title: e.title, text: e.text, postedAtMs: e.postedAtMs, templateId: x.templateId, usable: x.usable && !x.ignored, source: e.source, amountMinor: x.amountMinor, drafted: drafted));
     if (recentNotices.length > _recentNoticesCap) recentNotices.removeRange(_recentNoticesCap, recentNotices.length);
+  }
+
+  /// 支付页识别的近期去重：同一 App 同一金额 10 分钟内已经起草过一笔，就不再起草。
+  /// 成功页按「完成」回到聊天页时，页面里还是那张凭证，原生侧只挡 2 分钟、指纹又按分钟桶，靠这层兜住；
+  /// 窗口只有 10 分钟，半小时内两杯同价咖啡不会被吞。
+  static const _screenDedupeWindow = Duration(minutes: 10);
+  bool _recentlyDraftedFromScreen(NotificationEvent e, Extraction x) {
+    if (e.source != 'screen' || x.amountMinor == null) return false;
+    for (final n in recentNotices) {
+      if (n.source != 'screen' || !n.drafted || n.packageName != e.packageName || n.amountMinor != x.amountMinor) continue;
+      if ((e.postedAtMs - n.postedAtMs).abs() <= _screenDedupeWindow.inMilliseconds) return true;
+    }
+    return false;
   }
 
   Future<void> _saveRecentNotices() async {
@@ -359,9 +372,15 @@ class AppState extends ChangeNotifier {
     var n = 0;
     for (final e in events) {
       final x = matcher.extract(e);
-      _remember(e, x);
       // 认不出金额/方向的（验证码、聊天消息之类）不进收件箱：那不是账
-      if (x.ignored || !x.usable) continue;
+      if (x.ignored || !x.usable) {
+        _remember(e, x);
+        continue;
+      }
+      if (_recentlyDraftedFromScreen(e, x)) {
+        _remember(e, x);
+        continue;
+      }
       final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
       final type = x.direction == 'income' ? 'income' : (x.direction == 'transfer' ? 'transfer' : 'expense');
       final kind = type == 'income' ? 'income' : 'expense';
@@ -385,7 +404,11 @@ class AppState extends ChangeNotifier {
         actor: Actor.automation,
         interpreter: 'notification:${x.templateId}',
       );
-      if (drafts.isEmpty) continue; // 精确指纹重复
+      if (drafts.isEmpty) {
+        _remember(e, x); // 精确指纹重复
+        continue;
+      }
+      _remember(e, x, drafted: true);
       n++;
       final d = drafts.single;
       final auto = switch (settings.automationMode) {
@@ -911,9 +934,22 @@ class RecentNotice {
   final int postedAtMs;
   final String templateId; // ignore / none / 某模板
   final bool usable; // 当时是否认出了金额和方向
-  const RecentNotice({required this.packageName, this.title, required this.text, required this.postedAtMs, required this.templateId, required this.usable});
+  final String? source; // null = 系统通知；'screen' = 支付页识别
+  final int? amountMinor; // 当时认出的金额（支付页识别的近期去重用）
+  final bool drafted; // 是否真起草了（没被指纹 / 近期去重拦下）
+  const RecentNotice({required this.packageName, this.title, required this.text, required this.postedAtMs, required this.templateId, required this.usable, this.source, this.amountMinor, this.drafted = false});
 
-  Map<String, Object?> toJson() => {'package': packageName, 'title': title, 'text': text, 'posted_at_ms': postedAtMs, 'template': templateId, 'usable': usable};
+  Map<String, Object?> toJson() => {
+        'package': packageName,
+        'title': title,
+        'text': text,
+        'posted_at_ms': postedAtMs,
+        'template': templateId,
+        'usable': usable,
+        if (source != null) 'source': source,
+        if (amountMinor != null) 'amount_minor': amountMinor,
+        'drafted': drafted,
+      };
   factory RecentNotice.fromJson(Map<String, Object?> j) => RecentNotice(
         packageName: j['package'] as String,
         title: j['title'] as String?,
@@ -921,6 +957,9 @@ class RecentNotice {
         postedAtMs: (j['posted_at_ms'] as num?)?.toInt() ?? 0,
         templateId: (j['template'] as String?) ?? 'none',
         usable: j['usable'] == true,
+        source: j['source'] as String?,
+        amountMinor: (j['amount_minor'] as num?)?.toInt(),
+        drafted: j['drafted'] == true,
       );
 }
 

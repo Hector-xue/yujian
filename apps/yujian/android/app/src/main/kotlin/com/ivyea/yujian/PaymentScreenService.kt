@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -27,6 +28,11 @@ import org.json.JSONObject
  * 扫描时机：事件来了不是立刻扫也不是丢掉，而是延后一小段再扫（页面刚出现时节点还没铺满；内容变化事件一秒几十次，
  * 合并成最后一次）；窗口切换事件另外再补扫一次。每一步都记到诊断日志里（[log]），App 的「自动记账」页能看，
  * 没识别到时能说出卡在哪一环：服务没绑上 / 事件没来 / 页面里没「支付成功」/ 有字样但没读到金额 / 已入队。
+ *
+ * 读不到节点文字（微信全线自绘）时截屏 + 本机 OCR。截屏只在两种时机：窗口切换后的补扫；以及窗口切换后 8 秒「就绪窗」内的
+ * 内容变化（成功页有时不是新窗口而是同一 Activity 里换页，只发内容变化事件；付款前必经密码弹窗，那就是一次窗口切换）。
+ * 限速内到来的截屏请求延后到限速到期再截，不丢（此前是直接丢掉：密码窗那一帧刚截完，成功页那一帧就被限速吃掉了）。
+ * 是不是成功页由 [PaymentScreenParser.analyze] 按页面结构判，翻聊天记录 / 账单不会被当成付款。
  */
 class PaymentScreenService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
@@ -36,8 +42,14 @@ class PaymentScreenService : AccessibilityService() {
     private var pendingClass: String? = null
     private var lastMarkAt = 0L
     private var lastShotAt = 0L
+    private var lastWindowChangeAt = 0L
+    private var shotPending = false
     private val scanNow = Runnable { pendingPkg?.let { scan(it, pendingClass) } }
     private val scanLate = Runnable { pendingPkg?.let { scan(it, pendingClass, late = true) } }
+    private val shotDeferred = Runnable {
+        shotPending = false
+        pendingPkg?.let { shotAndRead(it, pendingClass, JSONObject().put("pkg", it).put("cls", pendingClass ?: "").put("late", true)) }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -74,6 +86,7 @@ class PaymentScreenService : AccessibilityService() {
         main.removeCallbacks(scanNow)
         main.postDelayed(scanNow, 350)
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            lastWindowChangeAt = now
             main.removeCallbacks(scanLate)
             main.postDelayed(scanLate, 1500)
         }
@@ -86,8 +99,11 @@ class PaymentScreenService : AccessibilityService() {
         super.onDestroy()
     }
 
+    /** 窗口切换后 8 秒内算「就绪」：这段时间里内容变化事件也允许截屏（成功页可能只是同一窗口里换页）。 */
+    private fun armed(): Boolean = SystemClock.elapsedRealtime() - lastWindowChangeAt < PaymentScreenParser.ARMED_WINDOW_MS
+
     private fun scan(pkg: String, cls: String?, late: Boolean = false) {
-        val texts = ArrayList<String>(128)
+        val lines = ArrayList<PaymentScreenParser.Line>(128)
         var roots = 0
         // 先遍历该 App 的所有窗口（支付成功页可能不是活动窗口），再兜底活动窗口
         try {
@@ -95,38 +111,51 @@ class PaymentScreenService : AccessibilityService() {
                 val root = w.root ?: continue
                 if (root.packageName?.toString() != pkg) continue
                 roots++
-                collect(root, texts, 0)
+                collect(root, lines, 0)
             }
         } catch (_: Throwable) {}
         if (roots == 0) {
             val root = rootInActiveWindow
             if (root != null && root.packageName?.toString() == pkg) {
                 roots++
-                collect(root, texts, 0)
+                collect(root, lines, 0)
             }
         }
-        val entry = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", texts.size).put("late", late)
+        val entry = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", lines.size).put("late", late)
         if (roots == 0) {
             log(this, entry.put("what", "no_root"))
-            if (late) shotAndRead(pkg, cls, entry) // 补扫还拿不到窗口：也截一帧试试
+            if (late || armed()) shotAndRead(pkg, cls, entry) // 拿不到窗口：也截一帧试试
             return
         }
-        if (texts.isEmpty()) {
+        if (lines.isEmpty()) {
             // 有窗口却一段文字都没有：微信的支付页是自绘界面，节点树本来就没字（声明成无障碍工具也一样）。
-            // 记一类，然后走截屏 + 本机 OCR 这条路（只在补扫那次做，页面刚出现的 350ms 那次可能只是还没铺完）
+            // 记一类，然后走截屏 + 本机 OCR 这条路：补扫那次一定截；就绪窗内的内容变化也截（页面刚出现的 350ms 那次可能只是还没铺完，
+            // 但成功页若不是新窗口就只有这种事件，不能等）
             log(this, entry.put("what", "empty_tree").put("sdk", Build.VERSION.SDK_INT))
-            if (late) shotAndRead(pkg, cls, entry)
+            if (late || armed()) shotAndRead(pkg, cls, entry)
             return
         }
-        val hasSuccess = texts.any { PaymentScreenParser.isSuccessText(it) }
-        handleTexts(pkg, texts, hasSuccess, entry, how = "tree")
+        handleLines(pkg, lines, screenHeight(), entry, how = "tree")
     }
 
-    /** 节点树读不到字：截一帧屏幕、本机 OCR。位图只在内存里，识别完即丢。API 30+ 才有截屏能力。 */
+    private fun screenHeight(): Int = try { resources.displayMetrics.heightPixels } catch (_: Throwable) { 0 }
+
+    /**
+     * 节点树读不到字：截一帧屏幕、本机 OCR。位图只在内存里，识别完即丢。API 30+ 才有截屏能力。
+     * 限速（[SHOT_INTERVAL_MS]）内的请求不丢，延后到限速到期再截一次（多次请求合并成一次）。
+     */
     private fun shotAndRead(pkg: String, cls: String?, entry: JSONObject) {
         if (Build.VERSION.SDK_INT < 30) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastShotAt < 2500) return // 别连着截：截屏本身有系统限速，OCR 也要一两百毫秒
+        val wait = SHOT_INTERVAL_MS - (now - lastShotAt)
+        if (wait > 0) {
+            if (!shotPending) {
+                shotPending = true
+                main.postDelayed(shotDeferred, wait)
+                log(this, JSONObject().put("what", "shot_deferred").put("pkg", pkg).put("cls", cls ?: "").put("ms", wait))
+            }
+            return
+        }
         lastShotAt = now
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
@@ -139,19 +168,23 @@ class PaymentScreenService : AccessibilityService() {
                         log(this@PaymentScreenService, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", "bitmap"))
                         return
                     }
-                    Ocr.recognize(bmp) { lines, err ->
+                    val shotH = bmp.height
+                    Ocr.recognize(bmp) { ocrLines, err ->
                         bmp.recycle()
-                        if (lines == null) {
+                        if (ocrLines == null) {
                             log(this@PaymentScreenService, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", err ?: ""))
                             return@recognize
                         }
-                        val texts = lines.map { (it["text"] as? String ?: "").trim() }.filter { it.isNotEmpty() }
-                        val e2 = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", texts.size).put("late", true)
-                        if (texts.isEmpty()) {
+                        val lines = ocrLines.mapNotNull {
+                            val t = (it["text"] as? String ?: "").trim()
+                            if (t.isEmpty()) null else PaymentScreenParser.Line(t, top = (it["top"] as? Int) ?: -1, height = (it["height"] as? Int) ?: -1)
+                        }
+                        val e2 = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", lines.size).put("late", true)
+                        if (lines.isEmpty()) {
                             log(this@PaymentScreenService, e2.put("what", "shot_empty"))
                             return@recognize
                         }
-                        handleTexts(pkg, texts, texts.any { PaymentScreenParser.isSuccessText(it) }, e2, how = "ocr")
+                        handleLines(pkg, lines, shotH, e2, how = "ocr")
                     }
                 }
 
@@ -164,17 +197,21 @@ class PaymentScreenService : AccessibilityService() {
         }
     }
 
-    /** 一页文字（来自节点树或 OCR）→ 金额 + 商户 → 入队。 */
-    private fun handleTexts(pkg: String, texts: List<String>, hasSuccess: Boolean, entry: JSONObject, how: String) {
+    /** 一页文字（来自节点树或 OCR，带位置）→ 结构门禁 → 金额 + 商户 → 入队。 */
+    private fun handleLines(pkg: String, lines: List<PaymentScreenParser.Line>, screenHeight: Int, entry: JSONObject, how: String) {
         entry.put("how", how)
-        val found = PaymentScreenParser.extract(texts)
+        val r = PaymentScreenParser.analyze(lines, screenHeight)
+        val found = r.found
         if (found == null) {
-            if (hasSuccess) {
-                // 有「支付成功」字样却没读到金额：把页面开头几段（截短）留在本机日志里，方便对着补规则
-                entry.put("sample", JSONArray(texts.take(12).map { it.take(24) }))
-                log(this, entry.put("what", "no_amount"))
-            } else {
-                log(this, entry.put("what", "no_success_text"))
+            when (r.reason) {
+                "no_success_text" -> log(this, entry.put("what", "no_success_text"))
+                "no_amount" -> {
+                    // 有「支付成功」字样却没读到金额：把页面开头几段（截短）留在本机日志里，方便对着补规则
+                    entry.put("sample", JSONArray(lines.take(12).map { it.text.take(24) }))
+                    log(this, entry.put("what", "no_amount"))
+                }
+                // 有「支付成功」但页面结构不像刚付完款的那一页（聊天记录 / 账单 / 历史详情）
+                else -> log(this, entry.put("what", "rejected").put("reason", r.reason ?: ""))
             }
             return
         }
@@ -199,13 +236,15 @@ class PaymentScreenService : AccessibilityService() {
         log(this, entry.put("what", "enqueued").put("amount", found.amount).put("merchant", found.merchant ?: ""))
     }
 
-    private fun collect(node: AccessibilityNodeInfo, out: MutableList<String>, depth: Int) {
+    private fun collect(node: AccessibilityNodeInfo, out: MutableList<PaymentScreenParser.Line>, depth: Int) {
         if (depth > 48 || out.size > 600) return
-        val t = node.text?.toString()?.trim()
-        if (!t.isNullOrEmpty()) out.add(t)
-        else {
-            val d = node.contentDescription?.toString()?.trim()
-            if (!d.isNullOrEmpty()) out.add(d)
+        val t = node.text?.toString()?.trim().let { if (it.isNullOrEmpty()) node.contentDescription?.toString()?.trim() else it }
+        if (!t.isNullOrEmpty()) {
+            val rect = Rect()
+            try { node.getBoundsInScreen(rect) } catch (_: Throwable) {}
+            // 滚到屏幕上方外面的节点 top 为负，按 0 算（仍在上半区）；没有边界的按未知
+            val top = if (rect.isEmpty) -1 else maxOf(0, rect.top)
+            out.add(PaymentScreenParser.Line(t, top = top, height = if (rect.isEmpty) -1 else rect.height()))
         }
         for (i in 0 until node.childCount) {
             val c = node.getChild(i) ?: continue
@@ -221,6 +260,7 @@ class PaymentScreenService : AccessibilityService() {
         const val KEY_LAST_EVENT_PKG = "screen_last_event_pkg"
         const val KEY_LOG = "screen_log"
         private const val LOG_CAP = 40
+        private const val SHOT_INTERVAL_MS = 1000L // 系统 takeScreenshot 自身约 333ms 一次；OCR 一两百毫秒
 
         /** 监听名单：支付 App + 常见购物 / 外卖 / 出行 App（它们的支付成功页也在自己 App 里）。 */
         val APP_NAMES = mapOf(
@@ -274,7 +314,7 @@ class PaymentScreenService : AccessibilityService() {
             val arr = try { JSONArray(p.getString(KEY_LOG, "[]")) } catch (_: Throwable) { JSONArray() }
             val now = System.currentTimeMillis()
             val last = if (arr.length() > 0) arr.optJSONObject(arr.length() - 1) else null
-            if (last != null && last.optString("what") == entry.optString("what") && last.optString("pkg") == entry.optString("pkg") && entry.optString("what") in setOf("no_success_text", "no_root", "empty_tree", "not_wanted", "dup")) {
+            if (last != null && last.optString("what") == entry.optString("what") && last.optString("pkg") == entry.optString("pkg") && last.optString("reason") == entry.optString("reason") && entry.optString("what") in setOf("no_success_text", "no_root", "empty_tree", "not_wanted", "dup", "rejected", "shot_deferred")) {
                 last.put("count", last.optInt("count", 1) + 1).put("t", now)
                 p.edit().putString(KEY_LOG, arr.toString()).apply()
                 return
