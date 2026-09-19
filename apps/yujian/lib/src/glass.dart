@@ -39,12 +39,13 @@ class GlassSpec {
   final double light; // 亮边强度
   const GlassSpec({required this.tint, this.saturation = 1.45, this.thickness = 14, this.refract = 9, this.light = 0.5});
 
-  GlassSpec copyWith({Color? tint}) => GlassSpec(tint: tint ?? this.tint, saturation: saturation, thickness: thickness, refract: refract, light: light);
+  GlassSpec copyWith({Color? tint, double? saturation, double? thickness, double? refract, double? light}) =>
+      GlassSpec(tint: tint ?? this.tint, saturation: saturation ?? this.saturation, thickness: thickness ?? this.thickness, refract: refract ?? this.refract, light: light ?? this.light);
 }
 
 /// setFloat 的下标：按 glass.frag 里 float 类 uniform 的声明顺序（sampler 不计）。
 class _U {
-  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15, screen = 16;
+  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15, screen = 16, dpr = 18;
 }
 
 void _setCommon(ui.FragmentShader s, GlassSpec spec, double radius, double mode) {
@@ -365,7 +366,8 @@ class _LiquidGlassState extends State<LiquidGlass> {
       ..setFloat(_U.rect, size.width)
       ..setFloat(_U.rect + 1, size.height)
       ..setFloat(_U.screen, screen.width)
-      ..setFloat(_U.screen + 1, screen.height);
+      ..setFloat(_U.screen + 1, screen.height)
+      ..setFloat(_U.dpr, MediaQuery.devicePixelRatioOf(context));
     _setCommon(s, widget.spec, widget.radius, 0);
     return _SizeWatcher(
       onSize: _measured,
