@@ -181,13 +181,17 @@ class _ShellState extends State<Shell> {
     ];
     // 底栏是 Navigator 外面的悬浮胶囊，页面从它下面滑过；各页列表底部按 MediaQuery.padding.bottom 留位，这里把胶囊的高度加进去。
     // 必须用 Scaffold 体内的 MediaQuery 改（Builder）：外层的还带着键盘 viewInsets，塞回体内会让里面的 Scaffold 再让一次键盘高度，
-    // 对话页的输入框就被顶到屏幕上半截。键盘弹出时胶囊被键盘盖着，不再额外留位
-    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
+    // 对话页的输入框就被顶到屏幕上半截。
+    // 留位随键盘连续变化：页面底边 = max(键盘顶, 胶囊顶)。以前是"键盘在就不留位"的开关——键盘收起时输入框先跟着键盘掉到胶囊底下、
+    // 到底了再跳回胶囊上面，看起来就是闪一下
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final dockTop = dockTotalHeight(context); // 外层 context：viewPadding 不受键盘影响
     return Scaffold(
       body: Builder(builder: (ctx) {
         final mq = MediaQuery.of(ctx);
+        final extra = (dockTop - keyboard).clamp(0.0, dockTop);
         return MediaQuery(
-          data: keyboard ? mq : mq.copyWith(padding: mq.padding.copyWith(bottom: dockTotalHeight(ctx))),
+          data: mq.copyWith(padding: mq.padding.copyWith(bottom: extra > mq.padding.bottom ? extra : mq.padding.bottom)),
           child: ListenableBuilder(listenable: dockController, builder: (_, _) => IndexedStack(index: dockController.tab, children: pages)),
         );
       }),

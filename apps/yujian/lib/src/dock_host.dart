@@ -80,11 +80,15 @@ class DockObserver extends NavigatorObserver {
 /// 写死 60 在大字号手机上内容会顶出底栏。
 double dockNavHeight(BuildContext context) => 50 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18);
 
-/// 底栏从屏幕底边算起占的总高度（胶囊 + 下边距）。首页各页列表底部按它留位。
-double dockTotalHeight(BuildContext context) {
-  final inset = MediaQuery.paddingOf(context).bottom;
-  return dockNavHeight(context) + (inset > 0 ? inset + 2 : 10);
+/// 底栏胶囊的下边距：系统底部安全区（手势条）之上再贴一点。
+/// 用 viewPadding 不用 padding：键盘弹出时 padding.bottom 会变 0，胶囊的边距要是跟着变，键盘收起时就会跳一下。
+double dockBottomMargin(BuildContext context) {
+  final inset = MediaQuery.viewPaddingOf(context).bottom;
+  return inset > 0 ? inset + 2 : 10;
 }
+
+/// 底栏从屏幕底边算起占的总高度（胶囊 + 下边距）。首页各页列表底部按它留位。
+double dockTotalHeight(BuildContext context) => dockNavHeight(context) + dockBottomMargin(context);
 
 /// 覆盖层：Navigator 在下，底栏钉在底边；子页盖上来时按它的动画滑出屏幕。
 class DockHost extends StatelessWidget {
