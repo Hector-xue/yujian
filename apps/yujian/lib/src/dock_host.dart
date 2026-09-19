@@ -34,13 +34,16 @@ class DockController extends ChangeNotifier {
 
 /// 跟着 Navigator 记录「首页上面有没有东西」，把那条路由的动画交给底栏。
 class DockObserver extends NavigatorObserver {
+  /// 只有带过渡的路由（页面 / 弹层 / 对话框）才有动画；别的当成"立刻盖住"（常量 1）。
+  static Animation<double>? _animOf(Route<dynamic> r) => r is TransitionRoute ? r.animation : const AlwaysStoppedAnimation(1.0);
+
   final DockController controller;
   DockObserver(this.controller);
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     if (previousRoute == null) return; // 首页本身
-    controller._setCover(route.animation);
+    controller._setCover(_animOf(route));
   }
 
   @override
@@ -48,7 +51,7 @@ class DockObserver extends NavigatorObserver {
     if (previousRoute == null) return;
     if (previousRoute.isFirst) {
       // 弹回首页：跟着正在退出的这条路由反向动画（1 → 0）滑回来，走完就不再引用它（它的控制器随后会销毁）
-      final a = route.animation;
+      final a = _animOf(route);
       controller._setCover(a);
       if (a == null) return;
       void done(AnimationStatus s) {
@@ -58,7 +61,7 @@ class DockObserver extends NavigatorObserver {
       }
       a.addStatusListener(done);
     } else {
-      controller._setCover(previousRoute.animation);
+      controller._setCover(_animOf(previousRoute));
     }
   }
 
@@ -69,7 +72,7 @@ class DockObserver extends NavigatorObserver {
 
   @override
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    if (newRoute != null && !newRoute.isFirst) controller._setCover(newRoute.animation);
+    if (newRoute != null && !newRoute.isFirst) controller._setCover(_animOf(newRoute));
   }
 }
 
