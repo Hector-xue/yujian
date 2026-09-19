@@ -307,7 +307,7 @@ void main() {
     test('confirm mode: transaction screenshot → inbox draft; unrelated screenshot ignored; same shot twice dedupes; strict prompt used', () async {
       final src = FakeScreenshotSource()..images['content://shot/1'] = Uint8List.fromList([1, 2, 3])..images['content://shot/2'] = Uint8List.fromList([2]);
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
-      await st.saveSettings(const Settings(screenshotWanted: true));
+      await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'image'));
       final fake = _FakeVision({'content://shot/1': payJson, 'content://shot/2': noneJson});
       st.vision = VisionInterpreter(fake);
       expect(await st.ingestScreenshots([shot(1), shot(2), shot(1)]), 1);
@@ -323,7 +323,7 @@ void main() {
     test('silent mode commits; missing model / missing image are skipped with a reason; live stream drains', () async {
       final src = FakeScreenshotSource()..images['content://shot/1'] = Uint8List.fromList([1]);
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
-      await st.saveSettings(const Settings(screenshotWanted: true, automationMode: AutomationMode.silent));
+      await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'image', automationMode: AutomationMode.silent));
       expect(await st.ingestScreenshots([shot(1)]), 0);
       expect(st.screenshotLog.single.detail, '没配置模型');
       st.vision = VisionInterpreter(_FakeVision({'content://shot/1': payJson}));
@@ -341,6 +341,44 @@ void main() {
       await st.drainScreenshots(); // 排在流触发的那批后面，等它跑完
       expect(st.ledger.listTransactions().length, 2);
       expect(src.queued, isEmpty);
+    });
+
+    test('local mode (default): OCR + rules on device, nothing sent; chat screenshot ignored before any model; no OCR on platform → skipped', () async {
+      final src = FakeScreenshotSource()
+        ..images['content://shot/1'] = Uint8List.fromList([1])
+        ..ocrLines['content://shot/1'] = const [OcrLine('支付成功', height: 40), OcrLine('¥36.50', height: 90), OcrLine('肯德基（西乡店）', height: 30), OcrLine('支付方式', height: 24), OcrLine('零钱', height: 24)]
+        ..ocrLines['content://shot/2'] = const [OcrLine('今晚吃什么', height: 30), OcrLine('随便，你定', height: 30)];
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
+      await st.saveSettings(const Settings(screenshotWanted: true)); // 默认 local
+      final fake = _FakeVision({'content://shot/1': payJson});
+      st.vision = VisionInterpreter(fake);
+      expect(await st.ingestScreenshots([shot(1), shot(2), shot(3)]), 1);
+      expect(fake.lastSystem, isNull); // 模型一次都没被叫
+      final d = st.inbox.single;
+      expect(d.payload['amount_minor'], 3650);
+      expect(d.payload['merchant'], '肯德基（西乡店）');
+      expect(d.payload['account_id'], 'wechat'); // 「零钱」→ 微信
+      expect(((d.payload['metadata'] as Map)['screenshot'] as Map)['how'], 'ocr:local');
+      expect(st.screenshotLog.map((o) => o.outcome).toList(), ['skipped', 'ignored', 'inbox']); // 最新在前：无 OCR / 聊天图 / 进收件箱
+      expect(st.screenshotLog[1].detail, contains('没上传'));
+    });
+
+    test('text mode: local miss → redacted OCR text goes to the text model, never the image', () async {
+      final src = FakeScreenshotSource()
+        ..images['content://shot/1'] = Uint8List.fromList([1])
+        ..ocrLines['content://shot/1'] = const [OcrLine('订单详情'), OcrLine('拿铁 x1'), OcrLine('32.00'), OcrLine('订单号 20260919123456789'), OcrLine('支付时间 今天')]; // 有像样金额但没标签没 ¥：本机不够硬
+      final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
+      await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'text', baseUrl: 'https://x.example', model: 'm', apiKey: 'k'));
+      final vision = _FakeVision({'content://shot/1': payJson});
+      st.vision = VisionInterpreter(vision);
+      final text = _CapturingText();
+      st.interpreter = HybridInterpreter(rule: st.interpreter.rule, llm: LLMInterpreter(text));
+      expect(await st.ingestScreenshots([shot(1)]), 1);
+      expect(vision.lastSystem, isNull); // 视觉模型没被叫
+      expect(text.lastUser, contains('拿铁'));
+      expect(text.lastUser, isNot(contains('20260919123456789'))); // 订单号打了码
+      expect(text.lastUser, contains('[编号]'));
+      expect(st.inbox.single.payload['amount_minor'], 3200);
     });
   });
 
@@ -444,6 +482,23 @@ class _FakeChat extends ChatProvider {
   @override
   Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async =>
       ChatResult(text: out, model: model, latency: Duration.zero);
+}
+
+/// 记下发给文本模型的内容，回一笔 32 元的交易。
+class _CapturingText extends ChatProvider {
+  String? lastUser;
+  @override
+  String get name => 'fake-text';
+  @override
+  String get model => 'fake-text-model';
+  @override
+  Future<ChatResult> complete({required String system, required String user, bool jsonMode = false, double? temperature, Duration? timeout}) async {
+    lastUser = user;
+    return ChatResult(text: '{"intent":"propose_transactions","transactions":[{"type":"expense","amount":"32.00","merchant":"拿铁","category_id":"food","account_id":"wechat","occurred_at":"2026-09-19T12:34:00+08:00","confidence":0.8}]}', model: model, latency: Duration.zero);
+  }
+
+  @override
+  Future<ChatResult> completeWithImages({required String system, required String user, required List<ImageInput> images, bool jsonMode = false, Duration? timeout}) async => throw UnsupportedError('no vision');
 }
 
 class _FakeVision extends ChatProvider {

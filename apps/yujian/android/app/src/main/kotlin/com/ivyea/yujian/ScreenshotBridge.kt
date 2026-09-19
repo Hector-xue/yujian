@@ -56,6 +56,14 @@ object ScreenshotBridge {
                     if (uri == null) { result.error("bad_args", "uri required", null); return@setMethodCallHandler }
                     Thread { val b = ScreenshotWatcher.readJpeg(ctx, uri); main.post { result.success(b) } }.start()
                 }
+                // 本机 OCR：图不出手机，「仅本地」档全靠它；无头引擎里也能用（同一个通道）
+                "ocr" -> {
+                    val uri = call.arguments as? String
+                    if (uri == null) { result.error("bad_args", "uri required", null); return@setMethodCallHandler }
+                    Ocr.recognize(ctx, uri) { lines, err ->
+                        main.post { if (lines != null) result.success(lines) else result.error("ocr", err, null) }
+                    }
+                }
                 "diagnostics" -> result.success(ScreenshotWatcher.diagnostics(ctx))
                 "log" -> {
                     val m = call.arguments as? Map<*, *>

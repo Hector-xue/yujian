@@ -269,7 +269,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」让视觉模型看一眼。前两条只在本机处理；截图会发给你配置的模型。关掉随时生效。', style: theme.textTheme.bodySmall),
+          Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」认。三条默认都只在本机处理、不上传；截图那条可以自己选要不要借助模型。关掉随时生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -338,17 +338,17 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
             subtitle: Text(
               !supported
                   ? '仅 Android 支持'
-                  : !app.hasModel
-                      ? '要先配置一个能看图的模型（更多 → 模型与语音）'
+                  : s.screenshotMode == 'image' && !app.hasModel
+                      ? '「发原图」需要先配置一个能看图的模型（更多 → 模型与语音），或者把下面改成「仅本机」'
                       : shotStatus?.partial == true
                           ? '相册权限只给了「部分照片」，看不到新截图：到应用信息页改成「允许全部」'
                           : s.screenshotWanted
-                              ? '相册里新出现的截图会发给模型判断：是支付页 / 订单 / 账单 / 小票就按下面的模式记账，不是就忽略'
-                              : '截一张支付页、订单页或小票，不用打开余见也能记。需要相册读取权限；每张新截图都会发给你配置的模型',
+                              ? '相册里新出现的截图先在本机看一眼像不像账单；是支付页 / 订单 / 账单 / 小票就按下面的模式记账，不是就忽略'
+                              : '截一张支付页、订单页或小票，不用打开余见也能记。需要相册读取权限；默认只在本机识别，不上传',
               style: theme.textTheme.bodySmall,
             ),
             value: s.screenshotWanted,
-            onChanged: !supported || !app.hasModel
+            onChanged: !supported || (s.screenshotMode == 'image' && !app.hasModel)
                 ? null
                 : (v) async {
                     final messenger = ScaffoldMessenger.of(context);
@@ -362,6 +362,18 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               alignment: Alignment.centerLeft,
               child: TextButton.icon(onPressed: () => app.notifications.openAppInfo(), icon: const Icon(Icons.info_outline, size: 18), label: const Text('去应用信息页改权限')),
             ),
+          if (supported) ...[
+            Padding(padding: const EdgeInsets.fromLTRB(0, 6, 0, 2), child: Text('截图怎么认', style: theme.textTheme.labelLarge)),
+            RadioGroup<String>(
+              groupValue: s.screenshotMode,
+              onChanged: (v) => app.saveSettings(s.copyWith(screenshotMode: v)),
+              child: Column(children: const [
+                RadioListTile(value: 'local', contentPadding: EdgeInsets.zero, dense: true, title: Text('仅本机'), subtitle: Text('本机 OCR + 规则，图和字都不出手机；支付成功页 / 账单详情认得准，排版乱的小票可能认不出')),
+                RadioListTile(value: 'text', contentPadding: EdgeInsets.zero, dense: true, title: Text('本机认不出时发文字'), subtitle: Text('图不出手机；本机认不出金额时，把 OCR 出的文字打码（卡号 / 手机号 / 订单号）后发给你的文本模型')),
+                RadioListTile(value: 'image', contentPadding: EdgeInsets.zero, dense: true, title: Text('发原图'), subtitle: Text('每张新截图原图发给你的视觉模型判断，包括和钱无关的截图；认得最全，隐私代价也最大')),
+              ]),
+            ),
+          ],
           if (supported && s.screenshotWanted) ...[
             Text('后台也能记的前提是余见进程还活着：开了「通知自动记账」或「支付页识别」系统会替它留着；国产系统还得在设置里允许余见自启动 / 后台运行。进程被杀期间截的图，下次打开余见时补扫最近 24 小时。', style: theme.textTheme.bodySmall),
             Padding(padding: const EdgeInsets.only(top: 4), child: _screenshotLog(context, app)),
