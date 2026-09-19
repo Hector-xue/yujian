@@ -28,6 +28,16 @@ class GlassShaders {
   static bool get backdropSupported => _program != null && ui.ImageFilter.isShaderFilterSupported;
 
   static ui.FragmentShader? create() => _program?.fragmentShader();
+
+  static ui.Image? _blank;
+
+  /// 1×1 空图：不取样的用法也得把 sampler 绑上，不然引擎报未绑定。
+  static ui.Image get blank {
+    if (_blank != null) return _blank!;
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 1, 1), Paint()..color = const Color(0xFFFFFFFF));
+    return _blank = rec.endRecording().toImageSync(1, 1);
+  }
 }
 
 /// 一片玻璃的材质参数。
@@ -45,7 +55,7 @@ class GlassSpec {
 
 /// setFloat 的下标：按 glass.frag 里 float 类 uniform 的声明顺序（sampler 不计）。
 class _U {
-  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15, screen = 16, dpr = 18;
+  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15;
 }
 
 void _setCommon(ui.FragmentShader s, GlassSpec spec, double radius, double mode) {
@@ -311,9 +321,10 @@ class _GlassSurfacePainter extends CustomPainter {
 
 // ------------------------------------------------------------------ 真悬浮层：BackdropFilter
 
-/// 真玻璃（底栏这种内容会从底下滚过的悬浮层）：Impeller 上 = 模糊 + 着色器折射；否则模糊 + 半透明填充。
-/// 形状一律胶囊 / 圆角矩形，外面自己包 ClipRRect。
-/// 自己量尺寸和屏幕坐标：页面切换时整页被套进透明度层，着色器拿到的纹理会变成整屏，靠它把形状定位回去。
+/// 真玻璃（底栏这种内容会从底下滚过的悬浮层）：BackdropFilter 只做「模糊 + 饱和」（两个后端都有、几何上没有任何假设），
+/// 玻璃面（着色 / 亮边 / 暗线 / 面光）用普通 Paint 着色器盖在上面（画布原点就是形状左上角，坐标确定）。
+/// 不再把着色器当 BackdropFilter 用：引擎给它的纹理不是形状本身，坐标一猜错就是黑线黑闪。
+/// 没有着色器时退回半透明填充 + 发丝边。外面自己包 ClipRRect。
 class LiquidGlass extends StatefulWidget {
   final Widget child;
   final GlassSpec spec;
@@ -328,21 +339,11 @@ class LiquidGlass extends StatefulWidget {
 
 class _LiquidGlassState extends State<LiquidGlass> {
   ui.FragmentShader? _shader;
-  Size? _size;
-  Offset _origin = Offset.zero;
-
-  void _measured(Size s, Offset o) {
-    if (!mounted || (s == _size && o == _origin)) return;
-    setState(() {
-      _size = s;
-      _origin = o;
-    });
-  }
 
   @override
   void initState() {
     super.initState();
-    if (GlassShaders.backdropSupported) _shader = GlassShaders.create();
+    _shader = GlassShaders.create();
   }
 
   @override
@@ -351,27 +352,47 @@ class _LiquidGlassState extends State<LiquidGlass> {
     super.dispose();
   }
 
+  /// 饱和度矩阵（和卡片着色器里的算法一致）。
+  static ui.ColorFilter _saturate(double s) {
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    final sr = (1 - s) * lr, sg = (1 - s) * lg, sb = (1 - s) * lb;
+    return ui.ColorFilter.matrix(<double>[
+      sr + s, sg, sb, 0, 0, //
+      sr, sg + s, sb, 0, 0, //
+      sr, sg, sb + s, 0, 0, //
+      0, 0, 0, 1, 0,
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final blur = ui.ImageFilter.blur(sigmaX: widget.blur, sigmaY: widget.blur, tileMode: TileMode.clamp);
+    final filter = widget.spec.saturation == 1 ? blur : ui.ImageFilter.compose(outer: _saturate(widget.spec.saturation), inner: blur);
     final s = _shader;
-    if (s == null) {
-      return BackdropFilter(filter: blur, child: DecoratedBox(decoration: BoxDecoration(color: widget.fallback), child: widget.child));
-    }
-    final screen = MediaQuery.sizeOf(context);
-    final size = _size ?? Size(screen.width, 64); // 第一帧还没量到，先按整宽估；量到后下一帧就准
-    s
-      ..setFloat(_U.origin, _origin.dx)
-      ..setFloat(_U.origin + 1, _origin.dy)
+    final Widget face = s == null
+        ? DecoratedBox(decoration: BoxDecoration(color: widget.fallback, border: Border.all(color: widget.fallback.withValues(alpha: 0.9), width: 0.6), borderRadius: BorderRadius.circular(widget.radius)), child: widget.child)
+        : CustomPaint(painter: _GlassFacePainter(shader: s, spec: widget.spec, radius: widget.radius), child: widget.child);
+    return BackdropFilter(filter: filter, child: face);
+  }
+}
+
+/// 玻璃面（mode 2）：只画着色 + 亮边 + 暗线 + 面光，不取样。
+class _GlassFacePainter extends CustomPainter {
+  final ui.FragmentShader shader;
+  final GlassSpec spec;
+  final double radius;
+  const _GlassFacePainter({required this.shader, required this.spec, required this.radius});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    shader
       ..setFloat(_U.rect, size.width)
       ..setFloat(_U.rect + 1, size.height)
-      ..setFloat(_U.screen, screen.width)
-      ..setFloat(_U.screen + 1, screen.height)
-      ..setFloat(_U.dpr, MediaQuery.devicePixelRatioOf(context));
-    _setCommon(s, widget.spec, widget.radius, 0);
-    return _SizeWatcher(
-      onSize: _measured,
-      child: BackdropFilter(filter: ui.ImageFilter.compose(outer: ui.ImageFilter.shader(s), inner: blur), child: widget.child),
-    );
+      ..setImageSampler(0, GlassShaders.blank);
+    _setCommon(shader, spec, radius, 2);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
   }
+
+  @override
+  bool shouldRepaint(_GlassFacePainter old) => old.spec != spec || old.radius != radius || old.shader != shader;
 }
