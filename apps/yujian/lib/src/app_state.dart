@@ -15,6 +15,7 @@ import 'package:sync_client/sync_client.dart';
 import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
 import 'notifications/notification_source.dart';
+import 'notifications/screenshot_ocr.dart';
 import 'notifications/screenshot_source.dart';
 import 'notifications/share_source.dart';
 import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platform/avatar_files_web.dart';
@@ -474,56 +475,22 @@ class AppState extends ChangeNotifier {
   }
 
   /// 截图 → 视觉模型（严格模式：不是交易凭证就空） → 草稿；按自动记账模式决定是否直接入账。
+  /// 截图 → 草稿。三档（settings.screenshotMode）：
+  /// - local：本机 OCR + 规则，图和字都不出手机；认不出就丢；
+  /// - text：本机先认，认不出时把 OCR 文字**脱敏后**发给文本模型（图始终不出手机）；
+  /// - image：原图发给视觉模型（0.8.13 之前唯一的做法）。
+  /// 三档都先在本机判「像不像一笔交易」：聊天、照片、网页在这一步就丢，连 text 档也不会碰到它们。
   Future<int> ingestScreenshots(List<ScreenshotEvent> events) async {
     if (events.isEmpty) return 0;
     var n = 0;
+    final mode = settings.screenshotMode;
     for (final e in events) {
-      final v = vision;
-      if (v == null) {
-        _noteScreenshot(e, 'skipped', '没配置模型');
-        continue;
-      }
-      final bytes = await screenshots.readImage(e.uri);
-      if (bytes == null) {
-        _noteScreenshot(e, 'skipped', '图已不在（被删了？）');
-        continue;
-      }
       try {
-        final r = await v.interpret([ImageInput(bytes, 'image/jpeg')], context(), autoScan: true);
-        if (r.drafts.isEmpty) {
-          _noteScreenshot(e, 'ignored', '不是交易截图', modelUsed: r.modelUsed);
-          continue;
-        }
-        final inputs = <DraftInput>[];
-        for (var i = 0; i < r.drafts.length; i++) {
-          final d = r.drafts[i];
-          final payload = {...d.payload, 'metadata': {...?(d.payload['metadata'] as Map?)?.cast<String, Object?>(), 'screenshot': {'name': e.name, 'added_ms': e.addedMs}}};
-          // 指纹按 截图 id + 第几笔：同一张图再扫到（观察者与补扫重叠）不会重复起草
-          inputs.add(DraftInput(payload: payload, confidence: d.confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true));
-        }
-        final drafts = ledger.propose(inputs, source: Source.screenshot, actor: Actor.automation, interpreter: 'vision:auto', modelUsed: r.modelUsed);
-        if (drafts.isEmpty) {
-          _noteScreenshot(e, 'ignored', '这张图已经记过', modelUsed: r.modelUsed);
-          continue;
-        }
-        var committed = 0;
-        for (final d in drafts) {
-          final auto = switch (settings.automationMode) {
-            AutomationMode.confirm => false,
-            AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && (d.confidence ?? 0) >= 0.7,
-            AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
-          };
-          if (!auto) continue;
-          try {
-            ledger.commit(d.id);
-            committed++;
-          } on LedgerException {
-            // 留在收件箱
-          }
-        }
-        n += drafts.length;
-        final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
-        _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts', modelUsed: r.modelUsed);
+        n += switch (mode) {
+          'image' => await _ingestShotByImage(e),
+          'text' => await _ingestShotLocally(e, thenText: true),
+          _ => await _ingestShotLocally(e, thenText: false),
+        };
       } on UnsupportedError {
         _noteScreenshot(e, 'error', '当前模型不支持看图');
       } on ProviderException catch (ex) {
@@ -538,6 +505,129 @@ class AppState extends ChangeNotifier {
       unawaited(pushHomeWidget());
     }
     return n;
+  }
+
+  /// 本机 OCR + 规则；[thenText] 时本地认不出再把脱敏后的文字发给文本模型。
+  Future<int> _ingestShotLocally(ScreenshotEvent e, {required bool thenText}) async {
+    final lines = await screenshots.ocr(e.uri);
+    if (lines == null) {
+      _noteScreenshot(e, 'skipped', '这个平台没有本地识别（换「发原图」才能用）');
+      return 0;
+    }
+    final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
+    if (!shot.looksLikeTransaction) {
+      _noteScreenshot(e, 'ignored', '不是交易截图（本机判断，没上传）');
+      return 0;
+    }
+    // 本地够硬就直接起草；「发文字」档下证据弱的（没标签、没 ¥ 的裸数字）交给模型再看一眼
+    if (shot.usable && (!thenText || shot.confident || interpreter.llm == null)) {
+      final ctx = context();
+      final rule = interpreter.rule;
+      final accountId = (shot.accountHint == null ? null : rule.matchAccount(shot.accountHint!, ctx)) ?? ctx.defaultAccountId;
+      final type = shot.direction!;
+      final kind = type == 'income' ? 'income' : 'expense';
+      final guessed = type == 'transfer' ? null : rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind);
+      final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+      final when = shot.occurredAt ?? DateTime.fromMillisecondsSinceEpoch(e.addedMs);
+      final payload = <String, Object?>{
+        'type': type,
+        'amount_minor': shot.amountMinor,
+        'currency': 'CNY',
+        'account_id': accountId,
+        if (type != 'transfer') 'category_id': categoryId,
+        'merchant': shot.merchant,
+        'description': shot.merchant ?? '截图记账',
+        'occurred_at': OccurredAt(when, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
+      };
+      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed != null || type == 'transfer');
+    }
+    if (!thenText) {
+      _noteScreenshot(e, 'ignored', '像是交易但本机没认出金额（可在自动记账页切到「本机认不出时发文字」）');
+      return 0;
+    }
+    final llm = interpreter.llm;
+    if (llm == null) {
+      _noteScreenshot(e, 'skipped', '本机没认出，且没配置模型');
+      return 0;
+    }
+    // 只发文字，且先脱敏（卡号 / 手机号 / 订单号 / 邮箱打码）；图不出手机。
+    // 直接走模型、不过规则解释器：OCR 的整页文字里常有「余额」「多少」这种词，规则会把它当成查询
+    final text = settings.redact ? redactForModel(shot.text) : shot.text;
+    final r = await llm.interpret('这是我截图上 OCR 出来的文字，请从中识别交易：\n$text', context());
+    final inputs = [
+      for (var i = 0; i < r.drafts.length; i++)
+        if (r.drafts[i].payload['kind'] == null) DraftInput(payload: r.drafts[i].payload, confidence: r.drafts[i].confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
+    ];
+    if (inputs.isEmpty) {
+      _noteScreenshot(e, 'ignored', '文字发给模型也没认出交易', modelUsed: r.modelUsed);
+      return 0;
+    }
+    return _proposeShot(e, inputs, interpreter: 'ocr:text', modelUsed: r.modelUsed, autoOk: true);
+  }
+
+  /// 原图发给视觉模型。
+  Future<int> _ingestShotByImage(ScreenshotEvent e) async {
+    final v = vision;
+    if (v == null) {
+      _noteScreenshot(e, 'skipped', '没配置模型');
+      return 0;
+    }
+    final bytes = await screenshots.readImage(e.uri);
+    if (bytes == null) {
+      _noteScreenshot(e, 'skipped', '图已不在（被删了？）');
+      return 0;
+    }
+    final r = await v.interpret([ImageInput(bytes, 'image/jpeg')], context(), autoScan: true);
+    if (r.drafts.isEmpty) {
+      _noteScreenshot(e, 'ignored', '不是交易截图', modelUsed: r.modelUsed);
+      return 0;
+    }
+    final inputs = <DraftInput>[];
+    for (var i = 0; i < r.drafts.length; i++) {
+      final d = r.drafts[i];
+      // 指纹按 截图 id + 第几笔：同一张图再扫到（观察者与补扫重叠）不会重复起草
+      inputs.add(DraftInput(payload: d.payload, confidence: d.confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true));
+    }
+    return _proposeShot(e, inputs, interpreter: 'vision:auto', modelUsed: r.modelUsed, autoOk: true);
+  }
+
+  /// 起草 + 按自动记账模式决定入不入账，并写处理记录。返回起草数。[autoOk] 为假时智能模式不自动入账（本地规则没猜中分类）。
+  int _proposeShot(ScreenshotEvent e, List<DraftInput> inputs, {required String interpreter, required String? modelUsed, required bool autoOk}) {
+    final withMeta = [
+      for (final d in inputs)
+        DraftInput(
+          kind: d.kind,
+          targetTransactionId: d.targetTransactionId,
+          payload: {...d.payload, 'metadata': {...?(d.payload['metadata'] as Map?)?.cast<String, Object?>(), 'screenshot': {'name': e.name, 'added_ms': e.addedMs, 'how': interpreter}}},
+          confidence: d.confidence,
+          eventFingerprint: d.eventFingerprint,
+          fingerprintIsExact: d.fingerprintIsExact,
+        ),
+    ];
+    final drafts = ledger.propose(withMeta, source: Source.screenshot, actor: Actor.automation, interpreter: interpreter, modelUsed: modelUsed);
+    if (drafts.isEmpty) {
+      _noteScreenshot(e, 'ignored', '这张图已经记过', modelUsed: modelUsed);
+      return 0;
+    }
+    var committed = 0;
+    for (final d in drafts) {
+      final auto = switch (settings.automationMode) {
+        AutomationMode.confirm => false,
+        AutomationMode.smart => autoOk && d.missingFields.isEmpty && d.possibleDuplicateOf == null && (d.confidence ?? 0) >= 0.7,
+        AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
+      };
+      if (!auto) continue;
+      try {
+        ledger.commit(d.id);
+        committed++;
+      } on LedgerException {
+        // 留在收件箱
+      }
+    }
+    final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
+    final how = interpreter == 'ocr:local' ? '本机识别 · ' : '';
+    _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', '$how${committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts'}', modelUsed: modelUsed);
+    return drafts.length;
   }
 
   void _noteScreenshot(ScreenshotEvent e, String outcome, String detail, {String? modelUsed}) {

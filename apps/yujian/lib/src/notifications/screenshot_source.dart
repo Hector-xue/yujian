@@ -20,6 +20,17 @@ class ScreenshotEvent {
       );
 }
 
+/// 本机 OCR 读出的一行字（位置单位是图片像素；字高大的多半是金额）。
+class OcrLine {
+  final String text;
+  final int top;
+  final int left;
+  final int height;
+  const OcrLine(this.text, {this.top = 0, this.left = 0, this.height = 0});
+
+  factory OcrLine.fromMap(Map<Object?, Object?> m) => OcrLine((m['text'] as String?) ?? '', top: (m['top'] as num?)?.toInt() ?? 0, left: (m['left'] as num?)?.toInt() ?? 0, height: (m['height'] as num?)?.toInt() ?? 0);
+}
+
 /// 截图来源抽象：Android 走平台通道；其他平台 / 测试用假实现。
 abstract class ScreenshotSource {
   bool get supported;
@@ -38,6 +49,9 @@ abstract class ScreenshotSource {
 
   /// 读图并缩成 JPEG；图已被删返回 null。
   Future<Uint8List?> readImage(String uri);
+
+  /// 本机 OCR（图不出手机）；这个平台没有本地识别返回 null。
+  Future<List<OcrLine>?> ocr(String uri);
   Future<Map<String, Object?>> diagnostics();
   Future<void> log(Map<String, Object?> entry);
 
@@ -124,6 +138,17 @@ class AndroidScreenshotSource implements ScreenshotSource {
   }
 
   @override
+  Future<List<OcrLine>?> ocr(String uri) async {
+    if (!supported) return null;
+    try {
+      final raw = await _m.invokeMethod<List<Object?>>('ocr', uri);
+      return [for (final m in raw ?? const []) if (m is Map) OcrLine.fromMap(m)];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<Map<String, Object?>> diagnostics() async {
     if (!supported) return const {};
     try {
@@ -156,6 +181,7 @@ class FakeScreenshotSource implements ScreenshotSource {
   final _ctrl = StreamController<void>.broadcast();
   final List<ScreenshotEvent> queued = [];
   final Map<String, Uint8List> images = {};
+  final Map<String, List<OcrLine>> ocrLines = {}; // 没配的 uri 视为「本平台没有本地识别」
   final List<Map<String, Object?>> logged = [];
   bool permitted = true;
   bool wanted = false;
@@ -186,6 +212,8 @@ class FakeScreenshotSource implements ScreenshotSource {
 
   @override
   Future<Uint8List?> readImage(String uri) async => images[uri];
+  @override
+  Future<List<OcrLine>?> ocr(String uri) async => ocrLines[uri];
   @override
   Future<Map<String, Object?>> diagnostics() async => const {};
   @override
