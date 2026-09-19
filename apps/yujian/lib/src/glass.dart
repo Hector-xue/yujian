@@ -44,7 +44,7 @@ class GlassSpec {
 
 /// setFloat 的下标：按 glass.frag 里 float 类 uniform 的声明顺序（sampler 不计）。
 class _U {
-  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15;
+  static const size = 0, origin = 2, rect = 4, radius = 6, mode = 7, tint = 8, saturation = 12, thickness = 13, refract = 14, light = 15, screen = 16;
 }
 
 void _setCommon(ui.FragmentShader s, GlassSpec spec, double radius, double mode) {
@@ -182,7 +182,7 @@ class _GlassBackdropState extends State<GlassBackdrop> with WidgetsBindingObserv
     ]);
   }
 
-  void _onSize(Size s) {
+  void _onSize(Size s, Offset _) {
     if (_capturedFor != null && _capturedFor != s) _schedule();
   }
 }
@@ -191,9 +191,9 @@ class _GlassBackdropScope extends InheritedNotifier<ValueNotifier<GlassBackdropD
   const _GlassBackdropScope({required ValueNotifier<GlassBackdropData?> notifier, required super.child}) : super(notifier: notifier);
 }
 
-/// 布局尺寸变了（旋转 / 分屏）通知一下，背景要重截。
+/// 布局尺寸变了（旋转 / 分屏 / 底栏高度）在帧后通知一下：尺寸 + 当时的屏幕坐标。
 class _SizeWatcher extends SingleChildRenderObjectWidget {
-  final ValueChanged<Size> onSize;
+  final void Function(Size size, Offset origin) onSize;
   const _SizeWatcher({required this.onSize, required super.child});
   @override
   RenderObject createRenderObject(BuildContext context) => _RenderSizeWatcher(onSize);
@@ -202,7 +202,7 @@ class _SizeWatcher extends SingleChildRenderObjectWidget {
 }
 
 class _RenderSizeWatcher extends RenderProxyBox {
-  ValueChanged<Size> onSize;
+  void Function(Size size, Offset origin) onSize;
   Size? _last;
   _RenderSizeWatcher(this.onSize);
   @override
@@ -211,7 +211,9 @@ class _RenderSizeWatcher extends RenderProxyBox {
     if (_last != size) {
       _last = size;
       final s = size;
-      WidgetsBinding.instance.addPostFrameCallback((_) => onSize(s));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (attached) onSize(s, localToGlobal(Offset.zero));
+      });
     }
   }
 }
@@ -310,6 +312,7 @@ class _GlassSurfacePainter extends CustomPainter {
 
 /// 真玻璃（底栏这种内容会从底下滚过的悬浮层）：Impeller 上 = 模糊 + 着色器折射；否则模糊 + 半透明填充。
 /// 形状一律胶囊 / 圆角矩形，外面自己包 ClipRRect。
+/// 自己量尺寸和屏幕坐标：页面切换时整页被套进透明度层，着色器拿到的纹理会变成整屏，靠它把形状定位回去。
 class LiquidGlass extends StatefulWidget {
   final Widget child;
   final GlassSpec spec;
@@ -324,6 +327,16 @@ class LiquidGlass extends StatefulWidget {
 
 class _LiquidGlassState extends State<LiquidGlass> {
   ui.FragmentShader? _shader;
+  Size? _size;
+  Offset _origin = Offset.zero;
+
+  void _measured(Size s, Offset o) {
+    if (!mounted || (s == _size && o == _origin)) return;
+    setState(() {
+      _size = s;
+      _origin = o;
+    });
+  }
 
   @override
   void initState() {
@@ -344,7 +357,19 @@ class _LiquidGlassState extends State<LiquidGlass> {
     if (s == null) {
       return BackdropFilter(filter: blur, child: DecoratedBox(decoration: BoxDecoration(color: widget.fallback), child: widget.child));
     }
+    final screen = MediaQuery.sizeOf(context);
+    final size = _size ?? Size(screen.width, 64); // 第一帧还没量到，先按整宽估；量到后下一帧就准
+    s
+      ..setFloat(_U.origin, _origin.dx)
+      ..setFloat(_U.origin + 1, _origin.dy)
+      ..setFloat(_U.rect, size.width)
+      ..setFloat(_U.rect + 1, size.height)
+      ..setFloat(_U.screen, screen.width)
+      ..setFloat(_U.screen + 1, screen.height);
     _setCommon(s, widget.spec, widget.radius, 0);
-    return BackdropFilter(filter: ui.ImageFilter.compose(outer: ui.ImageFilter.shader(s), inner: blur), child: widget.child);
+    return _SizeWatcher(
+      onSize: _measured,
+      child: BackdropFilter(filter: ui.ImageFilter.compose(outer: ui.ImageFilter.shader(s), inner: blur), child: widget.child),
+    );
   }
 }

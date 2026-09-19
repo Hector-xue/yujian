@@ -2,7 +2,9 @@
 #include <flutter/runtime_effect.glsl>
 
 // 玻璃：一份着色器两种用法。
-//   uMode = 0：当 BackdropFilter 用（底栏这种真悬浮层，Impeller），纹理 = 它底下已模糊的画面，形状 = 整张纹理
+//   uMode = 0：当 BackdropFilter 用（底栏这种真悬浮层，Impeller），纹理 = 它底下已模糊的画面。
+//            正常情况纹理就是形状本身；但页面切换时整页被套进透明度层，纹理会变成整屏——按纹理长宽比判断是哪种，
+//            整屏时用 uOrigin / uScreen 把形状定位回去（不然切页那几百毫秒亮边/折射全跑偏，看起来像闪一下）
 //   uMode = 1：内容卡片对"预模糊的全局背景"按屏幕位置取样（背景静止，效果同真磨砂，每帧零回读）
 // 质感来自四样：边缘折射（透镜把边缘外的画面往里弯）、饱和度、极淡的着色、沿光向的镜面亮边 + 背光暗边。
 
@@ -16,6 +18,7 @@ uniform float uSaturation; // 1 = 原样，1.5 ≈ iOS 材质
 uniform float uThickness;  // 折射带宽度 px
 uniform float uRefract;    // 折射位移 px
 uniform float uLight;      // 亮边强度
+uniform vec2 uScreen;      // 屏幕逻辑尺寸（mode 0 纹理变成整屏时用）
 uniform sampler2D uBackdrop;
 
 out vec4 fragColor;
@@ -25,8 +28,12 @@ float sdRoundRect(vec2 p, vec2 hs, float r) {
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
 }
 
+// 形状局部坐标 q（逻辑 px）→ 纹理 uv：uv = gMin + q * gScale，两种模式在 main 里算好
+vec2 gMin;
+vec2 gScale;
+
 vec3 sampleBg(vec2 q) {
-  vec2 uv = clamp((uOrigin + q) / uSize, vec2(0.0), vec2(1.0));
+  vec2 uv = clamp(gMin + q * gScale, vec2(0.0), vec2(1.0));
 #ifdef IMPELLER_TARGET_OPENGLES
   if (uMode < 0.5) uv.y = 1.0 - uv.y;
 #endif
@@ -34,8 +41,27 @@ vec3 sampleBg(vec2 q) {
 }
 
 void main() {
-  vec2 p = FlutterFragCoord().xy;
-  vec2 rect = uMode < 0.5 ? uSize : uRect;
+  vec2 rect = uRect;
+  vec2 p;
+  if (uMode < 0.5) {
+    vec2 uv = FlutterFragCoord().xy / uSize; // 纹理内归一化坐标（单位无关，物理/逻辑像素都一样）
+    float texAspect = uSize.x / max(uSize.y, 1.0);
+    float pillAspect = uRect.x / max(uRect.y, 1.0);
+    vec2 rMin = vec2(0.0);
+    vec2 rSize = vec2(1.0);
+    if (abs(texAspect - pillAspect) > 0.35 * pillAspect) {
+      // 纹理不是形状本身而是整屏：按形状在屏幕上的位置取
+      rMin = uOrigin / uScreen;
+      rSize = uRect / uScreen;
+    }
+    p = (uv - rMin) / rSize * uRect;
+    gMin = rMin;
+    gScale = rSize / uRect;
+  } else {
+    p = FlutterFragCoord().xy;
+    gMin = uOrigin / uSize;
+    gScale = 1.0 / uSize;
+  }
   vec2 hs = rect * 0.5;
   float r = min(uRadius, min(hs.x, hs.y));
   vec2 c = p - hs;
