@@ -1,7 +1,7 @@
 name: yujian
 description: "余见 Yujian · 本地优先的个人财务 Agent"
 publish_to: 'none'
-version: 0.8.7+18
+version: 0.8.8+19
 
 environment:
   sdk: ^3.13.0
@@ -49,3 +49,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/widgets/
+  shaders:
+    - shaders/glass.frag

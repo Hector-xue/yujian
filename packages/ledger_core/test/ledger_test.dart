@@ -348,4 +348,21 @@ void main() {
       expect(ledger.integrityCheck(), isEmpty);
     });
   });
+
+  group('list / count', () {
+    test('countTransactions matches list length; batched postings equal per-tx postings', () {
+      for (var i = 0; i < 12; i++) {
+        ledger.commit(proposeOne(expense(100 + i, account: i.isEven ? wechat.id : bank.id)).id);
+      }
+      final t = ledger.propose([DraftInput(payload: {'type': 'transfer', 'amount_minor': 5000, 'currency': 'CNY', 'account_id': bank.id, 'to_account_id': wechat.id, 'occurred_at': at})], source: Source.manual).single;
+      ledger.commit(t.id);
+      expect(ledger.countTransactions(), 13);
+      final all = ledger.listTransactions(limit: 1 << 30);
+      expect(all.length, 13);
+      for (final tx in all) {
+        expect(tx.postings.map((p) => (p.accountId, p.amountMinor)).toList(), ledger.getTransaction(tx.id).postings.map((p) => (p.accountId, p.amountMinor)).toList());
+      }
+      expect(all.firstWhere((x) => x.type == TransactionType.transfer).postings.length, 2);
+    });
+  });
 }

@@ -43,7 +43,9 @@ class _CalendarPageState extends State<CalendarPage> {
     final first = DateTime(month.year, month.month, 1);
     final leading = first.weekday % 7; // 周日开头
     final selIso = _iso(selected);
-    final dayTx = app.ledger.listTransactions(limit: 500).where((t) => t.occurredAt.localDate == selIso).toList();
+    final selDay = DateTime(selected.year, selected.month, selected.day);
+    // 只取当天：以前是取最近 500 笔再在 Dart 里筛（既漏老账，又是每次 build 500+1 条 SQL）
+    final dayTx = app.ledger.listTransactions(from: selDay, to: selDay.add(const Duration(days: 1)), limit: 500).where((t) => t.occurredAt.localDate == selIso).toList();
     final selExp = dayTx.where((t) => t.type == TransactionType.expense).fold(0, (a, t) => a + t.amountMinor);
     final selInc = dayTx.where((t) => t.type == TransactionType.income).fold(0, (a, t) => a + t.amountMinor);
     const wd = ['日', '一', '二', '三', '四', '五', '六'];
