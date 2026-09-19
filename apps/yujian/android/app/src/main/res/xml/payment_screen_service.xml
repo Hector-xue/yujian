@@ -2,6 +2,8 @@
 <!-- 支付页识别：只看支付 / 购物 App 的窗口，只在「支付成功」页读一次金额与商户。
      flagIncludeNotImportantViews：微信 / 支付宝的金额节点常被标成「对无障碍不重要」，不带这个读不到；
      flagRetrieveInteractiveWindows：支付成功页有时不是「活动窗口」（MIUI / HyperOS 切窗期间 rootInActiveWindow 为空），要能遍历所有窗口。
+     canTakeScreenshot：微信这类 App 的支付页是自绘界面，节点树里一段文字都没有（声明成无障碍工具也一样）——
+     读不到文字时截一帧屏幕、本机 OCR 出文字再走同一套规则；位图只在内存里过一下，不落盘不上传。
      isAccessibilityTool：Android 14 起，View 设了 filterTouchesWhenObscured（支付 App 防劫持标配）就自动算 accessibilityDataSensitive，
      不是「无障碍工具」的服务拿到的节点树是空的（有窗口、0 段文字）——微信支付成功页就这样。声明了才读得到。 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -10,6 +12,7 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:isAccessibilityTool="true"
     android:notificationTimeout="100"
     android:packageNames="com.tencent.mm,com.eg.android.AlipayGphone,com.unionpay,com.taobao.taobao,com.tmall.wireless,com.jingdong.app.mall,com.xunmeng.pinduoduo,com.sankuai.meituan,com.sankuai.meituan.takeoutnew,me.ele,com.ss.android.ugc.aweme,com.xingin.xhs,com.sdu.didi.psnger,com.MobileTicket,ctrip.android.view,com.dianping.v1"/>

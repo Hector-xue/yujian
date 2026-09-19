@@ -4,10 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
@@ -32,6 +35,7 @@ class PaymentScreenService : AccessibilityService() {
     private var pendingPkg: String? = null
     private var pendingClass: String? = null
     private var lastMarkAt = 0L
+    private var lastShotAt = 0L
     private val scanNow = Runnable { pendingPkg?.let { scan(it, pendingClass) } }
     private val scanLate = Runnable { pendingPkg?.let { scan(it, pendingClass, late = true) } }
 
@@ -104,15 +108,65 @@ class PaymentScreenService : AccessibilityService() {
         val entry = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", texts.size).put("late", late)
         if (roots == 0) {
             log(this, entry.put("what", "no_root"))
+            if (late) shotAndRead(pkg, cls, entry) // 补扫还拿不到窗口：也截一帧试试
             return
         }
         if (texts.isEmpty()) {
-            // 有窗口却一段文字都没有：Android 14 起页面对非「无障碍工具」服务屏蔽（accessibilityDataSensitive），
-            // 或页面还没铺完。单独记一类，App 里能看出是"读不到"而不是"没有支付成功字样"
-            log(this, entry.put("what", "empty_tree").put("sdk", android.os.Build.VERSION.SDK_INT))
+            // 有窗口却一段文字都没有：微信的支付页是自绘界面，节点树本来就没字（声明成无障碍工具也一样）。
+            // 记一类，然后走截屏 + 本机 OCR 这条路（只在补扫那次做，页面刚出现的 350ms 那次可能只是还没铺完）
+            log(this, entry.put("what", "empty_tree").put("sdk", Build.VERSION.SDK_INT))
+            if (late) shotAndRead(pkg, cls, entry)
             return
         }
         val hasSuccess = texts.any { PaymentScreenParser.isSuccessText(it) }
+        handleTexts(pkg, texts, hasSuccess, entry, how = "tree")
+    }
+
+    /** 节点树读不到字：截一帧屏幕、本机 OCR。位图只在内存里，识别完即丢。API 30+ 才有截屏能力。 */
+    private fun shotAndRead(pkg: String, cls: String?, entry: JSONObject) {
+        if (Build.VERSION.SDK_INT < 30) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastShotAt < 2500) return // 别连着截：截屏本身有系统限速，OCR 也要一两百毫秒
+        lastShotAt = now
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                    val hw = result.hardwareBuffer
+                    val bmp = try {
+                        Bitmap.wrapHardwareBuffer(hw, result.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (_: Throwable) { null } finally { hw.close() }
+                    if (bmp == null) {
+                        log(this@PaymentScreenService, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", "bitmap"))
+                        return
+                    }
+                    Ocr.recognize(bmp) { lines, err ->
+                        bmp.recycle()
+                        if (lines == null) {
+                            log(this@PaymentScreenService, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", err ?: ""))
+                            return@recognize
+                        }
+                        val texts = lines.map { (it["text"] as? String ?: "").trim() }.filter { it.isNotEmpty() }
+                        val e2 = JSONObject().put("pkg", pkg).put("cls", cls ?: "").put("n", texts.size).put("late", true)
+                        if (texts.isEmpty()) {
+                            log(this@PaymentScreenService, e2.put("what", "shot_empty"))
+                            return@recognize
+                        }
+                        handleTexts(pkg, texts, texts.any { PaymentScreenParser.isSuccessText(it) }, e2, how = "ocr")
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    log(this@PaymentScreenService, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", "code $errorCode"))
+                }
+            })
+        } catch (e: Throwable) {
+            log(this, JSONObject().put("what", "shot_failed").put("pkg", pkg).put("err", e.toString()))
+        }
+    }
+
+    /** 一页文字（来自节点树或 OCR）→ 金额 + 商户 → 入队。 */
+    private fun handleTexts(pkg: String, texts: List<String>, hasSuccess: Boolean, entry: JSONObject, how: String) {
+        entry.put("how", how)
         val found = PaymentScreenParser.extract(texts)
         if (found == null) {
             if (hasSuccess) {
