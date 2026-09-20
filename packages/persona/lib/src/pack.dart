@@ -52,7 +52,7 @@ enum PersonaEvent {
   goalReached, // {label}
   taskDone, // {label}=任务名
   taskMissed, // {label}
-  levelUp, // {label}=称号（穷逼 / 月光族 / …；等级名进 meta）
+  levelUp, // {label}=称号（贫困户 / 月光族 / …；等级名进 meta）
   payday, // {n}=分到目标的总额（元）
   monthlyReview, // {label}=复盘正文
 }

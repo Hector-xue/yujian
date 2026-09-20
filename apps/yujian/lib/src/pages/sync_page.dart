@@ -72,6 +72,8 @@ class _SyncPageState extends State<SyncPage> {
         children: [
           Text('自托管 Yujian Server（仓库 server/ 目录，Docker 一键起）。它只存变更日志和加密后的备份，看不到你的账本。不配也完全能用。${app.settings.offlineMode ? '\n\n纯本地模式已开：配置保留，但不会同步、不会上传，直到你关掉它。' : ''}', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
+          // 服务器 / 备份两块各一张卡：表单和按钮框在一起，和别的页一套
+          GlassCard(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(controller: url, decoration: const InputDecoration(labelText: '服务器地址', hintText: 'https://yujian.example.com'), keyboardType: TextInputType.url),
           const SizedBox(height: 12),
           TextField(controller: token, obscureText: true, decoration: const InputDecoration(labelText: 'Token', helperText: '服务端 YUJIAN_SYNC_TOKEN')),
@@ -99,11 +101,13 @@ class _SyncPageState extends State<SyncPage> {
           Text('本机待推送 $pending 条 · 设备 ${app.ledger.changes.deviceId.substring(18)}${app.lastSyncNote != null ? ' · 上次 ${app.lastSyncNote}' : ''}', style: theme.textTheme.bodySmall),
           const SizedBox(height: 4),
           Text('每次打开 App 自动同步一轮。两台设备改了同一笔，以改得晚的为准，被覆盖的一方记进审计日志。', style: theme.textTheme.bodySmall),
+          ]))),
           const SizedBox(height: 28),
           Text('加密备份', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('用口令在本机加密后再上传（AES-256-GCM）。口令丢了备份就打不开，服务端也帮不了你。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
+          GlassCard(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(controller: passphrase, obscureText: true, decoration: const InputDecoration(labelText: '备份口令（至少 6 位）')),
           const SizedBox(height: 12),
           Row(
@@ -147,6 +151,7 @@ class _SyncPageState extends State<SyncPage> {
               ),
             ],
           ),
+          ]))),
           if (status != null) Padding(padding: const EdgeInsets.only(top: 16), child: Text(status!, style: theme.textTheme.bodyMedium)),
         ],
       ),

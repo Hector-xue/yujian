@@ -331,6 +331,7 @@ class AppState extends ChangeNotifier {
             'n': p.goal.name,
             'p': (p.ratio * 100).round(),
             't': p.reached ? (p.goal.kind == GoalKind.payoff ? '还清了' : '攒够了') : '${p.goal.kind == GoalKind.payoff ? '还欠' : '还差'} ${fmtMoney(p.remainingMinor, p.goal.currency)}',
+            's': '${p.goal.kind == GoalKind.payoff ? '已还' : '已攒'} ${fmtMoney(p.savedMinor, p.goal.currency)} / ${fmtMoney(p.targetMinor, p.goal.currency)}',
             'd': p.reached,
           },
       ];

@@ -1,7 +1,7 @@
 name: yujian
 description: "余见 Yujian · 本地优先的个人财务 Agent"
 publish_to: 'none'
-version: 0.9.2+33
+version: 0.9.3+34
 
 environment:
   sdk: ^3.13.0

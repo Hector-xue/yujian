@@ -160,6 +160,7 @@ class _ModelPageState extends State<ModelPage> {
           const SizedBox(height: 4),
           Text('读字、看图、陪聊都用它。OpenAI 兼容接口都行：DeepSeek、硅基流动、阿里云百炼、OpenAI、OpenRouter、Ollama（http://主机:11434/v1）。不填就只用规则解析，一样能记账。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
+          GlassCard(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SegmentedButton<String>(
             segments: const [ButtonSegment(value: 'openai', label: Text('OpenAI 兼容')), ButtonSegment(value: 'anthropic', label: Text('Anthropic'))],
             selected: {providerType},
@@ -221,30 +222,33 @@ class _ModelPageState extends State<ModelPage> {
             ],
           ),
           Text('语音识别 / 朗读在旁边的「语音」页里配，可选。', style: theme.textTheme.bodySmall),
-          const SizedBox(height: 8),
+          ]))),
+          const SizedBox(height: 12),
+          GlassCard(child: Column(children: [
           SwitchListTile(
-            contentPadding: EdgeInsets.zero,
+            contentPadding: const EdgeInsets.fromLTRB(16, 0, 12, 0),
             title: const Text('仅本地模型'),
             subtitle: Text('端点不在本机/内网（localhost、192.168.x、10.x、.local）时一律不调用，只用规则解析', style: theme.textTheme.bodySmall),
             value: localOnly,
             onChanged: (v) => setState(() => localOnly = v),
           ),
           SwitchListTile(
-            contentPadding: EdgeInsets.zero,
+            contentPadding: const EdgeInsets.fromLTRB(16, 0, 12, 0),
             title: const Text('发送前脱敏'),
             subtitle: Text('卡号、手机号、身份证、订单号、邮箱替换成占位符再发给模型；金额不动', style: theme.textTheme.bodySmall),
             value: redact,
             onChanged: (v) => setState(() => redact = v),
           ),
-          const SizedBox(height: 8),
+          const Divider(indent: 16),
           ListTile(
-            contentPadding: EdgeInsets.zero,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             leading: Icon(Icons.data_usage_outlined, color: theme.colorScheme.primary),
             title: const Text('用量与花费'),
             subtitle: Text(_usageLine(app), style: theme.textTheme.bodySmall),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const UsagePage())),
           ),
+          ])),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: () async {

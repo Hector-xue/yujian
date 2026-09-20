@@ -3,14 +3,18 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_goal_row"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="0dp"
+    android:layout_weight="1"
     android:orientation="vertical"
-    android:paddingTop="3dp"
-    android:paddingBottom="3dp">
+    android:gravity="center_vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-        <TextView android:id="@+id/widget_goal_emoji" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🎯" android:textSize="13sp" android:includeFontPadding="false"/>
-        <TextView android:id="@+id/widget_goal_name" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="5dp" android:text="" android:textSize="12sp" android:textColor="#1C2430" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
-        <TextView android:id="@+id/widget_goal_tail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="" android:textSize="11sp" android:textColor="#6C7580" android:maxLines="1" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/widget_goal_emoji" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🎯" android:textSize="14sp" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/widget_goal_name" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="" android:textSize="13sp" android:textColor="#1C2430" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/widget_goal_tail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="" android:textSize="12sp" android:textColor="#6C7580" android:maxLines="1" android:includeFontPadding="false"/>
     </LinearLayout>
-    <ProgressBar android:id="@+id/widget_goal_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="3dp" android:max="100" android:progress="0" android:progressDrawable="@drawable/widget_progress_done"/>
+    <!-- 目标少于 3 个时多一行「已攒 ¥x / ¥y」，把空出来的高度用掉 -->
+    <TextView android:id="@+id/widget_goal_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="1dp" android:visibility="gone" android:text="" android:textSize="11sp" android:textColor="#6C7580" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+    <ProgressBar android:id="@+id/widget_goal_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="6dp" android:layout_marginTop="4dp" android:max="100" android:progress="0" android:progressDrawable="@drawable/widget_progress_done"/>
 </LinearLayout>

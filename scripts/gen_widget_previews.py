@@ -159,7 +159,7 @@ def goals():
     img, d = card(280, 140)
     p = 18 * S
     d.text((p, 12 * S), '可花的', font=font(12, True), fill=BLUE)
-    d.text((p + 40 * S, 10 * S), '¥ 2,180.50', font=font(15, True), fill=BLUE)
+    d.text((p + 40 * S, 9 * S), '¥ 2,180.50', font=font(17, True), fill=BLUE)
     # 称号胶囊
     badge = '温饱户'
     fb = font(11, True)
@@ -169,7 +169,7 @@ def goals():
     d.text((bx + 8 * S, 12 * S), badge, font=fb, fill=BLUE)
     rows = [('📱', '换手机', '还差 ¥ 3,199', 54, False), ('✈️', '日本游', '还差 ¥ 6,800', 43, False), ('🏠', '还清房贷', '还欠 ¥ 49.6w', 12, False)]
     y = 40 * S
-    fn, ft = font(12), font(11)
+    fn, ft = font(13), font(12)
     # 本机只有单色的 Noto Emoji（真机上是彩色系统 emoji），预览图里用它画个意思
     fe = ImageFont.truetype('/usr/share/fonts/google-noto-emoji/NotoEmoji-Regular.ttf', int(12 * S))
     for emoji, name, tail, pct, done in rows:
@@ -177,8 +177,8 @@ def goals():
         d.text((p + 18 * S, y), name, font=fn, fill=INK)
         d.text((280 * S - p - d.textlength(tail, font=ft), y + 1 * S), tail, font=ft, fill=MUTED)
         by = y + 19 * S
-        d.rounded_rectangle([p, by, 280 * S - p, by + 5 * S], radius=3 * S, fill=(0xE6, 0xEA, 0xF0))
-        d.rounded_rectangle([p, by, p + (280 * S - 2 * p) * pct / 100, by + 5 * S], radius=3 * S, fill=GREEN if done else BLUE)
+        d.rounded_rectangle([p, by, 280 * S - p, by + 6 * S], radius=3 * S, fill=(0xE6, 0xEA, 0xF0))
+        d.rounded_rectangle([p, by, p + (280 * S - 2 * p) * pct / 100, by + 6 * S], radius=3 * S, fill=GREEN if done else BLUE)
         y += 33 * S
     return img
 

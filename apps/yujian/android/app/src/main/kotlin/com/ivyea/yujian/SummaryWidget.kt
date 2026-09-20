@@ -81,6 +81,7 @@ open class SummaryWidget : AppWidgetProvider() {
                     title(v, p)
                     v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://goals", 4))
                     v.setOnClickPendingIntent(R.id.widget_head, open(context, "yujian://home", 1))
+                    v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                     fillGoals(context, v, p.getString("goals", "") ?: "")
                 }
                 else -> v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
@@ -89,33 +90,41 @@ open class SummaryWidget : AppWidgetProvider() {
         }
 
         /**
-         * 铺目标行。App 推的是 JSON 数组 [{e: emoji, n: 名字, p: 0–100, t: 尾巴文案, d: 攒够了/还清了}]，最多 3 条；
-         * 空数组 / 没推过 → 显示「还没有目标」那句。行是 addView 动态加的（和日历格子一个做法），别在布局里写死三行。
+         * 铺目标行。App 推的是 JSON 数组 [{e: emoji, n: 名字, p: 0–100, t: 尾巴文案, s: 已攒/目标 一行, d: 攒够了/还清了}]，最多 3 条；
+         * 空数组 / 没推过 → 显示「还没有目标」那句 + 记一笔。行是 addView 动态加的（和日历格子一个做法），每行 weight=1 平分高度；
+         * 少于 3 条时行里再露一行「已攒 / 目标」、少于 2 条时底部放「记一笔」——别让 4×2 空一大块。
          */
         private fun fillGoals(context: Context, v: RemoteViews, json: String) {
             v.removeAllViews(R.id.widget_goal_list)
             val arr = try { if (json.isEmpty()) JSONArray() else JSONArray(json) } catch (_: Exception) { JSONArray() }
-            if (arr.length() == 0) {
+            val n = minOf(arr.length(), 3)
+            v.setViewVisibility(R.id.widget_add, if (n <= 1) View.VISIBLE else View.GONE)
+            if (n == 0) {
                 v.setViewVisibility(R.id.widget_goals_empty, View.VISIBLE)
                 v.setViewVisibility(R.id.widget_goal_list, View.GONE)
                 return
             }
             v.setViewVisibility(R.id.widget_goals_empty, View.GONE)
             v.setViewVisibility(R.id.widget_goal_list, View.VISIBLE)
-            for (i in 0 until minOf(arr.length(), 3)) {
+            for (i in 0 until n) {
                 val o = arr.optJSONObject(i) ?: continue
                 // 攒够了 / 还清了的换绿条：RemoteViews 不能换 progressDrawable，用另一份布局最稳
                 val row = RemoteViews(context.packageName, if (o.optBoolean("d", false)) R.layout.widget_goal_row_done else R.layout.widget_goal_row)
                 row.setTextViewText(R.id.widget_goal_emoji, o.optString("e", "🎯"))
                 row.setTextViewText(R.id.widget_goal_name, o.optString("n", ""))
                 row.setTextViewText(R.id.widget_goal_tail, o.optString("t", ""))
+                val detail = o.optString("s", "")
+                if (n < 3 && detail.isNotEmpty()) {
+                    row.setTextViewText(R.id.widget_goal_detail, detail)
+                    row.setViewVisibility(R.id.widget_goal_detail, View.VISIBLE)
+                }
                 val pct = o.optInt("p", 0).coerceIn(0, 100)
                 row.setProgressBar(R.id.widget_goal_bar, 100, pct, false)
                 v.addView(R.id.widget_goal_list, row)
             }
         }
 
-        /** 财富称号胶囊（穷逼 / 月光族 / …）：App 没推过或没数据就是空串，整个胶囊藏掉，不留空壳。 */
+        /** 财富称号胶囊（贫困户 / 月光族 / …）：App 没推过或没数据就是空串，整个胶囊藏掉，不留空壳。 */
         private fun title(v: RemoteViews, p: android.content.SharedPreferences) {
             val t = p.getString("title", "") ?: ""
             v.setTextViewText(R.id.widget_title_badge, t)
