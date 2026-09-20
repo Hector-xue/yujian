@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:providers/providers.dart';
 
 import '../app_state.dart';
+import '../privacy/net_log.dart';
 import '../settings_store.dart';
 import '../theme.dart';
 import '../widgets/model_picker.dart';
@@ -81,16 +82,24 @@ class _ModelPageState extends State<ModelPage> {
       RegExp(r'model|模型', caseSensitive: false).hasMatch(err) && RegExp(r'not (found|exist|support)|invalid|unknown|supported|does not exist|不存在|不支持', caseSensitive: false).hasMatch(err);
 
   Future<void> _probe() async {
+    final app = AppScope.of(context);
     final cfg = _draft().providerConfig;
     if (cfg == null) {
-      setState(() => probeResult = localOnly && baseUrl.text.trim().isNotEmpty && !isLocalEndpoint(baseUrl.text.trim()) ? '开了"仅本地模型"，这个地址不在本机/内网，不会调用' : '先填 Base URL 和模型名');
+      setState(() => probeResult = app.settings.offlineMode
+          ? '纯本地模式已开，不联网测试（更多 → 隐私 可关掉）'
+          : localOnly && baseUrl.text.trim().isNotEmpty && !isLocalEndpoint(baseUrl.text.trim())
+              ? '开了"仅本地模型"，这个地址不在本机/内网，不会调用'
+              : '先填 Base URL 和模型名');
       return;
     }
     setState(() {
       probing = true;
       probeResult = null;
     });
-    final ChatProvider p = cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg);
+    final ChatProvider raw = cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg);
+    // 测试连接也是真调用，照进出网记录（标 probe）
+    final host = hostOf(cfg.baseUrl);
+    final p = MeteredProvider(raw, purpose: 'probe', onCall: (c) => app.netLog.recordCall(c, host: host, redacted: false));
     final c = await CapabilityProbe.run(p, testVision: true);
     if (!mounted) return;
     setState(() {
@@ -132,6 +141,11 @@ class _ModelPageState extends State<ModelPage> {
     final body = ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
+          if (app.settings.offlineMode)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text('纯本地模式已开：这里的配置会保存，但不会调用任何模型，直到你在「更多 → 隐私」关掉它。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
+            ),
           GlassCard(
             child: ListTile(
               leading: Icon(Icons.help_outline, color: theme.colorScheme.primary),

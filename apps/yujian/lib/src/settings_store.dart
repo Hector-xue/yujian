@@ -27,6 +27,7 @@ class Settings {
   final Map<String, String> personaAvatars; // 人格 id → 自定义头像文件路径（本机）
   final String providerType; // openai | anthropic
   final bool localOnly; // 仅本地模型：端点不在本机/内网就不调
+  final bool offlineMode; // 纯本地模式：一键禁掉所有出网路径（模型 / 云端语音 / 云转写 / 同步 / 自动版本检查），只用本机识别 + 本机规则
   final bool redact; // 发送前脱敏
   final String? assistantName; // 对话页显示名，空 = 人格名
   final String themeId; // 外观主题
@@ -46,7 +47,7 @@ class Settings {
   final String omniVoice; // 多模态模型自带语音的音色（Qwen-Omni：Cherry / Serena / Ethan / Chelsie）
   final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
   final double backgroundOpacity; // 背景图可见度 0–1
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -61,14 +62,31 @@ class Settings {
 
   bool get syncConfigured => (syncUrl ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
+  /// 填过模型地址和模型名（不管纯本地模式有没有把它挡住）：设置页用来区分「没配」和「配了但被挡」。
+  bool get modelFilled => (baseUrl ?? '').isNotEmpty && (model ?? '').isNotEmpty;
+
+  /// 实际生效的朗读引擎：纯本地模式下一律系统朗读。消费方都用这个，别直接读 [speechEngine]。
+  String get effectiveSpeechEngine => offlineMode ? 'system' : speechEngine;
+
+  /// 实际生效的截图识别档：纯本地模式下一律「仅本机」。
+  String get effectiveScreenshotMode => offlineMode ? 'local' : screenshotMode;
+
+  /// 实际生效的云转写模型：纯本地模式下没有。
+  String? get effectiveTranscribeModel => offlineMode ? null : transcribeModel;
+
+  /// 同步实际生效：纯本地模式下不同步。
+  bool get syncActive => !offlineMode && syncConfigured;
+
+  /// 纯本地模式下没有任何模型可用（连内网端点也不调：数据不出这台手机）。
   ProviderConfig? get providerConfig {
+    if (offlineMode) return null;
     if (baseUrl == null || baseUrl!.isEmpty || model == null || model!.isEmpty) return null;
     final extra = <String, Object?>{if (baseUrl!.contains('openrouter.ai')) 'reasoning': {'enabled': false}};
     if (localOnly && !isLocalEndpoint(baseUrl!)) return null; // 开了"仅本地"但端点在云上：当作没配
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -87,6 +105,7 @@ class Settings {
         personaAvatars: personaAvatars ?? this.personaAvatars,
         providerType: providerType ?? this.providerType,
         localOnly: localOnly ?? this.localOnly,
+        offlineMode: offlineMode ?? this.offlineMode,
         redact: redact ?? this.redact,
         assistantName: assistantName ?? this.assistantName,
         themeId: themeId ?? this.themeId,
@@ -158,6 +177,7 @@ class PlatformSettingsStore implements SettingsStore {
       personaAvatars: (_jsonMap(p.getString('persona_avatars')) ?? const {}).map((k, v) => MapEntry(k, '$v')),
       providerType: p.getString('provider_type') ?? 'openai',
       localOnly: p.getBool('local_only') ?? false,
+      offlineMode: p.getBool('offline_mode') ?? false,
       redact: p.getBool('redact') ?? true,
       assistantName: _emptyToNull(p.getString('assistant_name')),
       themeId: p.getString('theme_id') ?? 'glass',
@@ -200,6 +220,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('persona_avatars', jsonEncode(s.personaAvatars));
     await p.setString('provider_type', s.providerType);
     await p.setBool('local_only', s.localOnly);
+    await p.setBool('offline_mode', s.offlineMode);
     await p.setBool('redact', s.redact);
     await p.setString('assistant_name', s.assistantName ?? '');
     await p.setString('theme_id', s.themeId);

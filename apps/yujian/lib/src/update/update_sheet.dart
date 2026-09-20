@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../app_state.dart';
+import '../privacy/net_log.dart';
 import 'updater.dart';
 
 /// 新版本提示：Android 直接下载安装；其他平台给下载页。
@@ -31,10 +33,13 @@ class _UpdateSheetState extends State<_UpdateSheet> {
       progress = 0;
       error = null;
     });
+    final log = AppScope.maybeOf(context)?.netLog;
     try {
-      await Updater.downloadAndInstall(widget.release, (p) {
-        if (mounted) setState(() => progress = p);
-      });
+      Future<void> go() => Updater.downloadAndInstall(widget.release, (p) {
+            if (mounted) setState(() => progress = p);
+          });
+      // 下载安装包也是一次出网（只下载不上传），照记
+      await (log == null ? go() : log.track(go, kind: 'download', purpose: 'apk', host: hostOf(widget.release.androidArm64)));
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {

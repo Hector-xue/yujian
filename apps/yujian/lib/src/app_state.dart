@@ -20,6 +20,7 @@ import 'notifications/screenshot_source.dart';
 import 'notifications/share_source.dart';
 import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platform/avatar_files_web.dart';
 import 'platform/home_widget_bridge.dart';
+import 'privacy/net_log.dart';
 import 'settings_store.dart';
 import 'update/updater.dart';
 import 'usage/usage_meter.dart';
@@ -36,7 +37,10 @@ class AppState extends ChangeNotifier {
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
   VisionInterpreter? vision;
-  /// 当前装配的模型（已包计量层）；null = 没配。
+  /// 截图自动记账用的两条模型路（标签不同，出网记录里分得清）：「发文字」档的文本模型、「发原图」档的看图模型。
+  LLMInterpreter? shotLlm;
+  VisionInterpreter? shotVision;
+  /// 当前装配的模型（已包计量层）；null = 没配（含纯本地模式挡掉的情况）。
   ChatProvider? provider;
   SyncClient? sync;
   String? lastSyncNote;
@@ -51,6 +55,8 @@ class AppState extends ChangeNotifier {
   final CompanionMemory memory = CompanionMemory();
   /// token 用量记账（更多 → 用量与花费）。
   final UsageMeter usage = UsageMeter();
+  /// 出网记录：每一次数据出手机都在这里留一行（更多 → 隐私 → 出网记录）。
+  final NetLog netLog = NetLog();
 
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
@@ -66,6 +72,7 @@ class AppState extends ChangeNotifier {
     settings = await settingsStore.load();
     await memory.load();
     await usage.load();
+    await netLog.load();
     await _loadRecentNotices();
     try {
       final p = await SharedPreferences.getInstance();
@@ -136,15 +143,25 @@ class AppState extends ChangeNotifier {
 
   void _apply() {
     final cfg = settings.providerConfig;
-    // 所有对话 / 看图调用都包一层计量，用量页才有数
-    final ChatProvider? p = cfg == null ? null : MeteredProvider(cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg), onUsage: usage.record);
+    // 所有对话 / 看图调用都包一层计量：用量页才有数，出网记录才有行。
+    // 每个消费方各包一层、打不同的用途标签，出网记录里能说清「这次是解析你的话 / 陪聊 / 看图 / 截图」。
+    final ChatProvider? raw = cfg == null ? null : (cfg.type == ProviderType.anthropic ? AnthropicProvider(cfg) : OpenAICompatProvider(cfg));
+    final host = hostOf(cfg?.baseUrl);
+    ChatProvider? tagged(String purpose) => raw == null ? null : MeteredProvider(raw, purpose: purpose, onUsage: usage.record, onCall: (c) => netLog.recordCall(c, host: host, redacted: settings.redact));
+    final p = tagged('interpret');
     provider = p;
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
-    vision = p == null ? null : VisionInterpreter(p);
+    final v = tagged('image');
+    vision = v == null ? null : VisionInterpreter(v);
+    final st = tagged('shot_text');
+    shotLlm = st == null ? null : LLMInterpreter(st);
+    final sv = tagged('shot_image');
+    shotVision = sv == null ? null : VisionInterpreter(sv);
     final custom = settings.customPersonaById(settings.personaId);
     persona = custom != null ? PersonaPack.fromJson(custom) : personaById(settings.personaId);
-    replier = PersonaReplier(persona, provider: p, memory: () => memory.lines);
-    companion = p == null ? null : CompanionReplier(persona, p);
+    replier = PersonaReplier(persona, provider: tagged('reply'), memory: () => memory.lines);
+    final cp = tagged('companion');
+    companion = cp == null ? null : CompanionReplier(persona, cp);
     final userTemplates = <NotificationTemplate>[];
     for (final t in settings.userTemplates) {
       try {
@@ -154,11 +171,14 @@ class AppState extends ChangeNotifier {
       }
     }
     matcher = TemplateMatcher(userTemplates: userTemplates);
-    sync = settings.syncConfigured ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
+    sync = settings.syncActive ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
     notifyListeners();
   }
 
   bool get hasModel => settings.providerConfig != null;
+
+  /// 纯本地模式一键开关。开：所有出网路径立刻失效（模型 / 云端语音 / 云转写 / 同步 / 自动版本检查）；配置本身保留，关掉就恢复。
+  Future<void> setOfflineMode(bool on) => saveSettings(settings.copyWith(offlineMode: on));
 
   /// 首次启动：默认分类 + 三个常用账户。
   void bootstrap() {
@@ -214,12 +234,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// 启动时最多一天查一次；「检查更新」按钮 force。被跳过的版本不再弹。
+  /// 纯本地模式下不自动查（用户手动点「检查更新」才查）。每次查都进出网记录。
   Future<ReleaseInfo?> checkUpdate({bool force = false}) async {
+    if (settings.offlineMode && !force) return null;
     final p = await SharedPreferences.getInstance();
     final last = p.getInt('update_last_check') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!force && now - last < 24 * 3600 * 1000) return availableUpdate;
-    final r = await Updater.check();
+    ReleaseInfo? r;
+    try {
+      r = await netLog.track(Updater.check, kind: 'update', purpose: 'check', host: hostOf(Updater.endpoint));
+    } catch (_) {
+      r = null;
+    }
     await p.setInt('update_last_check', now);
     if (r == null || !r.isNewer) {
       availableUpdate = null;
@@ -300,7 +327,7 @@ class AppState extends ChangeNotifier {
     final c = sync;
     if (c == null) return null;
     try {
-      final r = await c.sync();
+      final r = await trackSync('sync', () => c.sync(), countOf: (r) => r.pushed + r.pulled);
       lastSyncNote = '${DateTime.now().toIso8601String().substring(11, 16)} ${r.toString()}';
       notifyListeners();
       return r;
@@ -310,6 +337,10 @@ class AppState extends ChangeNotifier {
       return null;
     }
   }
+
+  /// 同步页和启动同步都从这里过：成功失败都进出网记录。
+  Future<T> trackSync<T>(String purpose, Future<T> Function() body, {int Function(T)? countOf, int Function(T)? bytesOf}) =>
+      netLog.track(body, kind: 'sync', purpose: purpose, host: hostOf(settings.syncUrl), countOf: countOf, bytesOf: bytesOf);
 
   // ------------------------------------------------------------ 自动记账
 
@@ -506,7 +537,7 @@ class AppState extends ChangeNotifier {
   Future<int> ingestScreenshots(List<ScreenshotEvent> events) async {
     if (events.isEmpty) return 0;
     var n = 0;
-    final mode = settings.screenshotMode;
+    final mode = settings.effectiveScreenshotMode;
     for (final e in events) {
       try {
         n += switch (mode) {
@@ -568,9 +599,9 @@ class AppState extends ChangeNotifier {
       _noteScreenshot(e, 'ignored', '像是交易但本机没认出金额（可在自动记账页切到「本机认不出时发文字」）');
       return 0;
     }
-    final llm = interpreter.llm;
+    final llm = shotLlm;
     if (llm == null) {
-      _noteScreenshot(e, 'skipped', '本机没认出，且没配置模型');
+      _noteScreenshot(e, 'skipped', settings.offlineMode ? '本机没认出；纯本地模式下不发给模型' : '本机没认出，且没配置模型');
       return 0;
     }
     // 只发文字，且先脱敏（卡号 / 手机号 / 订单号 / 邮箱打码）；图不出手机。
@@ -590,7 +621,7 @@ class AppState extends ChangeNotifier {
 
   /// 原图发给视觉模型。
   Future<int> _ingestShotByImage(ScreenshotEvent e) async {
-    final v = vision;
+    final v = shotVision;
     if (v == null) {
       _noteScreenshot(e, 'skipped', '没配置模型');
       return 0;
@@ -796,7 +827,7 @@ class AppState extends ChangeNotifier {
   /// 截图 / 小票 → 草稿（source screenshot）。
   Future<({List<Draft> drafts, String? error, String? modelUsed})> sayImage(List<int> bytes, String mime, {String hint = ''}) async {
     final v = vision;
-    if (v == null) return (drafts: const <Draft>[], error: '识别图片需要先配置模型（更多 → 模型与语音）', modelUsed: null);
+    if (v == null) return (drafts: const <Draft>[], error: settings.offlineMode ? '纯本地模式下不把图片发给模型（更多 → 隐私 可关掉）' : '识别图片需要先配置模型（更多 → 模型与语音）', modelUsed: null);
     try {
       final r = await v.interpret([ImageInput(bytes, mime)], context(), hint: hint);
       if (r.drafts.isEmpty) return (drafts: const <Draft>[], error: '图里没认出交易', modelUsed: r.modelUsed);

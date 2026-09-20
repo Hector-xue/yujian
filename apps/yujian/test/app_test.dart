@@ -327,7 +327,7 @@ void main() {
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
       await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'image'));
       final fake = _FakeVision({'content://shot/1': payJson, 'content://shot/2': noneJson});
-      st.vision = VisionInterpreter(fake);
+      st.shotVision = VisionInterpreter(fake);
       expect(await st.ingestScreenshots([shot(1), shot(2), shot(1)]), 1);
       final d = st.inbox.single;
       expect(d.source, Source.screenshot);
@@ -344,7 +344,7 @@ void main() {
       await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'image', automationMode: AutomationMode.silent));
       expect(await st.ingestScreenshots([shot(1)]), 0);
       expect(st.screenshotLog.single.detail, '没配置模型');
-      st.vision = VisionInterpreter(_FakeVision({'content://shot/1': payJson}));
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/1': payJson}));
       expect(await st.ingestScreenshots([shot(9)]), 0); // 图不在
       expect(st.screenshotLog.first.outcome, 'skipped');
       expect(await st.ingestScreenshots([shot(1)]), 1);
@@ -353,7 +353,7 @@ void main() {
       // 实时流：原生说「有新的」，Dart 自己去 drain
       await st.startScreenshots();
       src.images['content://shot/3'] = Uint8List.fromList([3]);
-      st.vision = VisionInterpreter(_FakeVision({'content://shot/3': payJson}));
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/3': payJson}));
       src.push(shot(3));
       await Future<void>.delayed(Duration.zero);
       await st.drainScreenshots(); // 排在流触发的那批后面，等它跑完
@@ -369,7 +369,7 @@ void main() {
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
       await st.saveSettings(const Settings(screenshotWanted: true)); // 默认 local
       final fake = _FakeVision({'content://shot/1': payJson});
-      st.vision = VisionInterpreter(fake);
+      st.shotVision = VisionInterpreter(fake);
       expect(await st.ingestScreenshots([shot(1), shot(2), shot(3)]), 1);
       expect(fake.lastSystem, isNull); // 模型一次都没被叫
       final d = st.inbox.single;
@@ -388,9 +388,9 @@ void main() {
       final st = AppState(Ledger(openLedgerDatabaseInMemory()), screenshots: src)..bootstrap();
       await st.saveSettings(const Settings(screenshotWanted: true, screenshotMode: 'text', baseUrl: 'https://x.example', model: 'm', apiKey: 'k'));
       final vision = _FakeVision({'content://shot/1': payJson});
-      st.vision = VisionInterpreter(vision);
+      st.shotVision = VisionInterpreter(vision);
       final text = _CapturingText();
-      st.interpreter = HybridInterpreter(rule: st.interpreter.rule, llm: LLMInterpreter(text));
+      st.shotLlm = LLMInterpreter(text);
       expect(await st.ingestScreenshots([shot(1)]), 1);
       expect(vision.lastSystem, isNull); // 视觉模型没被叫
       expect(text.lastUser, contains('拿铁'));

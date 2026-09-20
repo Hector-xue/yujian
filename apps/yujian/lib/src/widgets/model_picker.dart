@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:providers/providers.dart';
 
+import '../app_state.dart';
+import '../privacy/net_log.dart';
+
 /// 从端点拉模型列表让用户点选，省得手打错模型名（DeepSeek 这类名字和产品名对不上）。
 /// 返回选中的模型名；拿不到列表 / 用户取消返回 null（提示已经弹过）。
 Future<String?> pickModelFromEndpoint(BuildContext context, {required String baseUrl, required String apiKey, required String providerType, required String current}) async {
@@ -9,9 +12,15 @@ Future<String?> pickModelFromEndpoint(BuildContext context, {required String bas
     messenger.showSnackBar(const SnackBar(content: Text('先填 Base URL')));
     return null;
   }
+  final app = AppScope.maybeOf(context);
+  if (app?.settings.offlineMode == true) {
+    messenger.showSnackBar(const SnackBar(content: Text('纯本地模式下不联网。手填模型名，或到「更多 → 隐私」先关掉纯本地模式')));
+    return null;
+  }
   List<String> ids;
   try {
-    ids = await listModels(ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), model: '-'));
+    Future<List<String>> go() => listModels(ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), model: '-'));
+    ids = await (app == null ? go() : app.netLog.track(go, kind: 'models', purpose: 'list', host: hostOf(baseUrl), countOf: (r) => r.length));
   } on ProviderException catch (e) {
     messenger.showSnackBar(SnackBar(content: Text('拿不到模型列表：${e.message}。手填模型名也行')));
     return null;

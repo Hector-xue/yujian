@@ -33,12 +33,13 @@ class _SyncPageState extends State<SyncPage> {
     await app.saveSettings(app.settings.copyWith(syncUrl: url.text.trim(), syncToken: token.text.trim(), backupPassphrase: passphrase.text));
   }
 
-  Future<void> _run(String label, Future<String> Function(SyncClient c) f) async {
+  /// [purpose] 进出网记录：ping / sync / backup / restore。
+  Future<void> _run(String label, String purpose, Future<String> Function(SyncClient c) f) async {
     final app = AppScope.of(context);
     await _save();
     final c = app.sync;
     if (c == null) {
-      setState(() => status = '先填服务器地址和 token');
+      setState(() => status = app.settings.offlineMode ? '纯本地模式已开，不同步（更多 → 隐私 可关掉）' : '先填服务器地址和 token');
       return;
     }
     setState(() {
@@ -46,7 +47,7 @@ class _SyncPageState extends State<SyncPage> {
       status = '$label…';
     });
     try {
-      final r = await f(c);
+      final r = await app.trackSync(purpose, () => f(c));
       if (mounted) setState(() => status = r);
     } on SyncException catch (e) {
       if (mounted) setState(() => status = '$label失败：${e.message}');
@@ -69,7 +70,7 @@ class _SyncPageState extends State<SyncPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('自托管 Yujian Server（仓库 server/ 目录，Docker 一键起）。它只存变更日志和加密后的备份，看不到你的账本。不配也完全能用。', style: theme.textTheme.bodySmall),
+          Text('自托管 Yujian Server（仓库 server/ 目录，Docker 一键起）。它只存变更日志和加密后的备份，看不到你的账本。不配也完全能用。${app.settings.offlineMode ? '\n\n纯本地模式已开：配置保留，但不会同步、不会上传，直到你关掉它。' : ''}', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
           TextField(controller: url, decoration: const InputDecoration(labelText: '服务器地址', hintText: 'https://yujian.example.com'), keyboardType: TextInputType.url),
           const SizedBox(height: 12),
@@ -78,14 +79,14 @@ class _SyncPageState extends State<SyncPage> {
           Row(
             children: [
               OutlinedButton(
-                onPressed: busy ? null : () => _run('测试连接', (c) async => await c.ping() ? '连上了' : '连不上（地址不对或服务没起）'),
+                onPressed: busy ? null : () => _run('测试连接', 'ping', (c) async => await c.ping() ? '连上了' : '连不上（地址不对或服务没起）'),
                 child: const Text('测试连接'),
               ),
               const SizedBox(width: 12),
               FilledButton(
                 onPressed: busy
                     ? null
-                    : () => _run('同步', (c) async {
+                    : () => _run('同步', 'sync', (c) async {
                           final r = await c.sync();
                           app.touch();
                           return '同步完成：$r';
@@ -110,7 +111,7 @@ class _SyncPageState extends State<SyncPage> {
               OutlinedButton(
                 onPressed: busy
                     ? null
-                    : () => _run('上传备份', (c) async {
+                    : () => _run('上传备份', 'backup', (c) async {
                           if (passphrase.text.length < 6) throw SyncException('口令至少 6 位');
                           final i = await c.uploadBackup(passphrase.text);
                           return '已上传 ${(i.size / 1024).toStringAsFixed(1)} KB';
@@ -136,7 +137,7 @@ class _SyncPageState extends State<SyncPage> {
                           ),
                         );
                         if (ok != true) return;
-                        await _run('恢复', (c) async {
+                        await _run('恢复', 'restore', (c) async {
                           final restored = await c.restoreBackup(passphrase.text);
                           app.touch();
                           return '已恢复 $restored 笔交易';

@@ -6,6 +6,7 @@ import '../settings_store.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/learn_template_sheet.dart';
+import 'automation_guide_page.dart';
 
 /// 自动记账（§11）：通知监听开关、三种模式、自动入账日志、模板试验。
 class AutomationPage extends StatefulWidget {
@@ -206,6 +207,22 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
     );
   }
 
+  /// 系统弹危险权限警告之前先把实话说在前面；返回是否继续去系统设置。
+  Future<bool> _reassure(BuildContext context, String title, String body) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(title, style: Theme.of(d).textTheme.titleMedium),
+        content: Text(body),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('先不开')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('去系统设置')),
+        ],
+      ),
+    );
+    return r ?? false;
+  }
+
   static IconData _logIcon(Map e) => switch (e['what']) {
         'enqueued' => Icons.check_circle_outline,
         'connected' => Icons.link,
@@ -298,6 +315,16 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
           Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」认。三条默认都只在本机处理、不上传；截图那条可以自己选要不要借助模型。关掉随时生效。', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 6),
+          GlassCard(
+            child: ListTile(
+              leading: Icon(Icons.menu_book_outlined, color: theme.colorScheme.primary),
+              title: const Text('设置教程'),
+              subtitle: Text('去哪开权限、开哪些、系统弹「完全控制 / 读取所有通知」警告是什么意思、国产系统怎么保活', style: theme.textTheme.bodySmall),
+              trailing: Icon(Icons.chevron_right, color: YujianColors.of(context).muted),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AutomationGuidePage())),
+            ),
+          ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -316,7 +343,11 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 : (v) async {
                     await app.saveSettings(s.copyWith(screenWanted: v));
                     await app.notifications.setScreenWanted(v);
-                    if (v && screenEnabled != true) await app.notifications.openScreenSettings();
+                    if (v && screenEnabled != true) {
+                      if (!context.mounted) return;
+                      final go = await _reassure(context, '接下来系统会警告「允许余见拥有对您设备的完全控制权？可以查看和控制屏幕」', '这是 Android 对所有申请无障碍权限的 App 的统一措辞。余见的服务只在微信、支付宝、淘宝、京东、美团等名单内的 App 出现「支付成功」那一刻读一次金额和商户，不点任何东西，不看别的 App。余见没有自己的服务器，读到的内容不出手机。');
+                      if (go) await app.notifications.openScreenSettings();
+                    }
                     if (v) await app.startNotifications();
                     _refresh();
                   },
@@ -346,7 +377,11 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                 ? null
                 : (v) async {
                     await app.saveSettings(s.copyWith(notificationsWanted: v));
-                    if (v && systemEnabled != true) await app.notifications.openSettings();
+                    if (v && systemEnabled != true) {
+                      if (!context.mounted) return;
+                      final go = await _reassure(context, '接下来系统会警告「此应用将能读取所有通知，包括联系人姓名、照片和消息内容」', '这是 Android 对所有申请通知使用权的 App 的统一措辞。余见拿到通知只做一件事：和支付类模板比对——像支付的留下金额、方向、商户，不像的当场丢掉，不存、不发。余见没有自己的服务器，任何通知内容都不出手机。');
+                      if (go) await app.notifications.openSettings();
+                    }
                     if (v) await app.startNotifications();
                     _refresh();
                   },
@@ -366,7 +401,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
             subtitle: Text(
               !supported
                   ? '仅 Android 支持'
-                  : s.screenshotMode == 'image' && !app.hasModel
+                  : s.effectiveScreenshotMode == 'image' && !app.hasModel
                       ? '「发原图」需要先配置一个能看图的模型（更多 → 模型与语音），或者把下面改成「仅本机」'
                       : shotStatus?.partial == true
                           ? '相册权限只给了「部分照片」，看不到新截图：到应用信息页改成「允许全部」'
@@ -376,7 +411,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               style: theme.textTheme.bodySmall,
             ),
             value: s.screenshotWanted,
-            onChanged: !supported || (s.screenshotMode == 'image' && !app.hasModel)
+            onChanged: !supported || (s.effectiveScreenshotMode == 'image' && !app.hasModel)
                 ? null
                 : (v) async {
                     final messenger = ScaffoldMessenger.of(context);
@@ -392,6 +427,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
             ),
           if (supported) ...[
             Padding(padding: const EdgeInsets.fromLTRB(0, 6, 0, 2), child: Text('截图怎么认', style: theme.textTheme.labelLarge)),
+            if (s.offlineMode) Text('纯本地模式已开：不管下面选哪档，都只在本机认（更多 → 隐私 可关掉）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
             RadioGroup<String>(
               groupValue: s.screenshotMode,
               onChanged: (v) => app.saveSettings(s.copyWith(screenshotMode: v)),

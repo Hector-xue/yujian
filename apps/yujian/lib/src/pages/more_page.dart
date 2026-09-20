@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../db/open_db.dart';
@@ -9,18 +8,20 @@ import '../version.dart';
 import 'accounts_page.dart';
 import 'ai_page.dart';
 import 'appearance_page.dart';
+import 'audit_page.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
 import 'persona_page.dart';
+import 'privacy_page.dart';
 import 'recurring_page.dart';
 import 'stats_page.dart';
 import 'sync_page.dart';
 import 'widgets_page.dart';
 
-/// 更多：按「记账 / 自动化 / AI / 外观 / 数据 / 关于」分组，每组一张卡。模型相关只留一个入口（模型与语音）。
+/// 更多：按「记账 / 自动化 / AI / 隐私 / 外观 / 数据 / 关于」分组，每组一张卡。模型相关只留一个入口（模型与语音）。
 class MorePage extends StatelessWidget {
   const MorePage({super.key});
 
@@ -57,8 +58,12 @@ class MorePage extends StatelessWidget {
         );
 
     final s = app.settings;
-    final modelLine = app.hasModel ? '${s.model}${(s.visionModel ?? '').isNotEmpty ? ' · 看图 ${s.visionModel}' : ''}' : '未配置，用规则解析';
-    final voiceLine = switch (s.speechEngine) { 'doubao' => '豆包语音', 'minimax' => 'MiniMax', 'cloud' => '云端 ${s.speechModel ?? ''}', 'omni' => '主模型自带语音', _ => '系统朗读' };
+    final modelLine = s.offlineMode
+        ? '纯本地模式，不调模型'
+        : app.hasModel
+            ? '${s.model}${(s.visionModel ?? '').isNotEmpty ? ' · 看图 ${s.visionModel}' : ''}'
+            : '未配置，用规则解析';
+    final voiceLine = switch (s.effectiveSpeechEngine) { 'doubao' => '豆包语音', 'minimax' => 'MiniMax', 'cloud' => '云端 ${s.speechModel ?? ''}', 'omni' => '主模型自带语音', _ => '系统朗读' };
     final upd = app.availableUpdate;
 
     return Scaffold(
@@ -82,13 +87,22 @@ class MorePage extends StatelessWidget {
             item(Icons.tune, '模型与语音', subtitle: '$modelLine · $voiceLine', onTap: () => go(const AiPage())),
             item(Icons.face_outlined, '人格与角色', subtitle: app.persona.name, onTap: () => go(const PersonaPage())),
           ]),
+          group('隐私', [
+            item(
+              Icons.shield_outlined,
+              '隐私',
+              subtitle: s.offlineMode ? '纯本地模式已开 · 无任何数据出手机' : '纯本地模式 · 出网记录 · 隐私声明 · 权限教程',
+              trailing: s.offlineMode ? Icon(Icons.lock_outline, color: theme.colorScheme.primary) : null,
+              onTap: () => go(const PrivacyPage()),
+            ),
+          ]),
           group('外观', [
             item(Icons.palette_outlined, '主题', subtitle: themeById(s.themeId).name, onTap: () => go(const AppearancePage())),
           ]),
           group('数据', [
             item(Icons.import_export, '导出 / 备份 / 导入', onTap: () => go(const DataPage())),
             item(Icons.sync_outlined, '同步与云备份', subtitle: s.syncConfigured ? '已配置' : '未配置', onTap: () => go(const SyncPage())),
-            item(Icons.history, '审计日志', onTap: () => go(const _AuditPage())),
+            item(Icons.history, '审计日志', subtitle: '账本每一次改动', onTap: () => go(const AuditPage())),
           ]),
           group('关于', [
             item(
@@ -117,31 +131,6 @@ class MorePage extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.countTransactions()} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AuditPage extends StatelessWidget {
-  const _AuditPage();
-  @override
-  Widget build(BuildContext context) {
-    final app = AppScope.of(context);
-    final theme = Theme.of(context);
-    final log = app.ledger.auditLog(limit: 200);
-    return Scaffold(
-      appBar: AppBar(title: const Text('审计日志')),
-      body: ListView(
-        children: [
-          for (final e in log)
-            ListTile(
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              title: Text('${e.action}${e.confirmedByUser ? ' ✓' : ''}'),
-              subtitle:
-                  Text('${e.at.toLocal().toIso8601String().substring(0, 19).replaceAll('T', ' ')} · ${e.actor.db}${e.modelUsed != null ? ' · ${e.modelUsed}' : ''}', style: theme.textTheme.bodySmall),
-            ),
         ],
       ),
     );

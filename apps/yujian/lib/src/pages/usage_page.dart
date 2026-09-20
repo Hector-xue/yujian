@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../theme.dart';
 import '../usage/usage_meter.dart';
+import 'net_log_page.dart';
 
 String fmtTokens(int n) {
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(2)}M';
@@ -11,8 +12,15 @@ String fmtTokens(int n) {
 }
 
 /// 用量与花费：本月 / 累计 token 数，按模型分，按厂商标价估算金额；不认识的模型让用户填单价。
-class UsagePage extends StatelessWidget {
+/// 「逐条记录」标签切到出网记录：哪个时间、用了哪个模型、多少 token、大白话解释发了什么。
+class UsagePage extends StatefulWidget {
   const UsagePage({super.key});
+  @override
+  State<UsagePage> createState() => _UsagePageState();
+}
+
+class _UsagePageState extends State<UsagePage> {
+  var tab = 'stats';
 
   Future<void> _editPrice(BuildContext context, AppState app, String model) async {
     final cur = app.usage.priceOf(model);
@@ -52,7 +60,7 @@ class UsagePage extends StatelessWidget {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     return ListenableBuilder(
-      listenable: app.usage,
+      listenable: Listenable.merge([app.usage, app.netLog]),
       builder: (context, _) {
         final n = DateTime.now();
         final month = app.usage.summary(from: DateTime(n.year, n.month, 1));
@@ -76,7 +84,7 @@ class UsagePage extends StatelessWidget {
             );
         return Scaffold(
           appBar: AppBar(title: const Text('用量与花费'), actions: [
-            if (all.calls > 0)
+            if (tab == 'stats' && all.calls > 0)
               IconButton(
                 tooltip: '清零',
                 icon: const Icon(Icons.delete_sweep_outlined),
@@ -94,8 +102,25 @@ class UsagePage extends StatelessWidget {
               ),
           ]),
           body: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+            padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
             children: [
+              Center(
+                child: SegmentedButton<String>(
+                  segments: const [ButtonSegment(value: 'stats', label: Text('统计')), ButtonSegment(value: 'log', label: Text('逐条记录'))],
+                  selected: {tab},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (v) => setState(() => tab = v.first),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (tab == 'log') ...[
+                Text('每一次模型调用、语音合成 / 转写、同步、版本检查都在这里一行；点一条看大白话解释——发了什么、发给谁、为什么。没有记录就是没有发生过通信。', style: theme.textTheme.bodySmall),
+                const SizedBox(height: 8),
+                if (app.netLog.events.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text('还没有任何出网记录。', style: theme.textTheme.bodySmall)),
+                for (final e in app.netLog.events.take(200)) NetEventTile(e),
+                if (app.netLog.events.length > 200)
+                  Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const NetLogPage())), child: Text('看全部 ${app.netLog.events.length} 条'))),
+              ] else ...[
               Row(children: [stat('本月', month), const SizedBox(width: 10), stat('累计', all)]),
               const SizedBox(height: 8),
               Text('金额按各家官网标价估算（DeepSeek 取高峰价，非高峰减半、缓存命中更便宜），实际以平台账单为准。标 +? 的表示有模型单价不明，点它填单价。', style: theme.textTheme.bodySmall),
@@ -115,6 +140,7 @@ class UsagePage extends StatelessWidget {
                   onTap: () => _editPrice(context, app, m.model),
                 ),
               if (all.byModel.isNotEmpty) Text('点一行可以改单价', style: theme.textTheme.bodySmall),
+              ],
             ],
           ),
         );
