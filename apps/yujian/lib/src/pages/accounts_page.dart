@@ -57,7 +57,7 @@ class AccountsPage extends StatelessWidget {
     final name = TextEditingController(text: a.name);
     final initial = TextEditingController(text: Money(a.initialBalanceMinor, a.currency).toDecimalString());
     var type = a.type;
-    final hasPostings = app.ledger.listTransactions(accountId: a.id, limit: 1).isNotEmpty;
+    final hasPostings = app.ledger.accountPostingCount(a.id) > 0;
     final result = await showDialog<String>(
       context: context,
       builder: (d) => StatefulBuilder(
@@ -79,9 +79,19 @@ class AccountsPage extends StatelessWidget {
                   controller: initial,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                   decoration: InputDecoration(labelText: '期初余额（${a.currency}）', helperText: hasPostings ? '币种已有交易，不能改' : null)),
+              if (hasPostings) ...[
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: Text('已有交易的账户只能归档，删了历史就对不上。', style: Theme.of(d).textTheme.bodySmall)),
+              ],
             ],
           ),
           actions: [
+            if (!hasPostings)
+              TextButton(
+                onPressed: () => Navigator.pop(d, 'delete'),
+                style: TextButton.styleFrom(foregroundColor: Theme.of(d).colorScheme.error),
+                child: const Text('删除'),
+              ),
             TextButton(onPressed: () => Navigator.pop(d, a.isArchived ? 'unarchive' : 'archive'), child: Text(a.isArchived ? '恢复' : '归档')),
             TextButton(onPressed: () => Navigator.pop(d, null), child: const Text('取消')),
             FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: const Text('保存')),
@@ -96,6 +106,21 @@ class AccountsPage extends StatelessWidget {
           app.ledger.archiveAccount(a.id);
         case 'unarchive':
           app.ledger.unarchiveAccount(a.id);
+        case 'delete':
+          final sure = await showDialog<bool>(
+            context: context,
+            builder: (dlg) => AlertDialog(
+              title: Text('删除账户「${a.name}」？'),
+              content: const Text('这个账户没有任何交易记录，删了就没了。'),
+              actions: [TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(dlg, true), child: const Text('删除'))],
+            ),
+          );
+          if (sure != true || !context.mounted) return;
+          if (Debts.isLiability(a.type)) {
+            app.removeDebt(a.id); // 负债账户连还款提醒和还清目标一起清，否则目标还挂着它删不掉
+          } else {
+            app.deleteAccount(a.id);
+          }
         case 'save':
           app.ledger.updateAccount(a.id, name: name.text.trim(), type: type, initialBalanceMinor: Money.parse(initial.text.trim().isEmpty ? '0' : initial.text.trim(), a.currency).minor);
       }
