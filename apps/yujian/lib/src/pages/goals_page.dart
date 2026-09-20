@@ -49,10 +49,10 @@ class GoalsPage extends StatelessWidget {
                               ),
                           ]),
                         ),
-                  onReorder: (from, to) {
+                  onReorderItem: (from, to) {
                     final ids = goals.map((p) => p.goal.id).toList();
                     final id = ids.removeAt(from);
-                    ids.insert(to > from ? to - 1 : to, id);
+                    ids.insert(to, id);
                     app.game.reorderGoals(ids);
                   },
                   children: [for (final p in goals) GoalCard(key: ValueKey(p.goal.id), progress: p)],

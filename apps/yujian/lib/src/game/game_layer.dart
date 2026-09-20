@@ -66,6 +66,9 @@ class GameLayer extends ChangeNotifier {
   bool _dirty = true;
   bool _scheduled = false;
 
+  String get _today => todayLocal();
+  String get thisWeek => TaskStore.weekOf(_today);
+
   // ---------------------------------------------------------------- 开关
 
   /// 表达层总开关：可花的 / 今天还能花 / 等级 / 代价行 / 仪式 / 成就。目标本身不受它管。

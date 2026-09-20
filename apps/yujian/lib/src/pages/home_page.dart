@@ -20,7 +20,6 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    final y = YujianColors.of(context);
     final now = DateTime.now();
     final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
     final last = DateTime(now.year, now.month + 1, 0).day;
