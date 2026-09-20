@@ -188,7 +188,9 @@ class LedgerTools {
           'spend_basis': m.spendBasis.name,
           'runway_months': m.runwayMonths == null ? null : double.parse(m.runwayMonths!.toStringAsFixed(2)),
           'level': m.level?.name,
-          'title': m.level?.title,
+          'title': m.title, // 净资产为负时是负翁档（按欠款分），否则是等级称号
+          'debt_tier': m.debtTier?.title,
+          'to_lighter_debt_tier': m.toLighterDebtTierMinor == null ? null : y(m.toLighterDebtTierMinor!),
           'savings_rate': m.savingsRate == null ? null : double.parse(m.savingsRate!.toStringAsFixed(3)),
           'net_worth': y(m.netWorthMinor),
           'assets': y(m.assetsMinor),

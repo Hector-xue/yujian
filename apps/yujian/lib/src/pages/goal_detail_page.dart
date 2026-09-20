@@ -44,6 +44,20 @@ class GoalDetailPage extends StatelessWidget {
                   app.ledger.goals.update(g.id, status: GoalStatus.active);
                   app.touch();
                   return;
+                } else if (v == 'delete') {
+                  // 删 ≠ 归档：目标从列表里消失、不进「已归档」。锁仓里的钱先回来源；锁仓账户没记录真删、存过钱归档（历史对得上）
+                  final saved = g.isVirtualVault ? p.savedMinor : 0;
+                  final ok = await _confirm(
+                    context,
+                    '删除这个目标？',
+                    [
+                      if (saved > 0) '锁仓里的 ${fmtMoney(saved, g.currency)} 会先释放回来源账户。',
+                      if (g.kind == GoalKind.payoff) '只删还清目标，负债本身还在（要一起删去「负债」页）。',
+                      g.isVirtualVault && deposits.isNotEmpty ? '存入记录留着（锁仓账户归档），目标本身删掉，不进「已归档」。' : '删了就没了，不进「已归档」。',
+                    ].join(''),
+                  );
+                  if (!ok) return;
+                  await app.game.deleteGoal(g);
                 }
                 if (nav.canPop()) nav.pop();
               },
@@ -51,6 +65,7 @@ class GoalDetailPage extends StatelessWidget {
                 if (active) const PopupMenuItem(value: 'complete', child: Text('标记达成')),
                 if (active) const PopupMenuItem(value: 'archive', child: Text('归档')),
                 if (!active) const PopupMenuItem(value: 'reactivate', child: Text('重新开始')),
+                const PopupMenuItem(value: 'delete', child: Text('删除')),
               ],
             ),
           ]),
