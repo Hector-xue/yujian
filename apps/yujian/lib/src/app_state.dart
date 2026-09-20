@@ -923,6 +923,7 @@ class AppState extends ChangeNotifier {
     final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
     final t = ledger.commit(d.id);
     notifyListeners();
+    unawaited(game.onIncomeCommitted(t)); // 手动记的工资也触发发薪日仪式
     return t;
   }
 

@@ -136,7 +136,7 @@ void main() {
     });
 
     testWidgets('goals / wealth / tasks pages render; goal form creates a goal', (tester) async {
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: AppScope(state: state, child: const GoalsPage())));
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const GoalsPage())));
       await tester.pumpAndSettle();
       expect(find.text('建第一个目标'), findsOneWidget);
       await tester.tap(find.text('新目标'));
@@ -149,13 +149,13 @@ void main() {
       expect(state.game.goals.single.targetMinor, 699900);
       expect(find.text('换手机'), findsWidgets);
 
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: AppScope(state: state, child: const WealthPage())));
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const WealthPage())));
       await tester.pumpAndSettle();
       expect(find.text('等级'), findsOneWidget);
       expect(find.text('财富游戏'), findsOneWidget);
       expect(find.text('第一个目标'), findsOneWidget); // 成就已解锁的 chip
 
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: AppScope(state: state, child: const TasksPage())));
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const TasksPage())));
       await tester.pumpAndSettle();
       expect(find.text('周任务'), findsOneWidget);
     });
