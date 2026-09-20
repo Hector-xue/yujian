@@ -143,6 +143,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('📱 换手机'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('建好')); // 测试屏 800×600，按钮在折叠线下
+      await tester.pumpAndSettle();
       await tester.tap(find.text('建好'));
       await tester.pumpAndSettle();
       expect(state.game.goals.single.goal.name, '换手机');
