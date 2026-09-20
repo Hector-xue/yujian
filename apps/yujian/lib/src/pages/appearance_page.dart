@@ -126,7 +126,13 @@ class _ThemeCard extends StatelessWidget {
                   Container(
                     height: 34,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(color: y.cardFill, borderRadius: BorderRadius.circular(y.radius / 2), border: Border.all(color: y.cardBorder, width: spec.id == 'cartoon' ? 1.5 : 0.6)),
+                    // 实色主题把自己的描边 / 投影也画出来（硬影、双向光影一眼能认）；玻璃主题只画底色 + 细边
+                    decoration: BoxDecoration(
+                      color: y.cardFill,
+                      borderRadius: BorderRadius.circular(y.radius / 2),
+                      border: y.borderWidth > 0 || spec.id == 'cartoon' ? Border.all(color: y.cardBorder, width: spec.id == 'cartoon' ? 1.5 : y.borderWidth) : null,
+                      boxShadow: y.glass ? null : (y.shadows ?? const []).map((b) => b.scale(0.6)).toList(),
+                    ),
                     alignment: Alignment.centerLeft,
                     child: Text('¥ 1,280', style: t.textTheme.titleMedium?.copyWith(color: y.balance, fontSize: 13)),
                   ),

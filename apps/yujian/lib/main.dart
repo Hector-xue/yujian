@@ -8,6 +8,7 @@ import 'src/db/open_db.dart';
 import 'src/dock_host.dart';
 import 'src/glass.dart';
 import 'src/pages/chat_page.dart';
+import 'src/pages/goals_page.dart';
 import 'src/pages/home_page.dart';
 import 'src/pages/inbox_page.dart';
 import 'src/pages/more_page.dart';
@@ -169,10 +170,11 @@ class _ShellState extends State<Shell> {
     }
     final share = app.pendingShare;
     if (share != null && share.kind == 'route') {
-      // 快捷方式 / 小部件进来的跳转：只切页，不进对话
+      // 快捷方式 / 小部件进来的跳转：只切页，不进对话；「目标」小部件点进来先回首页再推目标页
       app.takeShare();
       final target = switch (share.text) { 'chat' => chatIndex, 'inbox' => 1, 'records' => 3, 'more' => 4, _ => 0 };
       if (target != dockController.tab) WidgetsBinding.instance.addPostFrameCallback((_) => dockController.tab = target);
+      if (share.text == 'goals') WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GoalsPage())));
     } else if (share != null && dockController.tab != chatIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) => dockController.tab = chatIndex);
     }
@@ -184,21 +186,28 @@ class _ShellState extends State<Shell> {
       const MorePage(),
     ];
     // 底栏是 Navigator 外面的悬浮胶囊，页面从它下面滑过；各页列表底部按 MediaQuery.padding.bottom 留位，这里把胶囊的高度加进去。
-    // 必须用 Scaffold 体内的 MediaQuery 改（Builder）：外层的还带着键盘 viewInsets，塞回体内会让里面的 Scaffold 再让一次键盘高度，
-    // 对话页的输入框就被顶到屏幕上半截。
     // 留位随键盘连续变化：页面底边 = max(键盘顶, 胶囊顶)。以前是"键盘在就不留位"的开关——键盘收起时输入框先跟着键盘掉到胶囊底下、
-    // 到底了再跳回胶囊上面，看起来就是闪一下
+    // 到底了再跳回胶囊上面，看起来就是闪一下。
+    // 这一层不再套 Scaffold：五个标签页各自是 Scaffold（键盘让位它们自己做）；外面再包一个的话 SnackBar 会在两层 Scaffold 上各画一份，
+    // 外层那份贴屏幕底、藏在胶囊下面，磨砂把它的颜色透出来（「大胶囊变色」就是它）。
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
-    final dockTop = dockTotalHeight(context); // 外层 context：viewPadding 不受键盘影响
-    return Scaffold(
-      body: Builder(builder: (ctx) {
-        final mq = MediaQuery.of(ctx);
-        final extra = (dockTop - keyboard).clamp(0.0, dockTop);
-        return MediaQuery(
-          data: mq.copyWith(padding: mq.padding.copyWith(bottom: extra > mq.padding.bottom ? extra : mq.padding.bottom)),
+    final dockTop = dockTotalHeight(context); // viewPadding 不受键盘影响
+    final theme = Theme.of(context);
+    return Builder(builder: (ctx) {
+      final mq = MediaQuery.of(ctx);
+      final extra = (dockTop - keyboard).clamp(0.0, dockTop);
+      // 标签页里弹的 SnackBar 抬到胶囊上面：悬浮式 SnackBar 只认 insetPadding、不认 MediaQuery.padding，
+      // 而 Scaffold 没键盘时已经替它让过底部安全区（有键盘时让的是键盘），这里别再让一次
+      final safe = keyboard > 0 ? 0.0 : mq.viewPadding.bottom;
+      final snackInset = (extra + 10 - safe).clamp(10.0, double.infinity);
+      return MediaQuery(
+        data: mq.copyWith(padding: mq.padding.copyWith(bottom: extra > mq.padding.bottom ? extra : mq.padding.bottom)),
+        // 子页盖上来时胶囊已滑走，子页不在这层里，不受影响
+        child: Theme(
+          data: theme.copyWith(snackBarTheme: theme.snackBarTheme.copyWith(insetPadding: EdgeInsets.fromLTRB(15, 5, 15, snackInset))),
           child: ListenableBuilder(listenable: dockController, builder: (_, _) => IndexedStack(index: dockController.tab, children: pages)),
-        );
-      }),
-    );
+        ),
+      );
+    });
   }
 }

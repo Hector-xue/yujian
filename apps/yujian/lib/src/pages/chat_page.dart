@@ -638,12 +638,13 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickImage() async {
     final app = AppScope.of(context);
-    if (app.vision == null) {
-      // 没配模型就别先开相册再报错：直接指路
+    // 没有视觉模型（纯本地模式 / 没配）：Android 走本机 OCR + 规则（图不出手机）；别的平台没本机识别，直接指路，别先开相册再报错
+    final local = app.vision == null;
+    if (local && !app.screenshots.supported) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: const Text('识别截图需要先配置模型'),
+          content: Text(app.settings.offlineMode ? '纯本地模式下不把图片发给模型，这个平台也没有本机识别' : '识别截图需要先配置模型'),
           action: SnackBarAction(label: '去配置', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AiPage()))),
         ));
       return;
@@ -657,7 +658,7 @@ class _ChatPageState extends State<ChatPage> {
       _msgs.add(_ImageMsg(name: x.name, path: path, bytes: bytes));
       _busy = true;
     });
-    final r = await app.sayImage(bytes, x.mimeType ?? 'image/jpeg');
+    final r = local ? (await app.sayImageLocally(x.path)) ?? await app.sayImage(bytes, x.mimeType ?? 'image/jpeg') : await app.sayImage(bytes, x.mimeType ?? 'image/jpeg');
     if (!mounted) return;
     setState(() {
       _busy = false;

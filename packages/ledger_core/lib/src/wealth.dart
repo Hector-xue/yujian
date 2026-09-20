@@ -1,6 +1,8 @@
+import 'debts.dart';
 import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
+import 'money.dart';
 import 'models/transaction.dart';
 
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
@@ -35,28 +37,37 @@ class WealthLevel {
   WealthLevel? get next => index + 1 < levels.length ? levels[index + 1] : null;
 }
 
+/// 「月支出」是按什么估的：手填 > 历史整月均值 > 近 31 天收入（先按月光算）> 本月按天外推 > 周期账单合计 > 没数据。
+/// 目的：用户录完第一批账就能有等级 / 称号，不用等记满一个月；财富页把依据写出来。
+enum SpendBasis { manual, history, thisMonth, recurring, income, none }
+
 /// 财富指标：全部从账本推导，不落库。每个字段都能在财富页解释「怎么来的」。
 class WealthMetrics {
   final String today;
   final String currency;
   final int liquidMinor; // 流动资产：cash + bank + e_wallet + vault（正数部分）
   final int lockedMinor; // 各目标锁仓里的钱
-  final int fixedDueMinor; // 到发薪日前还要付的固定支出（周期账单里 next_due 在此之前的支出模板）
-  final int disposableMinor; // 可花的 = liquid − locked − fixedDue
+  final int fixedDueMinor; // 到发薪日前还要付的固定支出 + 还贷（周期账单里 next_due 在此之前的支出模板、转到贷款账户的转账模板）
+  final int cardOwedMinor; // 信用卡待还（刷了就扣，还卡时不再扣）
+  final int disposableMinor; // 可花的 = liquid − locked − fixedDue − cardOwed
   final String payday; // 下个发薪日 yyyy-MM-dd
   final String paydaySource; // profile | inferred | month_end
   final int daysToPayday; // ≥ 1
   final int spentTodayMinor;
-  final int dailyAllowanceMinor; // 今天还能花 = disposable ÷ daysToPayday − 今天已花（不为负）
-  final int monthlySpendAvgMinor; // 近 3 个月平均月支出（不足 3 个月按有的算）
-  final int monthsOfData; // 有支出记录的月数（≤ 3）
-  final double? runwayMonths; // 生存月数；没有月支出数据 = null
+  final int dailyAllowanceMinor; // 今天还能花 = disposable ÷ daysToPayday（可花的已经是扣掉今天支出之后的数，不再减一次）
+  final int monthlySpendAvgMinor; // 月支出基线（含每月还贷）；按 spendBasis 估
+  final SpendBasis spendBasis;
+  final int monthsOfData; // 有支出记录的整月数（≤ 3）
+  final double? runwayMonths; // 生存月数 = 流动资产 ÷ 月支出基线；没有任何依据 = null
   final WealthLevel? level;
   final int? toNextLevelMinor; // 升到下一级还差多少流动资产
   final int monthIncomeMinor;
   final int monthExpenseMinor;
   final double? savingsRate; // (收入 − 支出) / 收入；收入 0 = null
-  final int netWorthMinor; // 全部账户余额之和（信用卡 / 应付为负）
+  final int netWorthMinor; // 全部账户余额之和（信用卡 / 应付为负）= assets − debt
+  final int assetsMinor; // 正余额账户之和（含锁仓、投资）
+  final DebtTotals debt; // 贷款 / 信用卡 / 每月还款 合计
+  final int repaymentMonthlyMinor; // 每月要还的贷款（周期转账月度化），等级口径里算进月支出
   final Map<IncomeLine, int> incomeByLine; // 本月
   final List<Account> excludedForeign; // 币种不同没算进去的账户
 
@@ -66,6 +77,7 @@ class WealthMetrics {
     required this.liquidMinor,
     required this.lockedMinor,
     required this.fixedDueMinor,
+    required this.cardOwedMinor,
     required this.disposableMinor,
     required this.payday,
     required this.paydaySource,
@@ -73,6 +85,7 @@ class WealthMetrics {
     required this.spentTodayMinor,
     required this.dailyAllowanceMinor,
     required this.monthlySpendAvgMinor,
+    required this.spendBasis,
     required this.monthsOfData,
     required this.runwayMonths,
     required this.level,
@@ -81,9 +94,15 @@ class WealthMetrics {
     required this.monthExpenseMinor,
     required this.savingsRate,
     required this.netWorthMinor,
+    required this.assetsMinor,
+    required this.debt,
+    required this.repaymentMonthlyMinor,
     required this.incomeByLine,
     required this.excludedForeign,
   });
+
+  /// 净资产是负的（负债比资产多）。
+  bool get inDebt => netWorthMinor < 0;
 }
 
 /// 指标计算。调用方（App）在账本变更后算一次并缓存，页面只读缓存——别在 build 里调。
@@ -113,6 +132,8 @@ class Wealth {
     final foreign = <Account>[];
     var liquid = 0;
     var netWorth = 0;
+    var assets = 0;
+    var cardOwed = 0;
     for (final a in accounts) {
       if (a.currency != currency) {
         foreign.add(a);
@@ -120,55 +141,92 @@ class Wealth {
       }
       final b = ledger.balance(a.id).minor;
       netWorth += b;
+      if (b > 0) assets += b;
       if (_liquidTypes.contains(a.type) && b > 0) liquid += b;
+      if (a.type == AccountType.creditCard && b < 0) cardOwed += -b;
     }
     var locked = 0;
     for (final g in ledger.goals.list()) {
       if (g.currency == currency) locked += ledger.goals.savedMinor(g);
     }
+    final debts = ledger.debts;
+    final debtTotals = debts.totals(currency: currency);
 
     // 发薪日
     final (payday, source) = nextPayday(today: today);
     final pd = _parse(payday);
     final days = pd.difference(t).inDays.clamp(1, 366);
 
-    // 到发薪日前的固定支出：周期账单里的支出模板，next_due 落在 (today, payday]
+    // 到发薪日前要付的：支出模板 + 还贷转账模板，next_due 落在 [today, payday]
     var fixedDue = 0;
+    var recurringMonthly = 0; // 每月固定支出 + 还贷（月度化），本月外推时的下限
     for (final r in ledger.recurring.list()) {
       if (!r.isActive) continue;
-      if (r.template['type'] != 'expense') continue;
       if ((r.template['currency'] ?? currency) != currency) continue;
+      final isExpense = r.template['type'] == 'expense';
+      final isRepay = debts.isRepayment(r);
+      if (!isExpense && !isRepay) continue;
+      recurringMonthly += Debts.monthly(r);
       if (r.nextDue.compareTo(today) < 0 || r.nextDue.compareTo(payday) > 0) continue;
       fixedDue += ((r.template['amount_minor'] as num?)?.toInt() ?? 0);
     }
-    final disposable = liquid - locked - fixedDue;
+    final disposable = liquid - locked - fixedDue - cardOwed;
 
-    // 今天已花
+    // 今天已花（只是展示）；今天还能花 = 可花的 ÷ 到发薪日的天数——可花的来自余额，已经扣过今天的支出，不再减一次
     final spentToday = _expense(from: today, to: today, currency: currency);
-    final dailyRaw = disposable <= 0 ? 0 : (disposable / days).floor();
-    final daily = (dailyRaw - spentToday).clamp(0, 1 << 62);
+    final daily = disposable <= 0 ? 0 : (disposable / days).floor();
 
-    // 近 3 个月平均月支出（当月不算，不满一个月的数据不稳）
+    // 月支出基线：历史整月（近 3 个月，当月不算）
     var months = 0;
     var spendSum = 0;
     for (var i = 1; i <= 3; i++) {
       final m = DateTime.utc(t.year, t.month - i, 1);
       final last = DateTime.utc(m.year, m.month + 1, 0);
-      final s = _expense(from: _fmt(m), to: _fmt(last), currency: currency);
+      final s = _outflow(from: _fmt(m), to: _fmt(last), currency: currency);
       if (s > 0) {
         months++;
         spendSum += s;
       }
     }
-    final avg = months == 0 ? 0 : spendSum ~/ months;
-    final runway = avg == 0 ? null : liquid / avg;
-    final level = runway == null ? null : WealthLevel.of(runway);
-    int? toNext;
-    if (level?.next != null && avg > 0) toNext = ((level!.next!.minMonths * avg) - liquid).ceil().clamp(0, 1 << 62);
-
-    // 本月收入 / 支出 / 收入线
     final m0 = DateTime.utc(t.year, t.month, 1);
     final mEnd = DateTime.utc(t.year, t.month + 1, 0);
+    var basis = SpendBasis.none;
+    var baseline = 0;
+    final manual = profile.monthlyCostMinor;
+    if (manual != null) {
+      basis = SpendBasis.manual;
+      baseline = manual;
+    } else if (months > 0) {
+      basis = SpendBasis.history;
+      baseline = spendSum ~/ months;
+    } else {
+      // 近 31 天有收入：先按收入当月支出（月光算法）。第一个月只记了几笔支出就按天外推会得出「一个月花 96 块、够花 103 个月、人上人」
+      // 这种笑话；按收入估至少是个保守的整数。记满一个整月就换成真实均值，嫌不准可以手填
+      var recentIncome = 0;
+      for (final tx in _range(from: _fmt(t.subtract(const Duration(days: 30))), to: today, currency: currency)) {
+        if (tx.type == TransactionType.income) recentIncome += tx.amountMinor;
+      }
+      // 没收入记录：本月按天外推（至少 3 天才外推，1–2 天的数据太抖），周期账单合计当下限
+      final thisMonth = _outflow(from: _fmt(m0), to: today, currency: currency);
+      final elapsed = t.day;
+      final extrapolated = elapsed >= 3 && thisMonth > 0 ? (thisMonth * mEnd.day / elapsed).round() : 0;
+      if (recentIncome > 0) {
+        basis = SpendBasis.income;
+        baseline = recentIncome;
+      } else if (extrapolated > 0) {
+        basis = SpendBasis.thisMonth;
+        baseline = extrapolated > recurringMonthly ? extrapolated : recurringMonthly;
+      } else if (recurringMonthly > 0) {
+        basis = SpendBasis.recurring;
+        baseline = recurringMonthly;
+      }
+    }
+    final runway = baseline <= 0 ? null : liquid / baseline;
+    final level = runway == null ? null : WealthLevel.of(runway);
+    int? toNext;
+    if (level?.next != null && baseline > 0) toNext = ((level!.next!.minMonths * baseline) - liquid).ceil().clamp(0, maxMinor);
+
+    // 本月收入 / 支出 / 收入线
     final overrides = profile.incomeLines;
     final byLine = {for (final l in IncomeLine.values) l: 0};
     var income = 0;
@@ -188,13 +246,15 @@ class Wealth {
       liquidMinor: liquid,
       lockedMinor: locked,
       fixedDueMinor: fixedDue,
+      cardOwedMinor: cardOwed,
       disposableMinor: disposable,
       payday: payday,
       paydaySource: source,
       daysToPayday: days,
       spentTodayMinor: spentToday,
       dailyAllowanceMinor: daily,
-      monthlySpendAvgMinor: avg,
+      monthlySpendAvgMinor: baseline,
+      spendBasis: basis,
       monthsOfData: months,
       runwayMonths: runway,
       level: level,
@@ -203,6 +263,9 @@ class Wealth {
       monthExpenseMinor: expense,
       savingsRate: savingsRate,
       netWorthMinor: netWorth,
+      assetsMinor: assets,
+      debt: debtTotals,
+      repaymentMonthlyMinor: debtTotals.monthlyMinor,
       incomeByLine: byLine,
       excludedForeign: foreign,
     );
@@ -267,6 +330,21 @@ class Wealth {
     for (final tx in _range(from: from, to: to, currency: currency)) {
       if (tx.type == TransactionType.expense) sum += tx.amountMinor;
       if (tx.type == TransactionType.refund) sum -= tx.amountMinor;
+    }
+    return sum;
+  }
+
+  /// 一段日期内的现金流出 = 净支出 + 还贷（从流动账户转到贷款账户的转账）。等级的「月支出」按它算：
+  /// 房贷车贷每月真金白银出去了，生存月数不能装作没有。信用卡还款不算（刷卡消费已经是支出，再算一次就重了）。
+  int _outflow({required String from, required String to, required String currency}) {
+    var sum = _expense(from: from, to: to, currency: currency);
+    for (final tx in _range(from: from, to: to, currency: currency)) {
+      if (tx.type != TransactionType.transfer) continue;
+      final toA = ledger.account(tx.toAccountId ?? '');
+      if (toA == null || toA.type != AccountType.payable) continue;
+      final fromA = ledger.account(tx.accountId);
+      if (fromA != null && !_liquidTypes.contains(fromA.type)) continue;
+      sum += tx.amountMinor;
     }
     return sum;
   }

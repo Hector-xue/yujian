@@ -322,6 +322,18 @@ class AppState extends ChangeNotifier {
       }
       fill(expByDay, engine.run(QueryDsl(timeRange: DateRange(from, to), groupBy: GroupBy.day, limit: 62)).rows);
       fill(incByDay, engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to), groupBy: GroupBy.day, limit: 62)).rows);
+      // 4×2 目标小部件：可花的 + 前 3 个目标（还清了的还清目标不占位，和首页目标条同一个过滤）
+      final m = game.enabled ? game.metrics : null;
+      final goalRows = [
+        for (final p in game.goals.where((p) => p.goal.kind != GoalKind.payoff || !p.reached).take(3))
+          {
+            'e': p.goal.emoji ?? '🎯',
+            'n': p.goal.name,
+            'p': (p.ratio * 100).round(),
+            't': p.reached ? (p.goal.kind == GoalKind.payoff ? '还清了' : '攒够了') : '${p.goal.kind == GoalKind.payoff ? '还欠' : '还差'} ${fmtMoney(p.remainingMinor, p.goal.currency)}',
+            'd': p.reached,
+          },
+      ];
       await w.update(
         balance: fmtMoney(balance, 'CNY'),
         expense: fmtMoney(expense, 'CNY'),
@@ -333,7 +345,9 @@ class AppState extends ChangeNotifier {
         calExp: expByDay.join(','),
         calInc: incByDay.join(','),
         // 称号跟首页同一来源（游戏层关着 = 首页不显示 = 小部件也不显示）
-        title: game.enabled ? (game.metrics?.level?.title ?? '') : '',
+        title: m?.level?.title ?? '',
+        disposable: m == null ? fmtMoney(balance, 'CNY') : fmtMoney(m.disposableMinor, 'CNY'),
+        goals: game.enabled ? jsonEncode(goalRows) : '[]',
       );
     } catch (_) {}
   }
@@ -593,25 +607,8 @@ class AppState extends ChangeNotifier {
     }
     // 本地够硬就直接起草；「发文字」档下证据弱的（没标签、没 ¥ 的裸数字）交给模型再看一眼
     if (shot.usable && (!thenText || shot.confident || interpreter.llm == null)) {
-      final ctx = context();
-      final rule = interpreter.rule;
-      final accountId = (shot.accountHint == null ? null : rule.matchAccount(shot.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      final type = shot.direction!;
-      final kind = type == 'income' ? 'income' : 'expense';
-      final guessed = type == 'transfer' ? null : rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind);
-      final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
-      final when = shot.occurredAt ?? DateTime.fromMillisecondsSinceEpoch(e.addedMs);
-      final payload = <String, Object?>{
-        'type': type,
-        'amount_minor': shot.amountMinor,
-        'currency': 'CNY',
-        'account_id': accountId,
-        if (type != 'transfer') 'category_id': categoryId,
-        'merchant': shot.merchant,
-        'description': shot.merchant ?? '截图记账',
-        'occurred_at': OccurredAt(when, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
-      };
-      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed != null || type == 'transfer');
+      final (payload, guessed) = _localShotPayload(shot, fallback: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
+      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed || payload['type'] == 'transfer');
     }
     if (!thenText) {
       _noteScreenshot(e, 'ignored', '像是交易但本机没认出金额（可在自动记账页切到「本机认不出时发文字」）');
@@ -635,6 +632,52 @@ class AppState extends ChangeNotifier {
       return 0;
     }
     return _proposeShot(e, inputs, interpreter: 'ocr:text', modelUsed: r.modelUsed, autoOk: true);
+  }
+
+  /// 本机识别结果 → 草稿载荷（账户按提示匹配、分类按商户 / 全文猜、猜不中兜底「其他」）。返回 (载荷, 分类是不是猜中的)。
+  (Map<String, Object?>, bool) _localShotPayload(LocalShot shot, {required DateTime fallback}) {
+    final ctx = context();
+    final rule = interpreter.rule;
+    final accountId = (shot.accountHint == null ? null : rule.matchAccount(shot.accountHint!, ctx)) ?? ctx.defaultAccountId;
+    final type = shot.direction!;
+    final kind = type == 'income' ? 'income' : 'expense';
+    final guessed = type == 'transfer' ? null : rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind);
+    final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+    final when = shot.occurredAt ?? fallback;
+    return (
+      <String, Object?>{
+        'type': type,
+        'amount_minor': shot.amountMinor,
+        'currency': 'CNY',
+        'account_id': accountId,
+        if (type != 'transfer') 'category_id': categoryId,
+        'merchant': shot.merchant,
+        'description': shot.merchant ?? '截图记账',
+        'occurred_at': OccurredAt(when, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
+      },
+      guessed != null,
+    );
+  }
+
+  /// 对话里「识别截图」在没有视觉模型时（纯本地模式 / 没配模型）走本机：OCR + 规则 → 草稿，图不出手机。
+  /// 返回 null = 这个平台没有本机识别（只有 Android 有 ML Kit）。
+  Future<({List<Draft> drafts, String? error, String? modelUsed})?> sayImageLocally(String path) async {
+    if (!screenshots.supported) return null;
+    final List<OcrLine>? lines;
+    try {
+      lines = await screenshots.ocr(Uri.file(path).toString());
+    } catch (_) {
+      return (drafts: const <Draft>[], error: '本机识别出错了，换一张试试', modelUsed: null);
+    }
+    if (lines == null) return null;
+    final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.now());
+    if (!shot.looksLikeTransaction) return (drafts: const <Draft>[], error: '这张图不像交易截图（本机判断，没上传）', modelUsed: null);
+    if (!shot.usable) return (drafts: const <Draft>[], error: '像是交易，但本机没认出金额。支付成功页 / 账单详情认得准，排版乱的小票认不出', modelUsed: null);
+    final (payload, _) = _localShotPayload(shot, fallback: DateTime.now());
+    final drafts = ledger.propose([DraftInput(payload: payload, confidence: shot.confidence)], source: Source.screenshot, interpreter: 'ocr:local');
+    if (drafts.isEmpty) return (drafts: const <Draft>[], error: '这张图已经记过', modelUsed: null);
+    notifyListeners();
+    return (drafts: drafts, error: null, modelUsed: '本机识别');
   }
 
   /// 原图发给视觉模型。
@@ -933,6 +976,21 @@ class AppState extends ChangeNotifier {
     final a = ledger.createAccount(name: name, type: type, currency: currency, initialBalanceMinor: initialBalanceMinor);
     notifyListeners();
     return a;
+  }
+
+  /// 添加负债：账户 + 每月还款的周期转账 + 还清目标，一次建好（见 ledger_core 的 Debts）。
+  DebtSetup addDebt({required String name, required DebtKind kind, required int owedMinor, int monthlyMinor = 0, int day = 1, String? fromAccountId}) {
+    final s = ledger.debts.add(name: name, kind: kind, owedMinor: owedMinor, monthlyMinor: monthlyMinor, day: day, fromAccountId: fromAccountId, today: _today());
+    if (game.enabled) game.pendingMessages.add((text: replier.template(PersonaEvent.goalCreated, label: s.goal.name), sticker: null, meta: null));
+    notifyListeners();
+    return s;
+  }
+
+  /// 设 / 改一笔负债的每月还款（旧的那条周期转账停掉）。
+  Recurring setDebtRepayment(String accountId, {required int monthlyMinor, required int day, required String fromAccountId}) {
+    final r = ledger.debts.setRepayment(accountId, monthlyMinor: monthlyMinor, day: day, fromAccountId: fromAccountId, today: _today());
+    notifyListeners();
+    return r;
   }
 
   Category addCategory({required String name, required CategoryKind kind, String? parentId}) {

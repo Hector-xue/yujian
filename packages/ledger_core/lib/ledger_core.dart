@@ -6,6 +6,7 @@ library;
 export 'src/achievements.dart';
 export 'src/budget.dart';
 export 'src/changes.dart';
+export 'src/debts.dart';
 export 'src/goals.dart';
 export 'src/db/database.dart';
 export 'src/errors.dart';

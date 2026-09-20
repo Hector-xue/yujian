@@ -7,6 +7,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../db/db_file.dart';
+import '../theme.dart';
 
 /// 数据：导出 CSV / 备份 JSON 或 SQLite 文件 / 恢复 / 导入账单。所有导入只进收件箱。
 class DataPage extends StatefulWidget {
@@ -70,7 +71,7 @@ class _DataPageState extends State<DataPage> {
     final theme = Theme.of(context);
     final stamp = DateTime.now().toIso8601String().substring(0, 10);
     Widget item(IconData icon, String title, String sub, Future<void> Function() onTap) => ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           leading: Icon(icon, color: theme.colorScheme.primary),
           title: Text(title),
           subtitle: Text(sub, style: theme.textTheme.bodySmall),
@@ -78,8 +79,12 @@ class _DataPageState extends State<DataPage> {
         );
     return Scaffold(
       appBar: AppBar(title: const Text('数据')),
+      // 两组卡：备份 / 恢复 一组，导入 一组；状态行在卡外
       body: ListView(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
         children: [
+          Padding(padding: const EdgeInsets.fromLTRB(2, 0, 2, 6), child: Text('导出与备份', style: theme.textTheme.bodySmall)),
+          GlassCard(child: Column(children: [
           item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _save('yujian-$stamp.csv', exportCsv(app.ledger))),
           item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、记忆全量；恢复时整库替换', () => _save('yujian-backup-$stamp.json', exportJsonString(app.ledger), ext: 'json')),
           if (sqliteFileSupported)
@@ -128,7 +133,9 @@ class _DataPageState extends State<DataPage> {
                 setState(() => status = '恢复失败：$e');
               }
             }),
-          const Divider(),
+          ])),
+          Padding(padding: const EdgeInsets.fromLTRB(2, 16, 2, 6), child: Text('导入', style: theme.textTheme.bodySmall)),
+          GlassCard(child: Column(children: [
           item(Icons.file_upload_outlined, '导入账单 CSV', '微信 / 支付宝账单导出，或余见导出的 CSV；进收件箱确认后才入账', () async {
             final text = await _pickText();
             if (text == null) {
@@ -138,7 +145,8 @@ class _DataPageState extends State<DataPage> {
             final r = app.importBillCsv(text);
             setState(() => status = r.error != null ? '导入失败：${r.error}' : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}');
           }),
-          if (status != null) Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 0), child: Text(status!, style: theme.textTheme.bodyMedium)),
+          ])),
+          if (status != null) Padding(padding: const EdgeInsets.fromLTRB(2, 16, 2, 0), child: Text(status!, style: theme.textTheme.bodyMedium)),
         ],
       ),
     );

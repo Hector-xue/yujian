@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 
@@ -26,7 +27,7 @@ class AccountsPage extends StatelessWidget {
     final active = all.where((a) => !a.isArchived).toList();
     final archived = all.where((a) => a.isArchived).toList();
     Widget tile(Account a) => ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(a.name, style: a.isArchived ? TextStyle(color: theme.textTheme.bodySmall?.color) : null),
           subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}', style: theme.textTheme.bodySmall),
           trailing: Text(fmtMoney(app.ledger.balance(a.id).minor, a.currency), style: theme.textTheme.titleMedium),
@@ -34,12 +35,17 @@ class AccountsPage extends StatelessWidget {
         );
     return Scaffold(
       appBar: AppBar(title: const Text('账户'), actions: [IconButton(onPressed: () => _add(context), icon: const Icon(Icons.add))]),
+      // 在用的一张卡、归档的一张卡；空着就给一句话
       body: ListView(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
         children: [
-          for (final a in active) tile(a),
+          if (active.isEmpty)
+            Padding(padding: const EdgeInsets.all(12), child: Text('还没有账户，点右上角加一个', style: theme.textTheme.bodySmall))
+          else
+            GlassCard(child: Column(children: [for (final a in active) tile(a)])),
           if (archived.isNotEmpty) ...[
-            Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 4), child: Text('已归档', style: theme.textTheme.bodySmall)),
-            for (final a in archived) tile(a),
+            Padding(padding: const EdgeInsets.fromLTRB(2, 16, 2, 6), child: Text('已归档', style: theme.textTheme.bodySmall)),
+            GlassCard(child: Column(children: [for (final a in archived) tile(a)])),
           ],
         ],
       ),

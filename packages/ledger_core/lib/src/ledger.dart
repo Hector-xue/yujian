@@ -12,6 +12,7 @@ import 'models/transaction.dart';
 import 'achievements.dart';
 import 'budget.dart';
 import 'changes.dart';
+import 'debts.dart';
 import 'goals.dart';
 import 'memory.dart';
 import 'profile.dart';
@@ -35,6 +36,7 @@ class Ledger implements ValidationContext {
   late final TaskStore tasks = TaskStore(this, _db, _nowMs, changes);
   late final AchievementStore achievements = AchievementStore(this, _db, _nowMs, changes);
   late final ProfileStore profile = ProfileStore(_db, _nowMs, changes);
+  late final Debts debts = Debts(this);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 

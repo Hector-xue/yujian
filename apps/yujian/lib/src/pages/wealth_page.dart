@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import 'debts_page.dart';
 
 /// 财富页：可花的 / 今天还能花 / 等级（生存月数）/ 储蓄率 / 净资产 / 收入线 / 成就，每个数都写清怎么来的；
 /// 底部是游戏层的设置：发薪日、工资账户、总开关、代价行、三个仪式。
@@ -60,9 +61,9 @@ class WealthPage extends StatelessWidget {
                         ]),
                       const SizedBox(height: 6),
                       if (m.level == null)
-                        Text('等级 = 生存月数 = 流动资产 ÷ 近 3 个月平均月支出。记满一个月的支出就有了，称号也跟着来。', style: theme.textTheme.bodySmall)
+                        Text('等级 = 生存月数 = 流动资产 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
                       else ...[
-                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月均支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（近 ${m.monthsOfData} 个月平均）。', style: theme.textTheme.bodySmall),
+                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（${_basisLabel(m)}）。', style: theme.textTheme.bodySmall),
                         if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.title}」（${m.level!.next!.name}，≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                       ],
                       const SizedBox(height: 8),
@@ -79,9 +80,39 @@ class WealthPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 到发薪日前的固定支出 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.disposableMinor < 0 ? '。是负的：固定支出比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
-                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天 − 今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}。发薪日 ${m.payday}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
-                stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 全部账户余额之和，信用卡 / 应付为负，目标锁仓算在内${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
+                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
+                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${m.payday}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
+                stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}（目标锁仓算在资产里）${m.inDebt ? '。是负的很正常：有房贷车贷都这样，看下面的还清进度更有用' : ''}${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
+                if (m.debt.totalMinor > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: GlassCard(
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const DebtsPage())),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('负债', style: theme.textTheme.bodySmall),
+                                Text(fmtMoney(m.debt.totalMinor, 'CNY'), style: theme.textTheme.titleLarge?.copyWith(color: y.danger, fontFeatures: const [FontFeature.tabularFigures()])),
+                                Text(
+                                  [
+                                    if (m.debt.loanMinor > 0) '贷款 ${fmtMoney(m.debt.loanMinor, 'CNY')}',
+                                    if (m.debt.cardMinor > 0) '信用卡 ${fmtMoney(m.debt.cardMinor, 'CNY')}',
+                                    if (m.debt.monthlyMinor > 0) '每月还 ${fmtMoney(m.debt.monthlyMinor, 'CNY')}',
+                                    if (m.debt.monthsLeft != null && m.debt.monthsLeft! > 0) '约 ${m.debt.monthsLeft} 个月还清',
+                                  ].join(' · '),
+                                  style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+                                ),
+                              ]),
+                            ),
+                            Icon(Icons.chevron_right, color: y.muted),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
                 stat('本月储蓄率', m.savingsRate == null ? '—' : '${(m.savingsRate! * 100).toStringAsFixed(0)}%', m.savingsRate == null ? '本月还没有收入' : '= (收入 ${fmtMoney(m.monthIncomeMinor, 'CNY')} − 支出 ${fmtMoney(m.monthExpenseMinor, 'CNY')}) ÷ 收入；转账不算'),
                 GlassCard(
                   child: Padding(
@@ -113,6 +144,8 @@ class WealthPage extends StatelessWidget {
               Text('设置', style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
               const _PaydayRow(),
+              const SizedBox(height: 10),
+              _MonthlyCostRow(metrics: m),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('财富游戏'),
@@ -143,6 +176,16 @@ class WealthPage extends StatelessWidget {
       },
     );
   }
+
+  /// 月支出是按什么估的，一句话。
+  static String _basisLabel(WealthMetrics m) => switch (m.spendBasis) {
+        SpendBasis.manual => '你填的',
+        SpendBasis.history => '近 ${m.monthsOfData} 个月平均，含每月还贷',
+        SpendBasis.thisMonth => '本月到今天按天外推，记满一个月换成真实均值',
+        SpendBasis.recurring => '还没记支出，按周期账单和还贷合计估',
+        SpendBasis.income => '还没记满一个月，先按近一个月的收入当月支出（月光算法）；记满一个月换成真实均值，嫌不准可在下面手填',
+        SpendBasis.none => '没数据',
+      };
 
   Widget _line(BuildContext context, String name, String desc, int minor) {
     final theme = Theme.of(context);
@@ -177,6 +220,67 @@ class _AchievementChip extends StatelessWidget {
           content: Text('${def.description}\n\n${on ? '达成于 ${fmtRelativeMs(unlocked!.unlockedAt)}${unlocked!.evidence == null ? '' : '\n依据：${unlocked!.evidence!.entries.map((e) => '${e.key} = ${e.value}').join('，')}'}' : '还没达成。'}'),
           actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('好'))],
         ),
+      ),
+    );
+  }
+}
+
+/// 「每月大概花多少」：手填就按手填的算等级，留空让指标自己估（估法写在旁边）。
+class _MonthlyCostRow extends StatefulWidget {
+  final WealthMetrics? metrics;
+  const _MonthlyCostRow({required this.metrics});
+  @override
+  State<_MonthlyCostRow> createState() => _MonthlyCostRowState();
+}
+
+class _MonthlyCostRowState extends State<_MonthlyCostRow> {
+  final _c = TextEditingController();
+  var _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return; // 只在第一次把画像里的值填进输入框，之后以用户输入为准
+    _loaded = true;
+    final v = AppScope.of(context).ledger.profile.monthlyCostMinor;
+    _c.text = v == null ? '' : Money(v, 'CNY').toDecimalString();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final app = AppScope.of(context);
+    final t = _c.text.trim();
+    int? minor;
+    if (t.isNotEmpty) {
+      try {
+        minor = Money.parse(t, 'CNY').minor;
+      } on FormatException {
+        minor = null;
+      }
+    }
+    if (minor == app.ledger.profile.monthlyCostMinor) return;
+    app.ledger.profile.monthlyCostMinor = minor;
+    app.touch();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.metrics;
+    final auto = m == null || m.spendBasis == SpendBasis.none || m.spendBasis == SpendBasis.manual ? '留空 = 自动估' : '留空 = 自动估（现在按 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}）';
+    return Focus(
+      onFocusChange: (has) {
+        if (!has) _save();
+      },
+      child: TextField(
+        controller: _c,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(labelText: '每月大概花多少（元）', helperText: '算等级用；$auto'),
+        onSubmitted: (_) => _save(),
       ),
     );
   }

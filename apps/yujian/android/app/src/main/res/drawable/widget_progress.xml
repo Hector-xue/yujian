@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 目标进度条：浅灰底 + 主色进度，两端圆角（和 App 首页目标卡同一个样子） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle"><corners android:radius="3dp"/><solid android:color="#E6EAF0"/></shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip><shape android:shape="rectangle"><corners android:radius="3dp"/><solid android:color="#1B6BC7"/></shape></clip>
+    </item>
+</layer-list>

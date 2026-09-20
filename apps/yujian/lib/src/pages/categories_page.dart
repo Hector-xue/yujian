@@ -117,19 +117,25 @@ class _List extends StatelessWidget {
     for (final c in cats.where((c) => c.parentId != null)) {
       children.putIfAbsent(c.parentId!, () => []).add(c);
     }
+    // 整个列表一张卡：分类是同质的一串行，卡只负责把它们框成一组
     return ListView(
+      padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        for (final c in cats.where((c) => c.parentId == null)) ...[
-          ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              leading: CategoryIcon(category: c, size: 36),
-              title: Text(c.name),
-              trailing: Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color),
-              onTap: () => onTap(c)),
-          for (final s in children[c.id] ?? const <Category>[])
-            ListTile(contentPadding: const EdgeInsets.only(left: 40, right: 20), dense: true, leading: CategoryIcon(category: s, size: 28), title: Text(s.name), onTap: () => onTap(s)),
-        ],
-        Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 24), child: Text('点一个分类改名、换图标、换上级或删除；内置分类不能删。', style: theme.textTheme.bodySmall)),
+        GlassCard(
+          child: Column(children: [
+            for (final c in cats.where((c) => c.parentId == null)) ...[
+              ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  leading: CategoryIcon(category: c, size: 36),
+                  title: Text(c.name),
+                  trailing: Icon(Icons.edit_outlined, size: 18, color: theme.textTheme.bodySmall?.color),
+                  onTap: () => onTap(c)),
+              for (final s in children[c.id] ?? const <Category>[])
+                ListTile(contentPadding: const EdgeInsets.only(left: 36, right: 16), dense: true, leading: CategoryIcon(category: s, size: 28), title: Text(s.name), onTap: () => onTap(s)),
+            ],
+          ]),
+        ),
+        Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点一个分类改名、换图标、换上级或删除；内置分类不能删。', style: theme.textTheme.bodySmall)),
       ],
     );
   }

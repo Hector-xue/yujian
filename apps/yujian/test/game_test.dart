@@ -5,6 +5,7 @@ import 'package:ledger_core/native.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
+import 'package:yujian/src/pages/debts_page.dart';
 import 'package:yujian/src/pages/goals_page.dart';
 import 'package:yujian/src/pages/tasks_page.dart';
 import 'package:yujian/src/pages/wealth_page.dart';
@@ -182,6 +183,77 @@ void main() {
       await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const TasksPage())));
       await tester.pumpAndSettle();
       expect(find.text('周任务'), findsOneWidget);
+    });
+
+    testWidgets('title shows up right after the first salary (no month of waiting); today allowance follows disposable', (tester) async {
+      // 只有一笔工资、零支出：按收入当月支出估（月光算法）→ 立刻有称号；今天还能花 = 可花的 ÷ 天数，不再减「今天已花」
+      state.addManual({'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'salary', 'occurred_at': '${day(-1)}T09:00:00+08:00'});
+      state.addManual(expense(5000, day(0)));
+      final m = state.game.metrics!;
+      expect(m.spendBasis, SpendBasis.income); // 第一个月按收入当月支出，不拿两笔支出外推
+      expect(m.level, isNotNull);
+      expect(m.disposableMinor, 995000);
+      expect(m.dailyAllowanceMinor, (995000 / m.daysToPayday).floor());
+      expect(m.dailyAllowanceMinor, greaterThan(0));
+      await tester.pumpWidget(YujianApp(state: state));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(m.level!.title), findsOneWidget);
+      expect(find.textContaining('今天还能花'), findsOneWidget);
+      expect(find.textContaining('流动资产'), findsNothing); // 首页不再摆公式
+    });
+
+    testWidgets('debt: one form builds account + monthly repayment + payoff goal; wealth / home / debts page follow', (tester) async {
+      state.addManual({'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'salary', 'occurred_at': '${day(-1)}T09:00:00+08:00'});
+      final setup = state.addDebt(name: '房贷', kind: DebtKind.mortgage, owedMinor: 50000000, monthlyMinor: 800000, day: 10, fromAccountId: 'wechat');
+      expect(setup.account.type, AccountType.payable);
+      expect(setup.repayment, isNotNull);
+      expect(setup.goal.kind, GoalKind.payoff);
+      final m = state.game.metrics!;
+      expect(m.debt.loanMinor, 50000000);
+      expect(m.debt.monthlyMinor, 800000);
+      expect(m.netWorthMinor, m.assetsMinor - 50000000);
+      expect(m.inDebt, isTrue);
+      expect(m.disposableMinor, greaterThan(0)); // 可花的是正数：负债不吞掉当下能花的钱，只扣发薪前要还的那期
+      expect(state.game.goals.single.goal.name, '还清房贷');
+      // 首页：目标条挂着还清目标（一张通栏卡，带「已还」），头卡数字是正的
+      await tester.pumpWidget(YujianApp(state: state));
+      await tester.pumpAndSettle();
+      expect(find.text('还清房贷'), findsOneWidget);
+      expect(find.textContaining('已还'), findsOneWidget);
+      // 负债页
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage())));
+      await tester.pumpAndSettle();
+      expect(find.text('总负债'), findsOneWidget);
+      expect(find.text('¥500000.00'), findsWidgets);
+      expect(find.textContaining('每月 ¥8000.00'), findsOneWidget);
+      expect(find.text('每月还款'), findsOneWidget);
+      // 还一期：转账到房贷账户 → 余额少一期、目标进度 1.6%
+      state.addManual({'type': 'transfer', 'amount_minor': 800000, 'currency': 'CNY', 'account_id': 'wechat', 'to_account_id': setup.account.id, 'occurred_at': '${day(0)}T09:00:00+08:00'});
+      expect(state.ledger.debts.list().first.owedMinor, 49200000);
+      expect(state.game.goals.single.savedMinor, 800000);
+    });
+
+    testWidgets('add-debt sheet: fill two numbers, get three things', (tester) async {
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage())));
+      await tester.pumpAndSettle();
+      expect(find.text('还没有负债'), findsOneWidget);
+      await tester.tap(find.text('添加负债').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('🚗 车贷'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, '还剩多少要还（元）'), '60000');
+      await tester.enterText(find.widgetWithText(TextField, '每月还多少（元）'), '3000');
+      await tester.ensureVisible(find.text('建好'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('建好'));
+      await tester.pumpAndSettle();
+      final d = state.ledger.debts.list().single;
+      expect(d.account.name, '车贷');
+      expect(d.kind, DebtKind.car);
+      expect(d.owedMinor, 6000000);
+      expect(d.monthlyMinor, 300000);
+      expect(d.goal, isNotNull);
+      expect(find.text('总负债'), findsOneWidget);
     });
   });
 }
