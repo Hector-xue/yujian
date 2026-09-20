@@ -137,6 +137,8 @@ ThemeData _base({
     scaffoldBackgroundColor: transparentScaffold ? surface.withValues(alpha: 0) : surface,
     canvasColor: surface,
     dividerTheme: DividerThemeData(color: y.hairline, thickness: 0.6, space: 0),
+    // ExpansionTile 展开时默认在上下各画一条分隔线（折叠区在卡片里，那两条线横穿卡片很突兀）：两种形状都设成无边框
+    expansionTileTheme: const ExpansionTileThemeData(shape: Border(), collapsedShape: Border(), backgroundColor: Colors.transparent, collapsedBackgroundColor: Colors.transparent),
     appBarTheme: AppBarTheme(
       backgroundColor: y.chromeFill,
       surfaceTintColor: Colors.transparent,
