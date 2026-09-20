@@ -49,26 +49,26 @@ def button(d, x, y, w, h, text, size=13):
 
 
 def summary():
-    """4x2 本月：左栏 余额+称号+最近，右栏 月份/支出/收入/记一笔（照 widget_summary.xml 两栏画）。"""
-    img, d = card(280, 140)
+    """4x2 本月：头行 → 余额大字 → 支出 / 收入 / 结余 三格 → 最近 | 记一笔（照 widget_summary.xml 四段画）。"""
+    W, H = 280, 164
+    img, d = card(W, H)
     p = 18 * S
-    d.text((p, 16 * S), '余额', font=font(12, True), fill=BLUE)
+    d.text((p, 14 * S), '余额', font=font(12, True), fill=BLUE)
     fb = font(11, True); badge = '温饱户'
     bw = d.textlength(badge, font=fb) + 16 * S; bx = p + 30 * S
-    d.rounded_rectangle([bx, 14 * S, bx + bw, 14 * S + 19 * S], radius=10 * S, fill=(0x1B, 0x6B, 0xC7, 0x1F))
-    d.text((bx + 8 * S, 16 * S), badge, font=fb, fill=BLUE)
-    d.text((p, 40 * S), '¥ 12,480.50', font=font(30, True), fill=BLUE)
-    d.text((p, 88 * S), '最近：美团外卖 −¥13.80 · 9/17', font=font(12), fill=MUTED)
-    # 右栏靠右
-    R = 280 * S - 16 * S
-    def right(text, f, y, col):
-        d.text((R - d.textlength(text, font=f), y), text, font=f, fill=col)
-    right('9 月', font(12), 12 * S, MUTED)
-    right('支出', font(11), 30 * S, MUTED)
-    right('¥ 3,832', font(15, True), 43 * S, INK)
-    right('收入', font(11), 65 * S, MUTED)
-    right('¥ 8,000', font(15, True), 78 * S, GREEN)
-    button(d, R - 88 * S, 104 * S, 88 * S, 30 * S, '＋ 记一笔')
+    d.rounded_rectangle([bx, 12 * S, bx + bw, 12 * S + 19 * S], radius=10 * S, fill=(0x1B, 0x6B, 0xC7, 0x1F))
+    d.text((bx + 8 * S, 14 * S), badge, font=fb, fill=BLUE)
+    f = font(12)
+    d.text((W * S - 16 * S - d.textlength('9 月', font=f), 14 * S), '9 月', font=f, fill=MUTED)
+    d.text((p, 34 * S), '¥ 12,480.50', font=font(32, True), fill=BLUE)
+    colw = (W * S - p - 16 * S) / 3
+    y = 82 * S
+    for i, (label, val, col) in enumerate([('支出', '¥ 3,832', INK), ('收入', '¥ 8,000', GREEN), ('结余', '¥ 4,168', INK)]):
+        x = p + colw * i
+        d.text((x, y), label, font=font(11), fill=MUTED)
+        d.text((x, y + 14 * S), val, font=font(16, True), fill=col)
+    d.text((p, 136 * S), '最近：美团外卖 −¥13.80', font=font(12), fill=MUTED)
+    button(d, W * S - 16 * S - 88 * S, 126 * S, 88 * S, 30 * S, '＋ 记一笔')
     return img
 
 

@@ -44,6 +44,8 @@ open class SummaryWidget : AppWidgetProvider() {
                     v.setTextViewText(R.id.widget_balance, p.getString("balance", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_expense, p.getString("expense", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_income, p.getString("income", "¥ 0.00"))
+                    v.setTextViewText(R.id.widget_net, p.getString("net", "¥ 0.00"))
+                    v.setTextColor(R.id.widget_net, if ((p.getString("net", "") ?: "").contains("-")) 0xFFD64545.toInt() else 0xFF1C2430.toInt())
                     v.setTextViewText(R.id.widget_month, p.getString("month", ""))
                     v.setTextViewText(R.id.widget_recent, p.getString("recent", ""))
                     title(v, p)

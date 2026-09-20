@@ -92,7 +92,14 @@ class YujianApp extends StatelessWidget {
           final hasBg = spec.background != null || custom != null;
           final y = base.extension<YujianColors>()!;
           // 底栏挂在 Navigator 外面的覆盖层里（见 dock_host.dart），切页时不跟着路由一起被合成，磨砂全程有效
-          Widget host(Widget child) => DockHost(controller: dockController, dockBuilder: _buildDock, child: child);
+          // 没有背景层的实色主题：Navigator 底下垫一块主题底色。MaterialApp 切主题时会把 ThemeData 插值 200ms，
+          // scaffoldBackgroundColor 从透明（玻璃 / 暖木）渐变到实色的那几帧是半透明的，底下没东西就露出窗口的黑——
+          // 「四款主题互相切换会黑闪一下」就是它；玻璃主题切走时背景层又是立刻拆掉的，同样露黑
+          Widget host(Widget child) => DockHost(
+                controller: dockController,
+                dockBuilder: _buildDock,
+                child: hasBg ? child : Stack(fit: StackFit.expand, children: [ColoredBox(color: base.colorScheme.surface), child]),
+              );
           return MaterialApp(
             title: '余见',
             theme: custom == null ? base : withCustomBackground(base, background),
