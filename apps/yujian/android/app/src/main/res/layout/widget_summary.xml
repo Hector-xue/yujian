@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 4×2 本月：四段从上到下铺满——头行（余额 + 称号 | 月份）→ 余额大字 → 三格（支出 / 收入 / 结余，weight=1 撑开中段，随高度居中）
+<!-- 4×2 本月：四段从上到下铺满——头行（余额 + 称号 | 月份）→ 余额大字 | 今日支出 → 三格（支出 / 收入 / 结余，weight=1 撑开中段，随高度居中）
      → 底行（最近一笔 | 记一笔）。每一段都有东西，高度再大也不会上下空一截。RemoteViews 只认基础控件。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -18,7 +18,14 @@
         <TextView android:id="@+id/widget_month" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="right" android:text="9 月" android:textSize="12sp" android:textColor="#6C7580"/>
     </LinearLayout>
 
-    <TextView android:id="@+id/widget_balance" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="¥ 0.00" android:textSize="32sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+    <!-- 余额大字左、今日支出右：大字右边那一大块不再空着 -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:orientation="horizontal" android:gravity="bottom">
+        <TextView android:id="@+id/widget_balance" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="32sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="10dp" android:orientation="vertical" android:gravity="right">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="今日支出" android:textSize="11sp" android:textColor="#6C7580"/>
+            <TextView android:id="@+id/widget_today" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="16sp" android:textColor="#1C2430" android:textStyle="bold" android:maxLines="1" android:includeFontPadding="false"/>
+        </LinearLayout>
+    </LinearLayout>
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="6dp" android:layout_marginBottom="6dp" android:orientation="horizontal" android:gravity="center_vertical">
         <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">

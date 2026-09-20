@@ -104,6 +104,8 @@ class YujianApp extends StatelessWidget {
             title: '余见',
             theme: custom == null ? base : withCustomBackground(base, background),
             debugShowCheckedModeBanner: false,
+            // 切主题不做 200ms 插值：玻璃参数、透明底色、投影列表在中间态没有意义，插值那几帧就是「黑闪 / 灰闪」；直接切
+            themeAnimationDuration: Duration.zero,
             showPerformanceOverlay: state.perfOverlay,
             navigatorObservers: [_dockObserver],
             // 背景层截一次图、模糊一次，所有玻璃卡片从它上面取样（见 glass.dart）
