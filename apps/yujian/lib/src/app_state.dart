@@ -82,6 +82,7 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
+      _anomaliesDismissed.addAll(p.getStringList('anomalies_dismissed') ?? const []);
     } catch (_) {}
     _apply();
   }
@@ -767,6 +768,26 @@ class AppState extends ChangeNotifier {
   List<Anomaly> anomaliesThisMonth() {
     final now = DateTime.now();
     return detectAnomalies(ledger, from: '${now.year}-${now.month.toString().padLeft(2, '0')}-01', to: _today());
+  }
+
+  /// 首页「比平时高」用的：它是「刚发生的一笔，看一眼」的提醒，不是月报——只看最近 [homeAnomalyDays] 天，
+  /// 划掉的按交易 id 记住不再出现（以前按整月算，1 号一笔大额能挂到月底）。
+  static const homeAnomalyDays = 7;
+  final Set<String> _anomaliesDismissed = {};
+  List<Anomaly> homeAnomalies() {
+    final from = DateTime.now().subtract(const Duration(days: homeAnomalyDays - 1));
+    final fromDate = '${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}';
+    return [for (final a in detectAnomalies(ledger, from: fromDate, to: _today())) if (!_anomaliesDismissed.contains(a.tx.id)) a];
+  }
+
+  Future<void> dismissAnomaly(String txId) async {
+    _anomaliesDismissed.add(txId);
+    notifyListeners();
+    try {
+      // 只留最近 200 个 id，够覆盖 7 天窗口里出现过的
+      final keep = _anomaliesDismissed.toList();
+      await (await SharedPreferences.getInstance()).setStringList('anomalies_dismissed', keep.length > 200 ? keep.sublist(keep.length - 200) : keep);
+    } catch (_) {}
   }
 
   List<BudgetStatus> budgetAlerts() => ledger.budgets.statuses(today: _today()).where((s) => s.overAlert).toList();

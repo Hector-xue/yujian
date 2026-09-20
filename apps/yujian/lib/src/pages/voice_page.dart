@@ -8,6 +8,7 @@ import '../voice/local_tts_native.dart' if (dart.library.js_interop) '../voice/l
 import '../voice/offline_asr_sheet.dart';
 import '../voice/speech_output.dart';
 import '../voice/vendor_voices.dart';
+import '../widgets/disclosure_tile.dart';
 import '../widgets/model_picker.dart';
 import '../widgets/picker_field.dart';
 import 'tts_guide_page.dart';
@@ -276,8 +277,7 @@ class _VoicePageState extends State<VoicePage> {
                   _keyField(doubaoKey, 'API Key', helper: '火山引擎 → 豆包语音 → 应用里复制；只存本机安全存储'),
                   const SizedBox(height: 16),
                   _voicePicker('音色', doubaoVoices, s.doubaoVoice, (v) => app.saveSettings(app.settings.copyWith(doubaoVoice: v))),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
+                  DisclosureTile(
                     title: Text('高级：老账号用 App ID + Access Token', style: theme.textTheme.bodySmall),
                     children: [
                       TextField(controller: doubaoAppId, decoration: const InputDecoration(labelText: 'App ID')),
@@ -297,8 +297,7 @@ class _VoicePageState extends State<VoicePage> {
                   _keyField(minimaxKey, 'API Key', helper: 'MiniMax 开放平台 → 接口密钥；只存本机安全存储'),
                   const SizedBox(height: 16),
                   _voicePicker('音色', minimaxVoices, s.minimaxVoice, (v) => app.saveSettings(app.settings.copyWith(minimaxVoice: v))),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
+                  DisclosureTile(
                     title: Text('高级', style: theme.textTheme.bodySmall),
                     children: [
                       TextField(controller: minimaxGroup, decoration: const InputDecoration(labelText: 'GroupId（老账号才要）')),

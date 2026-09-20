@@ -33,7 +33,7 @@ class HomePage extends StatelessWidget {
     final balances = app.ledger.balances(includeVault: true); // 余额是真实余额：锁进目标的钱也在手机里，「可花的」才扣它
     final recent = app.ledger.listTransactions(limit: 5);
     final alerts = app.budgetAlerts();
-    final anomalies = app.anomaliesThisMonth().take(3).toList();
+    final anomalies = app.homeAnomalies().take(3).toList();
     final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
     final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
@@ -86,17 +86,32 @@ class HomePage extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           if (anomalies.isNotEmpty) ...[
-            Text('比平时高', style: theme.textTheme.bodySmall),
+            Row(children: [
+              Text('比平时高', style: theme.textTheme.bodySmall),
+              const Spacer(),
+              Text('最近 ${AppState.homeAnomalyDays} 天 · 左滑不再提', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            ]),
             const SizedBox(height: 4),
             GlassCard(
               child: Column(children: [
                 for (final a in anomalies)
-                  ListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
-                    trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
+                  Dismissible(
+                    key: ValueKey('anomaly-${a.tx.id}'),
+                    direction: DismissDirection.endToStart,
+                    onDismissed: (_) => app.dismissAnomaly(a.tx.id),
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      color: y.muted.withValues(alpha: 0.15),
+                      child: Icon(Icons.visibility_off_outlined, color: y.muted),
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                      title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
+                      trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
+                    ),
                   ),
               ]),
             ),
@@ -154,17 +169,16 @@ class _BalanceCard extends StatelessWidget {
                     Text('余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
                   ]),
                   const SizedBox(height: 4),
-                  Text(fmtMoney(totalBalance, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
+                  _BigMoney(fmtMoney(totalBalance, 'CNY'), color: y.balance),
                   const SizedBox(height: 14),
-                  Row(
+                  _StatRow(
                     children: [
-                      Expanded(child: _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense)),
-                      Expanded(child: _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income)),
-                      Expanded(
-                          child: _Stat(
-                              label: '结余',
-                              value: fmtMoney(income - expense, 'CNY'),
-                              color: (income - expense) < 0 ? y.danger : theme.colorScheme.onSurface)),
+                      _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
+                      _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
+                      _Stat(
+                          label: '结余',
+                          value: fmtMoney(income - expense, 'CNY'),
+                          color: (income - expense) < 0 ? y.danger : theme.colorScheme.onSurface),
                     ],
                   ),
                 ],
@@ -201,7 +215,7 @@ class _GameHeader extends StatelessWidget {
               Expanded(child: Align(alignment: Alignment.centerRight, child: m.title == null ? const SizedBox.shrink() : _TitleBadge(m: m))),
             ]),
             const SizedBox(height: 4),
-            Text(fmtMoney(m.disposableMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: m.disposableMinor < 0 ? y.danger : y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
+            _BigMoney(fmtMoney(m.disposableMinor, 'CNY'), color: m.disposableMinor < 0 ? y.danger : y.balance),
             // 只留一行：今天还能花多少、几天后发薪。公式在财富页（点卡片进），首页不摆三行小字
             Text(
               m.disposableMinor < 0 ? '发薪前得省着：固定支出比手头的钱多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
@@ -210,10 +224,10 @@ class _GameHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: _Stat(label: '余额', value: fmtMoney(totalBalance, 'CNY'))),
-              Expanded(child: _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense)),
-              Expanded(child: _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income)),
+            _StatRow(children: [
+              _Stat(label: '余额', value: fmtMoney(totalBalance, 'CNY')),
+              _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
+              _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),
           ]),
         ),
@@ -384,6 +398,37 @@ class _GoalCard extends StatelessWidget {
   }
 }
 
+/// 头卡的大字金额：一行，放不下（八位数以上 / 大字号）等比缩，不折行。
+class _BigMoney extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _BigMoney(this.text, {required this.color});
+  @override
+  Widget build(BuildContext context) => FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(text, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 34, color: color, fontFeatures: const [FontFeature.tabularFigures()]), maxLines: 1, softWrap: false),
+      );
+}
+
+/// 头卡下面那行小指标。以前三个 Expanded 各占三分之一，余额一到六位数（¥-399937.25）就比格子宽，数字被折成两行；
+/// 现在每格按自己的内容宽、固定间距排开；三格加起来还是放不下（超大字号 / 窄屏）才整行等比缩小，数字永远一行、不截断。
+/// （Flexible 不行：它给每格的上限还是三分之一，余额照样先缩。）
+class _StatRow extends StatelessWidget {
+  final List<Widget> children;
+  const _StatRow({required this.children});
+  @override
+  Widget build(BuildContext context) => FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) const SizedBox(width: 22), children[i]]],
+        ),
+      );
+}
+
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
@@ -394,9 +439,10 @@ class _Stat extends StatelessWidget {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: theme.textTheme.bodySmall),
-        Text(value, style: theme.textTheme.titleMedium?.copyWith(color: color, fontFeatures: const [FontFeature.tabularFigures()]))
+        Text(label, style: theme.textTheme.bodySmall, maxLines: 1, softWrap: false),
+        Text(value, style: theme.textTheme.titleMedium?.copyWith(color: color, fontFeatures: const [FontFeature.tabularFigures()]), maxLines: 1, softWrap: false),
       ],
     );
   }
