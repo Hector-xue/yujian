@@ -28,6 +28,13 @@ class GoalsPage extends StatelessWidget {
               ? _Empty(onCreate: () => showGoalForm(context))
               : ReorderableListView(
                   padding: EdgeInsets.fromLTRB(20, 4, 20, 96 + MediaQuery.paddingOf(context).bottom),
+                  // 默认的拖动代理是一块带阴影的 Material（长按就是一块直角板子，还连着卡片底下的 10 间距）；
+                  // 换成透明 Material + 轻微放大，拖起来仍是那张圆角玻璃卡
+                  proxyDecorator: (child, index, animation) => AnimatedBuilder(
+                    animation: animation,
+                    builder: (context, card) => Transform.scale(scale: 1 + 0.03 * Curves.easeInOut.transform(animation.value), child: card),
+                    child: Material(type: MaterialType.transparency, child: child),
+                  ),
                   header: Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text('顺序就是发薪日分钱的先后：钱不够时先保上面的。长按拖动。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),

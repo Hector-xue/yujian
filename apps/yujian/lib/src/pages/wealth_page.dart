@@ -50,16 +50,24 @@ class WealthPage extends StatelessWidget {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('等级', style: theme.textTheme.bodySmall),
                       const SizedBox(height: 4),
-                      // 称号是身份、等级名是进度：称号做大字，等级名跟在后面
-                      if (m.level == null)
+                      // 称号是身份、等级名是进度：称号做大字，等级名跟在后面。净资产为负：称号换成负翁那套（按欠款），等级名照旧
+                      if (m.title == null)
                         Text('还没有数据', style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: theme.colorScheme.primary))
                       else
                         Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-                          Text(m.level!.title, style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: theme.colorScheme.primary)),
+                          Text(m.title!, style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: m.inDebt ? y.danger : theme.colorScheme.primary)),
                           const SizedBox(width: 8),
-                          Text(m.level!.name, style: theme.textTheme.bodyMedium?.copyWith(color: y.muted)),
+                          Text(m.level == null ? '净资产是负的' : m.level!.name, style: theme.textTheme.bodyMedium?.copyWith(color: y.muted)),
                         ]),
                       const SizedBox(height: 6),
+                      if (m.debtTier != null) ...[
+                        Text('净资产 ${fmtMoney(m.netWorthMinor, 'CNY')} = 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}，是负的：称号按欠的钱算，等级仍按够花几个月。', style: theme.textTheme.bodySmall),
+                        Text(
+                          m.debtTier!.lighter == null ? '再还 ${fmtMoney(m.toLighterDebtTierMinor!, 'CNY')} 净资产转正，摘掉「${m.debtTier!.title}」的帽子。' : '再还 ${fmtMoney(m.toLighterDebtTierMinor!, 'CNY')} 降到「${m.debtTier!.lighter!.title}」。',
+                          style: theme.textTheme.bodySmall?.copyWith(color: y.danger),
+                        ),
+                        const SizedBox(height: 6),
+                      ],
                       if (m.level == null)
                         Text('等级 = 生存月数 = 流动资产 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
                       else ...[
@@ -67,6 +75,19 @@ class WealthPage extends StatelessWidget {
                         if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.title}」（${m.level!.next!.name}，≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                       ],
                       const SizedBox(height: 8),
+                      if (m.debtTier != null) ...[
+                        // 负翁阶梯：按欠款分档；下面那排等级仍然亮着自己那档（等级没变，只是称号被负翁顶掉）
+                        Wrap(spacing: 6, runSpacing: 4, children: [
+                          for (final t in DebtTier.tiers)
+                            Chip(
+                              label: Text('${t.title} ${_tierRange(t)}', style: theme.textTheme.labelSmall),
+                              visualDensity: VisualDensity.compact,
+                              backgroundColor: m.debtTier!.index == t.index ? y.danger.withValues(alpha: 0.15) : null,
+                              side: BorderSide(color: m.debtTier!.index == t.index ? y.danger : y.hairline),
+                            ),
+                        ]),
+                        const SizedBox(height: 6),
+                      ],
                       Wrap(spacing: 6, runSpacing: 4, children: [
                         for (final l in WealthLevel.levels)
                           Chip(
@@ -191,6 +212,16 @@ class WealthPage extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// 负翁档的欠款区间，整数万：「< 1 万」「1–10 万」「≥ 1000 万」。
+  static String _tierRange(DebtTier t) {
+    String wan(int minor) => '${minor ~/ 1000000} 万';
+    final i = DebtTier.tiers.indexOf(t);
+    final next = i + 1 < DebtTier.tiers.length ? DebtTier.tiers[i + 1] : null;
+    if (t.floorMinor == 0) return '< ${wan(next!.floorMinor)}';
+    if (next == null) return '≥ ${wan(t.floorMinor)}';
+    return '${t.floorMinor ~/ 1000000}–${wan(next.floorMinor)}';
   }
 
   /// 月支出是按什么估的，一句话。

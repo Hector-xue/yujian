@@ -12,6 +12,9 @@ import 'tasks_page.dart';
 import 'transactions_page.dart';
 import 'wealth_page.dart';
 
+/// 首页列表的左右页边距；目标横滑条要把它吃回来（视口铺满屏宽）再自己留出来，所以单独记一份。
+const _gutter = 20.0;
+
 /// 首页：本月支出/收入、账户合计、最近几笔。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -38,7 +41,7 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text('${now.month} 月')),
       body: ListView(
-        padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
+        padding: EdgeInsets.fromLTRB(_gutter, 4, _gutter, 24 + MediaQuery.paddingOf(context).bottom),
         children: [
           // 财富游戏层开着：第一眼看「可花的」（余额降为第二行）；关着：老样子。两种都在同一个 builder 里，重算后不会双份
           ListenableBuilder(
@@ -195,7 +198,7 @@ class _GameHeader extends StatelessWidget {
               const SizedBox(width: 6),
               Text('可花的', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
               // 角标靠右、能用整段剩余宽度，窄屏只会省略号不会溢出
-              Expanded(child: Align(alignment: Alignment.centerRight, child: m.level == null ? const SizedBox.shrink() : _TitleBadge(level: m.level!, runwayMonths: m.runwayMonths!))),
+              Expanded(child: Align(alignment: Alignment.centerRight, child: m.title == null ? const SizedBox.shrink() : _TitleBadge(m: m))),
             ]),
             const SizedBox(height: 4),
             Text(fmtMoney(m.disposableMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: m.disposableMinor < 0 ? y.danger : y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
@@ -219,24 +222,28 @@ class _GameHeader extends StatelessWidget {
   }
 }
 
-/// 称号角标：称号是身份（贫困户 / 月光族 / …），够花几个月是依据；两段一个胶囊，称号加粗做主。
+/// 称号角标：称号是身份（贫困户 / 月光族 / …，净资产为负时是负翁那套），依据跟在后面（够花几个月 / 欠多少）；
+/// 两段一个胶囊，称号加粗做主。负翁用警示色，别和「够花」混成一个调。
 class _TitleBadge extends StatelessWidget {
-  final WealthLevel level;
-  final double runwayMonths;
-  const _TitleBadge({required this.level, required this.runwayMonths});
+  final WealthMetrics m;
+  const _TitleBadge({required this.m});
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
+    final y = YujianColors.of(context);
+    final inDebt = m.inDebt;
+    final color = inDebt ? y.danger : theme.colorScheme.primary;
+    final title = m.title!;
+    final basis = inDebt ? '欠 ${fmtMoney(-m.netWorthMinor, 'CNY')}' : '够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月';
     return Semantics(
-      label: '称号 ${level.title}，等级 ${level.name}，够花 ${runwayMonths.toStringAsFixed(1)} 个月',
+      label: inDebt ? '称号 $title，净资产 $basis' : '称号 $title，等级 ${m.level!.name}，$basis',
       child: Container(
         padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-        decoration: BoxDecoration(color: primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
         child: Text.rich(
           TextSpan(children: [
-            TextSpan(text: level.title, style: theme.textTheme.labelLarge?.copyWith(color: primary, fontWeight: FontWeight.w700, height: 1.1)),
-            TextSpan(text: ' · 够花 ${runwayMonths.toStringAsFixed(1)} 个月', style: theme.textTheme.labelSmall?.copyWith(color: primary.withValues(alpha: 0.85))),
+            TextSpan(text: title, style: theme.textTheme.labelLarge?.copyWith(color: color, fontWeight: FontWeight.w700, height: 1.1)),
+            TextSpan(text: ' · $basis', style: theme.textTheme.labelSmall?.copyWith(color: color.withValues(alpha: 0.85))),
           ]),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -283,12 +290,24 @@ class _GoalsStrip extends StatelessWidget {
               ]);
             }
             final cardW = (w * 0.46).floorToDouble();
+            // 横滑视口要铺到屏幕两边、而且不裁：卡片投影是 24 的模糊，视口只有卡片那么高、宽只到页边距，
+            // 投影就被裁成一块贴着卡片的直角灰底（真机上很显眼）。OverflowBox 把页边距吃回来让视口和屏幕一样宽，
+            // 列表自己留 _gutter 的内边距让卡片和上下的卡片对齐；Clip.none 让投影照常溢出去
             return SizedBox(
               height: 92,
-              child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final p in goals)
-                  Padding(padding: const EdgeInsets.only(right: 10), child: SizedBox(width: cardW, child: _GoalCard(p: p, wide: false, onTap: () => go(const GoalsPage())))),
-              ]),
+              child: OverflowBox(
+                minWidth: w + _gutter * 2,
+                maxWidth: w + _gutter * 2,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  padding: const EdgeInsets.symmetric(horizontal: _gutter),
+                  children: [
+                    for (final p in goals)
+                      Padding(padding: const EdgeInsets.only(right: 10), child: SizedBox(width: cardW, child: _GoalCard(p: p, wide: false, onTap: () => go(const GoalsPage())))),
+                  ],
+                ),
+              ),
             );
           }),
         if (tasks.isNotEmpty) ...[

@@ -9,7 +9,7 @@ import 'models/transaction.dart';
 enum IncomeLine { main, side, passive, other }
 
 /// 财富等级：只是给「生存月数」起的名字。[name] 是等级名（讲进度用），[title] 是称号（首页 / 桌面小部件上挂的身份，
-/// 直白但不骂人：最穷是「贫困户」，往上月光族 → 温饱户 → 小康 → 中产 → 人上人）。
+/// 直白但不骂人：最穷是「贫困户」，往上月光族 → 温饱户 → 小康 → 中产 → 人上人）。净资产为负时称号换成 [DebtTier] 那套。
 class WealthLevel {
   final int index; // 0..5
   final String name;
@@ -35,6 +35,35 @@ class WealthLevel {
   }
 
   WealthLevel? get next => index + 1 < levels.length ? levels[index + 1] : null;
+}
+
+/// 负翁档：净资产（资产 − 负债）是负的时候挂的称号，按欠的金额分档（等级仍按生存月数算，只是称号换成这套）。
+/// 「富翁」的反面：小负翁（欠不到 1 万）→ 负翁（1 万起）→ 大负翁（10 万起）→ 百万负翁 → 千万负翁。
+/// [floorMinor] 是这一档的起点（欠款 ≥ 它才算），还到低于它就降一档；最轻一档的起点是 0：还清就回到「贫困户」起步。
+class DebtTier {
+  final int index; // 0 = 最轻
+  final String title;
+  final int floorMinor;
+  const DebtTier(this.index, this.title, this.floorMinor);
+
+  static const tiers = [
+    DebtTier(0, '小负翁', 0),
+    DebtTier(1, '负翁', 1000000),
+    DebtTier(2, '大负翁', 10000000),
+    DebtTier(3, '百万负翁', 100000000),
+    DebtTier(4, '千万负翁', 1000000000),
+  ];
+
+  /// [debtMinor] 是净负债（正数，= −净资产）。
+  static DebtTier of(int debtMinor) {
+    for (final t in tiers.reversed) {
+      if (debtMinor >= t.floorMinor) return t;
+    }
+    return tiers.first;
+  }
+
+  /// 轻一档；最轻一档没有（再还就是净资产转正）。
+  DebtTier? get lighter => index > 0 ? tiers[index - 1] : null;
 }
 
 /// 「月支出」是按什么估的：手填 > 历史整月均值 > 近 31 天收入（先按月光算）> 本月按天外推 > 周期账单合计 > 没数据。
@@ -103,6 +132,20 @@ class WealthMetrics {
 
   /// 净资产是负的（负债比资产多）。
   bool get inDebt => netWorthMinor < 0;
+
+  /// 负翁档：只在净资产为负时有；按欠的金额（−净资产）分。
+  DebtTier? get debtTier => inDebt ? DebtTier.of(-netWorthMinor) : null;
+
+  /// 称号：净资产为负 → 负翁那套（按欠款），否则按生存月数的等级称号；两边都没依据 = null。
+  String? get title => debtTier?.title ?? level?.title;
+
+  /// 负翁想降一档要再还多少：还到低于这档起点就降；最轻一档 = 还清（净资产转正）。不在负翁档 = null。
+  int? get toLighterDebtTierMinor {
+    final t = debtTier;
+    if (t == null) return null;
+    final debt = -netWorthMinor;
+    return t.lighter == null ? debt : debt - t.floorMinor + 1;
+  }
 }
 
 /// 指标计算。调用方（App）在账本变更后算一次并缓存，页面只读缓存——别在 build 里调。

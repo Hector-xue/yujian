@@ -51,6 +51,37 @@ void main() {
       expect(ledger.changes.pending().any((c) => c.entity == 'goal'), isTrue);
     });
 
+    test('remove: never-funded goal takes its vault account with it; a funded one must be released first, then the vault is archived', () {
+      // 没存过钱：目标 + 锁仓账户一起真删，同步日志记两条删除
+      final fresh = ledger.goals.create(kind: GoalKind.wish, name: '旅行', targetMinor: 500000);
+      final r1 = ledger.goals.remove(fresh.id);
+      expect(r1.vaultDeleted, isTrue);
+      expect(r1.postingCount, 0);
+      expect(ledger.goals.find(fresh.id), isNull);
+      expect(ledger.account(fresh.vaultAccountId!), isNull);
+      expect(ledger.changes.pending().where((c) => c.deleted && (c.entityId == fresh.id || c.entityId == fresh.vaultAccountId)).length, 2);
+      // 存过钱：钱还在锁仓里就拒绝；释放回来源后再删，锁仓账户归档留历史（余额 0、不在账户列表里）
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '换手机', targetMinor: 699900);
+      add(ledger.goals.depositPayload(g, 100000, fromAccountId: wechat.id));
+      expect(() => ledger.goals.remove(g.id), throwsA(isA<InvalidStateException>()));
+      for (final b in ledger.goals.releasePayloads(g, fallbackAccountId: wechat.id)) {
+        add(b);
+      }
+      expect(ledger.goals.savedMinor(g), 0);
+      expect(ledger.balance(wechat.id).minor, 3000000);
+      final r2 = ledger.goals.remove(g.id);
+      expect(r2.vaultDeleted, isFalse);
+      expect(r2.postingCount, 2);
+      expect(ledger.goals.find(g.id), isNull);
+      expect(ledger.account(g.vaultAccountId!)!.isArchived, isTrue);
+      expect(ledger.listAccounts(includeVault: true).map((a) => a.id), isNot(contains(g.vaultAccountId)));
+      // 真锁仓（用户自己的账户）：删目标不碰账户
+      final real = ledger.goals.create(kind: GoalKind.wish, name: '买车', targetMinor: 20000000, vaultAccountId: bank.id);
+      expect(real.isVirtualVault, isFalse);
+      ledger.goals.remove(real.id);
+      expect(ledger.account(bank.id), isNotNull);
+    });
+
     test('redeem spends from the vault (multiple), completion releases the rest to sources proportionally', () {
       final g = ledger.goals.create(kind: GoalKind.wish, name: '日本游', targetMinor: 1200000);
       add(ledger.goals.depositPayload(g, 300000, fromAccountId: wechat.id));
@@ -353,6 +384,48 @@ void main() {
       expect(WealthLevel.of(999).title, '人上人');
       expect(WealthLevel.levels.map((l) => l.title).toSet().length, WealthLevel.levels.length);
       expect(WealthLevel.levels.every((l) => l.title.isNotEmpty && l.name.isNotEmpty), isTrue);
+    });
+
+    test('负翁档：净资产为负按欠款分档，边界落在重一档；再还多少降一档；还清回到等级称号', () {
+      expect(DebtTier.of(1).title, '小负翁');
+      expect(DebtTier.of(999999).title, '小负翁');
+      expect(DebtTier.of(1000000).title, '负翁');
+      expect(DebtTier.of(10000000).title, '大负翁');
+      expect(DebtTier.of(100000000).title, '百万负翁');
+      expect(DebtTier.of(1000000000).title, '千万负翁');
+      expect(DebtTier.of(1 << 40).title, '千万负翁');
+      expect(DebtTier.tiers.map((t) => t.title).toSet().length, DebtTier.tiers.length);
+      expect(DebtTier.tiers.first.lighter, isNull);
+      expect(DebtTier.tiers.last.lighter!.title, '百万负翁');
+
+      // 有工资 → 有等级（资产 5 万初始 + 1 万工资）；再背 8 万车贷 → 净资产 −2 万 → 称号换成「负翁」，等级名不变
+      add(income(1000000, '2026-09-02'));
+      var m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.inDebt, isFalse);
+      expect(m.debtTier, isNull);
+      expect(m.title, m.level!.title);
+      expect(m.toLighterDebtTierMinor, isNull);
+      ledger.debts.add(name: '车贷', kind: DebtKind.car, owedMinor: 8000000, monthlyMinor: 300000, day: 15, fromAccountId: 'bank', today: '2026-09-20');
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.inDebt, isTrue);
+      expect(m.netWorthMinor, -2000000);
+      expect(m.debtTier!.title, '负翁');
+      expect(m.title, '负翁');
+      expect(m.level, isNotNull); // 等级还在：够花几个月照算
+      // 降到「小负翁」= 欠款降到 1 万以下：再还 (欠款 − 1 万 + 1 分)
+      expect(m.toLighterDebtTierMinor, -m.netWorthMinor - 1000000 + 1);
+      expect(DebtTier.of(-m.netWorthMinor - m.toLighterDebtTierMinor!).title, '小负翁');
+      // 再进 1.5 万 → 净资产 −5000 → 最轻一档「小负翁」：再还多少 = 全部欠款（净资产转正）
+      add(income(1500000, '2026-09-03'));
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.netWorthMinor, -500000);
+      expect(m.debtTier!.title, '小负翁');
+      expect(m.toLighterDebtTierMinor, 500000);
+      // 转正：称号回到等级那套
+      add(income(500000, '2026-09-04'));
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.inDebt, isFalse);
+      expect(m.title, m.level!.title);
     });
   });
 

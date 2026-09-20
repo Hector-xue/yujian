@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
 import 'package:yujian/src/pages/debts_page.dart';
+import 'package:yujian/src/pages/goal_detail_page.dart';
 import 'package:yujian/src/pages/goals_page.dart';
 import 'package:yujian/src/pages/tasks_page.dart';
 import 'package:yujian/src/pages/wealth_page.dart';
@@ -122,15 +123,27 @@ void main() {
 
   group('game pages', () {
     testWidgets('home header wears the wealth title once there is a month of spending; it goes with the game layer', (tester) async {
-      // 上个月花过钱 → 有月均支出 → 有生存月数；钱包是负的 → 流动资产 0 → 够花 0 个月 → 最底档「贫困户」
+      // 上个月花过钱 → 有月均支出 → 有生存月数；钱包是负的 → 流动资产 0 → 够花 0 个月 → 等级最底档「贫困户」；
+      // 但净资产 −5000 → 挂的称号是负翁那套的最轻一档「小负翁」，依据写「欠多少」而不是「够花几个月」
       final now = DateTime.now();
       final lm = DateTime(now.year, now.month - 1, 15);
       state.addManual(expense(500000, '${lm.year}-${lm.month.toString().padLeft(2, '0')}-15'));
-      expect(state.game.metrics!.level!.title, '贫困户');
+      final m = state.game.metrics!;
+      expect(m.level!.title, '贫困户');
+      expect(m.netWorthMinor, -500000);
+      expect(m.title, '小负翁');
       await tester.pumpWidget(YujianApp(state: state));
       await tester.pumpAndSettle();
+      expect(find.textContaining('小负翁'), findsOneWidget);
+      expect(find.textContaining('欠 ¥5000.00'), findsOneWidget);
+      expect(find.textContaining('贫困户'), findsNothing);
+      // 还上 → 净资产转正 → 回到等级称号「贫困户 · 够花 0.x 个月」
+      state.addManual({'type': 'income', 'amount_minor': 500000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'salary', 'occurred_at': '${day(0)}T09:00:00+08:00'});
+      await tester.pumpAndSettle();
+      expect(state.game.metrics!.inDebt, isFalse);
+      expect(find.textContaining('小负翁'), findsNothing);
       expect(find.textContaining('贫困户'), findsOneWidget);
-      expect(find.textContaining('够花 0.0 个月'), findsOneWidget);
+      expect(find.textContaining('够花 '), findsOneWidget);
       // 游戏层关了：称号跟着首页一起消失
       await state.game.setEnabled(false);
       await tester.pumpAndSettle();
@@ -214,12 +227,15 @@ void main() {
       expect(m.netWorthMinor, m.assetsMinor - 50000000);
       expect(m.inDebt, isTrue);
       expect(m.disposableMinor, greaterThan(0)); // 可花的是正数：负债不吞掉当下能花的钱，只扣发薪前要还的那期
+      expect(m.title, '大负翁'); // 净资产 −49 万：负翁档按欠款分（10 万–100 万 = 大负翁），等级仍按够花几个月
+      expect(m.level, isNotNull);
       expect(state.game.goals.single.goal.name, '还清房贷');
-      // 首页：目标条挂着还清目标（一张通栏卡，带「已还」），头卡数字是正的
+      // 首页：目标条挂着还清目标（一张通栏卡，带「已还」），头卡数字是正的，角标是负翁称号 + 欠多少
       await tester.pumpWidget(YujianApp(state: state));
       await tester.pumpAndSettle();
       expect(find.text('还清房贷'), findsOneWidget);
       expect(find.textContaining('已还'), findsOneWidget);
+      expect(find.textContaining('大负翁 · 欠 ¥490000.00'), findsOneWidget);
       // 负债页
       await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage())));
       await tester.pumpAndSettle();
@@ -231,6 +247,28 @@ void main() {
       state.addManual({'type': 'transfer', 'amount_minor': 800000, 'currency': 'CNY', 'account_id': 'wechat', 'to_account_id': setup.account.id, 'occurred_at': '${day(0)}T09:00:00+08:00'});
       expect(state.ledger.debts.list().first.owedMinor, 49200000);
       expect(state.game.goals.single.savedMinor, 800000);
+    });
+
+    testWidgets('goal detail: 删除 releases the vault money back, removes the goal (not archived) and archives the vault account', (tester) async {
+      state.addManual({'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'gift', 'occurred_at': '${day(-1)}T10:00:00+08:00'});
+      final g = await state.game.createGoal(kind: GoalKind.wish, name: '日本游', targetMinor: 1200000, emoji: '✈️');
+      await state.game.deposit(g, 300000, fromAccountId: 'wechat');
+      expect(state.ledger.balance('wechat').minor, 700000);
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: GoalDetailPage(goalId: g.id))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.more_horiz));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('¥3000.00 会先释放回来源账户'), findsOneWidget);
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(state.ledger.goals.find(g.id), isNull);
+      expect(state.ledger.goals.list(activeOnly: false), isEmpty); // 不是归档，是没了
+      expect(state.ledger.balance('wechat').minor, 1000000);
+      expect(state.ledger.account(g.vaultAccountId!)!.isArchived, isTrue); // 存过钱：锁仓账户归档留历史
+      expect(state.game.goals, isEmpty);
+      expect(state.game.metrics!.lockedMinor, 0);
     });
 
     testWidgets('add-debt sheet: fill two numbers, get three things', (tester) async {

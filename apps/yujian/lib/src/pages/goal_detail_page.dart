@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'goals_page.dart';
@@ -31,27 +32,47 @@ class GoalDetailPage extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(g.name), actions: [
             if (active) IconButton(tooltip: '编辑', icon: const Icon(Icons.edit_outlined), onPressed: () => showGoalForm(context, edit: g)),
-            PopupMenuButton<String>(
-              onSelected: (v) async {
+            IconButton(
+              tooltip: '更多',
+              icon: const Icon(Icons.more_horiz),
+              onPressed: () async {
                 final nav = Navigator.of(context);
+                final v = await showActionSheet<String>(context, title: g.name, actions: [
+                  if (active) const SheetAction('complete', '标记达成', icon: Icons.check_circle_outline),
+                  if (active) const SheetAction('archive', '归档', icon: Icons.inventory_2_outlined),
+                  if (!active) const SheetAction('reactivate', '重新开始', icon: Icons.replay_outlined),
+                  const SheetAction('delete', '删除', icon: Icons.delete_outline, danger: true),
+                ]);
+                if (v == null || !context.mounted) return;
                 if (v == 'complete') {
                   final ok = await _confirm(context, '标记为已达成？', g.isVirtualVault && p.savedMinor > 0 ? '锁仓里还有 ${fmtMoney(p.savedMinor, g.currency)}，会按存入来源比例释放回「可花的」。' : '目标会移到已完成。');
-                  if (ok) await app.game.complete(g);
+                  if (!ok) return;
+                  await app.game.complete(g);
                 } else if (v == 'archive') {
                   final ok = await _confirm(context, '归档这个目标？', g.isVirtualVault && p.savedMinor > 0 ? '锁仓里的 ${fmtMoney(p.savedMinor, g.currency)} 会释放回来源账户。' : (g.hasVault && !g.isVirtualVault ? '钱还在「${vault?.name ?? ''}」里，只是不再算作锁定。' : '目标会移到已归档。'));
-                  if (ok) await app.game.archive(g);
+                  if (!ok) return;
+                  await app.game.archive(g);
                 } else if (v == 'reactivate') {
                   app.ledger.goals.update(g.id, status: GoalStatus.active);
                   app.touch();
                   return;
+                } else if (v == 'delete') {
+                  // 删 ≠ 归档：目标从列表里消失、不进「已归档」。锁仓里的钱先回来源；锁仓账户没记录真删、存过钱归档（历史对得上）
+                  final saved = g.isVirtualVault ? p.savedMinor : 0;
+                  final ok = await _confirm(
+                    context,
+                    '删除这个目标？',
+                    [
+                      if (saved > 0) '锁仓里的 ${fmtMoney(saved, g.currency)} 会先释放回来源账户。',
+                      if (g.kind == GoalKind.payoff) '只删还清目标，负债本身还在（要一起删去「负债」页）。',
+                      g.isVirtualVault && deposits.isNotEmpty ? '存入记录留着（锁仓账户归档），目标本身删掉，不进「已归档」。' : '删了就没了，不进「已归档」。',
+                    ].join(''),
+                  );
+                  if (!ok) return;
+                  await app.game.deleteGoal(g);
                 }
                 if (nav.canPop()) nav.pop();
               },
-              itemBuilder: (_) => [
-                if (active) const PopupMenuItem(value: 'complete', child: Text('标记达成')),
-                if (active) const PopupMenuItem(value: 'archive', child: Text('归档')),
-                if (!active) const PopupMenuItem(value: 'reactivate', child: Text('重新开始')),
-              ],
             ),
           ]),
           body: ListView(

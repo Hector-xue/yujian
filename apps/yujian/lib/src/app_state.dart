@@ -346,7 +346,7 @@ class AppState extends ChangeNotifier {
         calExp: expByDay.join(','),
         calInc: incByDay.join(','),
         // 称号跟首页同一来源（游戏层关着 = 首页不显示 = 小部件也不显示）
-        title: m?.level?.title ?? '',
+        title: m?.title ?? '',
         disposable: m == null ? fmtMoney(balance, 'CNY') : fmtMoney(m.disposableMinor, 'CNY'),
         goals: game.enabled ? jsonEncode(goalRows) : '[]',
         net: fmtMoney(income - expense, 'CNY'), // 4×2 的第三格「结余」
@@ -816,7 +816,7 @@ class AppState extends ChangeNotifier {
         if (ledger.listTransactions(limit: 1).isEmpty) '账本还是空的，一笔都没记过',
         // 目标（游戏层）：名字和进度，让陪聊能接得上「日本游攒得怎么样了」
         for (final p in game.goals.take(3)) '目标：${game.describe(p)}',
-        if (game.enabled && game.metrics?.level != null) '称号「${game.metrics!.level!.title}」（等级「${game.metrics!.level!.name}」），可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
+        if (game.enabled && game.metrics?.title != null) '称号「${game.metrics!.title}」${game.metrics!.inDebt ? '（净资产 ${fmtMoney(game.metrics!.netWorthMinor, 'CNY')}，负翁档按欠款分）' : '（等级「${game.metrics!.level!.name}」）'}，可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
       ];
       return lines.join('\n');
     } catch (_) {

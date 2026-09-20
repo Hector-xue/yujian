@@ -296,6 +296,28 @@ class GoalStore {
     _changes?.record('goal', id, null, deleted: true);
   }
 
+  /// 用户手删一个目标：目标真删，虚拟锁仓账户跟着清——没有任何记录的真删，存过钱的归档留历史（和删账户同一条规矩）。
+  /// 锁仓里还有钱时拒绝（调用方先释放回来源，见 App 的 GameLayer.release）；真锁仓是用户自己的账户，不碰。
+  GoalRemoval remove(String id) {
+    final g = get(id);
+    if (g.isVirtualVault && savedMinor(g) > 0) throw InvalidStateException('vault still holds money; release it first');
+    return ledger.database.transaction(() {
+      delete(id);
+      var vaultDeleted = false;
+      var postings = 0;
+      if (g.isVirtualVault && ledger.account(g.vaultAccountId!) != null) {
+        postings = ledger.accountPostingCount(g.vaultAccountId!);
+        if (postings > 0) {
+          if (!ledger.getAccount(g.vaultAccountId!).isArchived) ledger.archiveAccount(g.vaultAccountId!);
+        } else {
+          ledger.deleteAccount(g.vaultAccountId!);
+          vaultDeleted = true;
+        }
+      }
+      return GoalRemoval(vaultDeleted: vaultDeleted, postingCount: postings);
+    });
+  }
+
   /// 换锁仓：[vaultAccountId] 为 null = 改回虚拟锁仓（没有就建一个）。不动钱，调用方自己处理释放 / 转入。
   Goal setVault(String id, String? vaultAccountId) {
     final g = get(id);
@@ -556,4 +578,11 @@ class GoalStore {
   }
 
   static String _fmt(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
+/// [Goals.remove] 的结果：锁仓账户是真删了（没记录）还是归档了（有 [postingCount] 条记录）。
+class GoalRemoval {
+  final bool vaultDeleted;
+  final int postingCount;
+  const GoalRemoval({required this.vaultDeleted, required this.postingCount});
 }

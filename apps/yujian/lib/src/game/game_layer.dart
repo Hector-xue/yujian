@@ -155,7 +155,8 @@ class GameLayer extends ChangeNotifier {
         final p = await SharedPreferences.getInstance();
         final last = p.getInt('wealth_level');
         if (last != null && lvl.index > last) {
-          pendingMessages.add((text: app.replier.template(PersonaEvent.levelUp, label: lvl.title), sticker: '⬆️', meta: '等级「${lvl.name}」· 生存月数 ${m.runwayMonths!.toStringAsFixed(1)} 个月'));
+          // 净资产为负时称号是负翁那套，升级喊的名字跟首页角标一致
+          pendingMessages.add((text: app.replier.template(PersonaEvent.levelUp, label: m.title ?? lvl.title), sticker: '⬆️', meta: '等级「${lvl.name}」· 生存月数 ${m.runwayMonths!.toStringAsFixed(1)} 个月'));
           changed = true;
         }
         if (last != lvl.index) await p.setInt('wealth_level', lvl.index);
@@ -238,6 +239,14 @@ class GameLayer extends ChangeNotifier {
     await release(g, silent: true);
     ledger.goals.update(g.id, status: GoalStatus.archived);
     app.touch();
+  }
+
+  /// 删目标：锁仓里的钱先释放回来源（虚拟锁仓），再连锁仓账户一起清（没记录真删、存过钱归档，见 Goals.remove）。
+  Future<GoalRemoval> deleteGoal(Goal g) async {
+    await release(g, silent: true);
+    final r = ledger.goals.remove(g.id);
+    app.touch();
+    return r;
   }
 
   /// 释放锁仓余额回来源账户。真锁仓不动钱（钱在用户自己的账户里，只是解除「锁定」标记 = 把 vault 指向清掉）。
@@ -566,7 +575,8 @@ class GameLayer extends ChangeNotifier {
       '$month 月：收入 ${fmtMoney(income, 'CNY')}，支出 ${fmtMoney(expense, 'CNY')}${income > 0 ? '，存下 ${((income - expense) / income * 100).toStringAsFixed(0)}%' : ''}。',
       if (top.isNotEmpty) '花得最多的是${top.take(3).map((e) => '${app.categoryName(e.key)} ${fmtMoney(e.value, 'CNY')}').join('、')}。',
       for (final p in goals.where((p) => p.goal.kind == GoalKind.wish)) describe(p),
-      if (metrics?.level != null) '现在的称号是「${metrics!.level!.title}」、等级「${metrics!.level!.name}」（够花 ${metrics!.runwayMonths!.toStringAsFixed(1)} 个月）${metrics!.toNextLevelMinor != null && metrics!.toNextLevelMinor! > 0 ? '，再攒 ${fmtMoney(metrics!.toNextLevelMinor!, 'CNY')} 升一级' : ''}。',
+      if (metrics?.debtTier != null) '净资产 ${fmtMoney(metrics!.netWorthMinor, 'CNY')} 是负的，称号是「${metrics!.debtTier!.title}」（负翁档按欠款分：小负翁 < 1 万、负翁 1 万起、大负翁 10 万起、百万负翁、千万负翁），再还 ${fmtMoney(metrics!.toLighterDebtTierMinor!, 'CNY')} ${metrics!.debtTier!.lighter == null ? '净资产转正' : '降到「${metrics!.debtTier!.lighter!.title}」'}。',
+      if (metrics?.level != null) '${metrics!.inDebt ? '等级' : '现在的称号是「${metrics!.level!.title}」、等级'}「${metrics!.level!.name}」（够花 ${metrics!.runwayMonths!.toStringAsFixed(1)} 个月）${metrics!.toNextLevelMinor != null && metrics!.toNextLevelMinor! > 0 ? '，再攒 ${fmtMoney(metrics!.toNextLevelMinor!, 'CNY')} 升一级' : ''}。',
     ];
     final settled = ledger.tasks.list(limit: 100).where((t) => t.week.startsWith('$year-${month.toString().padLeft(2, '0')}') && t.result != TaskResult.pending).toList();
     if (settled.isNotEmpty) lines.add('周任务 ${settled.where((t) => t.result == TaskResult.done).length} / ${settled.length} 完成。');
