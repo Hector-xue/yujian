@@ -16,7 +16,7 @@ class AuditPage extends StatelessWidget {
     final a = e.after ?? const {};
     final amount = a['amount_minor'] is num ? fmtMoney((a['amount_minor'] as num).toInt(), (a['currency'] as String?) ?? 'CNY') : null;
     final desc = (a['description'] ?? a['merchant'] ?? a['name']) as String?;
-    final tail = [if (amount != null) amount, if (desc != null && desc.isNotEmpty) desc].join(' · ');
+    final tail = [?amount, if (desc != null && desc.isNotEmpty) desc].join(' · ');
     final what = tail.isEmpty ? '' : '：$tail';
     return switch (e.action) {
       'account.create' => '新建账户$what',
