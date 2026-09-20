@@ -467,6 +467,23 @@ void main() {
     expect(f.query!.rows.map((x) => x.key), contains('projected'));
   });
 
+  test('home anomalies: only the last 7 days, and a dismissed one stays gone', () async {
+    String iso(int daysAgo) => OccurredAt.fromLocal(DateTime.now().subtract(Duration(days: daysAgo))).toIso8601String();
+    // 基线：过去两个月每隔几天一笔 20 块（同分类样本够 5 笔）
+    for (var d = 10; d <= 60; d += 5) {
+      state.addManual({'type': 'expense', 'amount_minor': 2000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'occurred_at': iso(d)});
+    }
+    // 两笔大额：一笔 20 天前（早已过了首页的 7 天窗口），一笔 2 天前
+    state.addManual({'type': 'expense', 'amount_minor': 300000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'description': '老的', 'occurred_at': iso(20)});
+    final recent = state.addManual({'type': 'expense', 'amount_minor': 300000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'description': '新的', 'occurred_at': iso(2)});
+    final home = state.homeAnomalies();
+    expect(home.map((a) => a.tx.description), ['新的']);
+    await state.dismissAnomaly(recent.id);
+    expect(state.homeAnomalies(), isEmpty);
+    // 落盘了：重开 App 也不再出现
+    expect((await SharedPreferences.getInstance()).getStringList('anomalies_dismissed'), [recent.id]);
+  });
+
   test('local-only switch blocks cloud endpoints; anthropic type builds; redact flag persists', () async {
     await state.saveSettings(const Settings(baseUrl: 'https://api.openai.com/v1', model: 'gpt', apiKey: 'k', localOnly: true));
     expect(state.hasModel, isFalse);

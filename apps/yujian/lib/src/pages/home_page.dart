@@ -33,7 +33,7 @@ class HomePage extends StatelessWidget {
     final balances = app.ledger.balances(includeVault: true); // 余额是真实余额：锁进目标的钱也在手机里，「可花的」才扣它
     final recent = app.ledger.listTransactions(limit: 5);
     final alerts = app.budgetAlerts();
-    final anomalies = app.anomaliesThisMonth().take(3).toList();
+    final anomalies = app.homeAnomalies().take(3).toList();
     final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
     final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
@@ -86,17 +86,32 @@ class HomePage extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           if (anomalies.isNotEmpty) ...[
-            Text('比平时高', style: theme.textTheme.bodySmall),
+            Row(children: [
+              Text('比平时高', style: theme.textTheme.bodySmall),
+              const Spacer(),
+              Text('最近 ${AppState.homeAnomalyDays} 天 · 左滑不再提', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            ]),
             const SizedBox(height: 4),
             GlassCard(
               child: Column(children: [
                 for (final a in anomalies)
-                  ListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
-                    trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
+                  Dismissible(
+                    key: ValueKey('anomaly-${a.tx.id}'),
+                    direction: DismissDirection.endToStart,
+                    onDismissed: (_) => app.dismissAnomaly(a.tx.id),
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      color: y.muted.withValues(alpha: 0.15),
+                      child: Icon(Icons.visibility_off_outlined, color: y.muted),
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                      title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
+                      trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
+                    ),
                   ),
               ]),
             ),
