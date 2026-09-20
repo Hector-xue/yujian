@@ -133,19 +133,32 @@ class WealthPage extends StatelessWidget {
               Text('成就', style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
               Text('全部由账本事实触发，一次性；点开看依据。没有商店、没有签到。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
-              const SizedBox(height: 6),
-              for (final group in const [('goal', '目标'), ('saving', '攒钱'), ('habit', '习惯'), ('income', '收入'), ('debt', '负债'), ('record', '记录')]) ...[
-                Padding(padding: const EdgeInsets.fromLTRB(0, 8, 0, 2), child: Text(group.$2, style: theme.textTheme.labelLarge)),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final d in achievementDefs.where((d) => d.group == group.$1)) _AchievementChip(def: d, unlocked: game.achievements.where((a) => a.key == d.key).firstOrNull),
-                ]),
-              ],
+              const SizedBox(height: 8),
+              // 成就一张卡、设置一张卡：和上面的指标卡一套
+              GlassCard(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    for (final group in const [('goal', '目标'), ('saving', '攒钱'), ('habit', '习惯'), ('income', '收入'), ('debt', '负债'), ('record', '记录')]) ...[
+                      Padding(padding: const EdgeInsets.fromLTRB(0, 8, 0, 2), child: Text(group.$2, style: theme.textTheme.labelLarge)),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        for (final d in achievementDefs.where((d) => d.group == group.$1)) _AchievementChip(def: d, unlocked: game.achievements.where((a) => a.key == d.key).firstOrNull),
+                      ]),
+                    ],
+                  ]),
+                ),
+              ),
               const SizedBox(height: 22),
               Text('设置', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
+              GlassCard(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const _PaydayRow(),
               const SizedBox(height: 10),
               _MonthlyCostRow(metrics: m),
+              const SizedBox(height: 4),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('财富游戏'),
@@ -168,6 +181,9 @@ class WealthPage extends StatelessWidget {
                   value: game.rituals[r.$1] ?? true,
                   onChanged: game.enabled ? (v) => game.setRitual(r.$1, v) : null,
                 ),
+                  ]),
+                ),
+              ),
               const SizedBox(height: 8),
               Text('三个仪式都在你打开余见时触发（工资到账那一刻你确认了那笔收入也会触发）。余见不发系统通知，也不在后台跑。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
             ],

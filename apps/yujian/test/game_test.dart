@@ -122,19 +122,19 @@ void main() {
 
   group('game pages', () {
     testWidgets('home header wears the wealth title once there is a month of spending; it goes with the game layer', (tester) async {
-      // 上个月花过钱 → 有月均支出 → 有生存月数；钱包是负的 → 流动资产 0 → 够花 0 个月 → 最底档「穷逼」
+      // 上个月花过钱 → 有月均支出 → 有生存月数；钱包是负的 → 流动资产 0 → 够花 0 个月 → 最底档「贫困户」
       final now = DateTime.now();
       final lm = DateTime(now.year, now.month - 1, 15);
       state.addManual(expense(500000, '${lm.year}-${lm.month.toString().padLeft(2, '0')}-15'));
-      expect(state.game.metrics!.level!.title, '穷逼');
+      expect(state.game.metrics!.level!.title, '贫困户');
       await tester.pumpWidget(YujianApp(state: state));
       await tester.pumpAndSettle();
-      expect(find.textContaining('穷逼'), findsOneWidget);
+      expect(find.textContaining('贫困户'), findsOneWidget);
       expect(find.textContaining('够花 0.0 个月'), findsOneWidget);
       // 游戏层关了：称号跟着首页一起消失
       await state.game.setEnabled(false);
       await tester.pumpAndSettle();
-      expect(find.textContaining('穷逼'), findsNothing);
+      expect(find.textContaining('贫困户'), findsNothing);
     });
 
     testWidgets('home shows 可花的 / 今天还能花 with the layer on, the plain balance card with it off', (tester) async {

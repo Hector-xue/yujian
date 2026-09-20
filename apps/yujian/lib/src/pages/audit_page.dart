@@ -97,16 +97,23 @@ class AuditPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          if (log.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text('还没有改动', style: theme.textTheme.bodySmall)),
-          for (final e in log)
-            ListTile(
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              title: Text('${actionText(e)}${e.confirmedByUser ? ' ✓' : ''}'),
-              subtitle: Text(
-                '${e.at.toLocal().toIso8601String().substring(0, 16).replaceAll('T', ' ')} · ${_who(e)}${_how(e).isNotEmpty ? ' · ${_how(e)}' : ''}',
-                style: theme.textTheme.bodySmall,
-              ),
+          if (log.isEmpty)
+            Padding(padding: const EdgeInsets.all(20), child: Text('还没有改动', style: theme.textTheme.bodySmall))
+          else
+            GlassCard(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(children: [
+                for (final e in log)
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    title: Text('${actionText(e)}${e.confirmedByUser ? ' ✓' : ''}'),
+                    subtitle: Text(
+                      '${e.at.toLocal().toIso8601String().substring(0, 16).replaceAll('T', ' ')} · ${_who(e)}${_how(e).isNotEmpty ? ' · ${_how(e)}' : ''}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+              ]),
             ),
         ],
       ),

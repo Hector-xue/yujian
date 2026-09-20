@@ -274,9 +274,9 @@ void main() {
       expect(ledger.recurring.list().firstWhere((r) => r.template['to_account_id'] == setup.account.id).nextDue, '2026-10-12');
     });
 
-    test('每档等级都有称号；最穷是穷逼，每档不重名，档位边界落在高一档', () {
-      expect(WealthLevel.of(0).title, '穷逼');
-      expect(WealthLevel.of(0.49).title, '穷逼');
+    test('每档等级都有称号；最穷是贫困户，每档不重名，档位边界落在高一档', () {
+      expect(WealthLevel.of(0).title, '贫困户');
+      expect(WealthLevel.of(0.49).title, '贫困户');
       expect(WealthLevel.of(0.5).title, '月光族');
       expect(WealthLevel.of(1).title, '温饱户');
       expect(WealthLevel.of(3).title, '小康');

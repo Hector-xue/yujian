@@ -40,29 +40,37 @@ class TasksPage extends StatelessWidget {
                 const SizedBox(height: 18),
                 Text('候选', style: theme.textTheme.titleMedium),
                 Text(game.candidatesFromModel ? '按上周账本挑的（后面几个是模型提的，只进候选）。点「＋」加入本周。' : '按上周账本挑的。点「＋」加入本周。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
-                const SizedBox(height: 4),
-                for (final c in game.candidates)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: Icon(_kindIcon(c.kind), size: 20, color: theme.colorScheme.primary),
-                    title: Text(c.title),
-                    subtitle: Text(_kindText(c.kind), style: theme.textTheme.bodySmall),
-                    trailing: IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _accept(context, c)),
-                  ),
+                const SizedBox(height: 6),
+                GlassCard(
+                  child: Column(children: [
+                    for (final c in game.candidates)
+                      ListTile(
+                        contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+                        dense: true,
+                        leading: Icon(_kindIcon(c.kind), size: 20, color: theme.colorScheme.primary),
+                        title: Text(c.title),
+                        subtitle: Text(_kindText(c.kind), style: theme.textTheme.bodySmall),
+                        trailing: IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _accept(context, c)),
+                      ),
+                  ]),
+                ),
               ],
               if (history.isNotEmpty) ...[
                 const SizedBox(height: 18),
                 Text('过去几周', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                for (final t in history)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: Icon(switch (t.result) { TaskResult.done => Icons.check_circle_outline, TaskResult.missed => Icons.remove_circle_outline, _ => Icons.schedule }, size: 20, color: t.result == TaskResult.done ? y.income : y.muted),
-                    title: Text(t.title),
-                    subtitle: Text('${t.week.substring(5).replaceFirst('-', '/')} 那周 · ${t.evidence?['detail'] ?? '未结算'}', style: theme.textTheme.bodySmall),
-                  ),
+                const SizedBox(height: 6),
+                GlassCard(
+                  child: Column(children: [
+                    for (final t in history)
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                        dense: true,
+                        leading: Icon(switch (t.result) { TaskResult.done => Icons.check_circle_outline, TaskResult.missed => Icons.remove_circle_outline, _ => Icons.schedule }, size: 20, color: t.result == TaskResult.done ? y.income : y.muted),
+                        title: Text(t.title),
+                        subtitle: Text('${t.week.substring(5).replaceFirst('-', '/')} 那周 · ${t.evidence?['detail'] ?? '未结算'}', style: theme.textTheme.bodySmall),
+                      ),
+                  ]),
+                ),
               ],
             ],
           ),

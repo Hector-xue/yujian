@@ -219,7 +219,7 @@ class _GameHeader extends StatelessWidget {
   }
 }
 
-/// 称号角标：称号是身份（穷逼 / 月光族 / …），够花几个月是依据；两段一个胶囊，称号加粗做主。
+/// 称号角标：称号是身份（贫困户 / 月光族 / …），够花几个月是依据；两段一个胶囊，称号加粗做主。
 class _TitleBadge extends StatelessWidget {
   final WealthLevel level;
   final double runwayMonths;

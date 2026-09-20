@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 4×2「目标」：头行 可花的 + 称号胶囊；下面最多 3 个目标（emoji · 名字 · 还差多少 + 进度条），行由代码 addView 进来。
-     没目标时显示一句话。点整块 → 目标页；点头行 → 首页。RemoteViews 只认基础控件（ProgressBar 是允许的）。 -->
+<!-- 4×2「目标」：头行 可花的 + 称号胶囊；下面最多 3 个目标（emoji · 名字 · 还差多少 + 进度条），行由代码 addView 进来，
+     每行 weight=1 平分高度（1 个目标也不会挤在上面留一大块白）；目标少于 3 个时行里多一行「已攒 / 目标」，少于 2 个时底部再放「记一笔」。
+     没目标时显示一句话 + 按钮。点整块 → 目标页；点头行 → 首页。RemoteViews 只认基础控件（ProgressBar 是允许的）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -18,7 +19,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="可花的" android:textSize="12sp" android:textColor="#1B6BC7" android:textStyle="bold"/>
-        <TextView android:id="@+id/widget_disposable" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/widget_disposable" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="¥ 0.00" android:textSize="17sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
         <TextView android:id="@+id/widget_title_badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:background="@drawable/widget_badge_bg" android:paddingLeft="8dp" android:paddingRight="8dp" android:paddingTop="2dp" android:paddingBottom="2dp" android:text="" android:visibility="gone" android:maxLines="1" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold" android:includeFontPadding="false"/>
     </LinearLayout>
     <LinearLayout
@@ -29,5 +30,15 @@
         android:layout_marginTop="4dp"
         android:orientation="vertical"
         android:gravity="center_vertical"/>
-    <TextView android:id="@+id/widget_goals_empty" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:text="还没有目标 · 点这里建一个，钱才有方向" android:textSize="12sp" android:textColor="#6C7580" android:maxLines="2"/>
+    <TextView android:id="@+id/widget_goals_empty" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center_vertical" android:visibility="gone" android:text="还没有目标 · 点这里建一个，钱才有方向" android:textSize="13sp" android:textColor="#6C7580" android:maxLines="2"/>
+    <TextView
+        android:id="@+id/widget_add"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:background="@drawable/widget_button_bg"
+        android:paddingTop="9dp" android:paddingBottom="9dp"
+        android:visibility="gone"
+        android:text="＋ 记一笔" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold"/>
 </LinearLayout>

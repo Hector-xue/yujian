@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../settings_store.dart';
 import '../voice/local_asr_native.dart' if (dart.library.js_interop) '../voice/local_asr_web.dart';
 import '../voice/local_tts_native.dart' if (dart.library.js_interop) '../voice/local_tts_web.dart';
@@ -183,12 +184,12 @@ class _VoicePageState extends State<VoicePage> {
     Widget engineTile(String value, String title, String subtitle, {Widget? trailing, List<Widget> body = const []}) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           RadioListTile<String>(
             value: value,
-            contentPadding: EdgeInsets.zero,
+            contentPadding: const EdgeInsets.fromLTRB(8, 0, 12, 0),
             title: Text(title),
             subtitle: Text(subtitle, style: muted),
             secondary: trailing,
           ),
-          if (engine == value && body.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(12, 0, 0, 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body)),
+          if (engine == value && body.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body)),
         ]);
 
     final body = ListView(
@@ -202,9 +203,12 @@ class _VoicePageState extends State<VoicePage> {
           Text('听你说', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('按顺序试：${asrInstalled == true ? '离线识别包 → ' : ''}手机系统识别${(s.transcribeModel ?? '').isNotEmpty ? ' → 云端转写' : ''}。国产 ROM 常常没有系统识别，装离线包最省心。', style: muted),
+          const SizedBox(height: 8),
+          // 听你说 / 它说话 各一张卡
+          GlassCard(child: Column(children: [
           if (LocalAsr.supported)
             ListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
               leading: Icon(asrInstalled == true ? Icons.offline_pin : Icons.download_for_offline_outlined, color: theme.colorScheme.primary),
               title: const Text('离线识别包'),
               subtitle: Text(asrInstalled == true ? '已安装，说话在本机识别、不联网' : '约 ${LocalAsr.approxMb} MB，下载一次', style: muted),
@@ -223,7 +227,8 @@ class _VoicePageState extends State<VoicePage> {
                       child: const Text('下载')),
             ),
           ExpansionTile(
-            tilePadding: EdgeInsets.zero,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
             title: Text('云端转写（可选，一般不用）', style: theme.textTheme.bodyMedium),
             subtitle: Text(hasEndpoint ? '离线包和系统识别都不行时的兜底' : '先到「主模型」配好端点', style: muted),
             children: [
@@ -240,10 +245,13 @@ class _VoicePageState extends State<VoicePage> {
               const SizedBox(height: 8),
             ],
           ),
+          ])),
           const SizedBox(height: 24),
           Text('它说话', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('选一个。对话页开了「朗读」就用它读回复。', style: muted),
+          const SizedBox(height: 8),
+          GlassCard(child: Column(children: [
           RadioGroup<String>(
             groupValue: engine,
             onChanged: (v) => v == null ? null : _chooseEngine(v),
@@ -323,7 +331,7 @@ class _VoicePageState extends State<VoicePage> {
           ),
           if (ttsInstalled == true)
             ListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
               leading: Icon(Icons.delete_sweep_outlined, color: theme.colorScheme.primary),
               title: const Text('旧版下载的离线语音包'),
               subtitle: Text('0.8.7 起不再用它（效果差）。占约 ${LocalTts.approxMb} MB，删掉腾地方', style: muted),
@@ -334,6 +342,7 @@ class _VoicePageState extends State<VoicePage> {
                   },
                   child: const Text('删除')),
             ),
+          ])),
           if (engine == 'doubao' || engine == 'minimax' || engine == 'cloud' || engine == 'omni') ...[
             const SizedBox(height: 4),
             TextField(

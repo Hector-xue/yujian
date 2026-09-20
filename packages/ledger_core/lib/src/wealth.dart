@@ -9,7 +9,7 @@ import 'models/transaction.dart';
 enum IncomeLine { main, side, passive, other }
 
 /// 财富等级：只是给「生存月数」起的名字。[name] 是等级名（讲进度用），[title] 是称号（首页 / 桌面小部件上挂的身份，
-/// 嘲讽但真实：最穷就是穷逼，别粉饰）。
+/// 直白但不骂人：最穷是「贫困户」，往上月光族 → 温饱户 → 小康 → 中产 → 人上人）。
 class WealthLevel {
   final int index; // 0..5
   final String name;
@@ -19,7 +19,7 @@ class WealthLevel {
   const WealthLevel(this.index, this.name, this.title, this.minMonths, this.maxMonths);
 
   static const levels = [
-    WealthLevel(0, '起步', '穷逼', 0, 0.5),
+    WealthLevel(0, '起步', '贫困户', 0, 0.5),
     WealthLevel(1, '喘口气', '月光族', 0.5, 1),
     WealthLevel(2, '站稳', '温饱户', 1, 3),
     WealthLevel(3, '安心', '小康', 3, 6),

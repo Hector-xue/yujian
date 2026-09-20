@@ -11,7 +11,7 @@ class HomeWidgetBridge {
   static HomeWidgetBridge? ifSupported() => supported ? HomeWidgetBridge() : null;
 
   /// [calYm] 是 `yyyy-MM`，[calExp] / [calInc] 是该月每天的支出 / 收入（分），逗号分隔、按日序；4×4 日历小部件用。
-  /// [title] 是财富称号（穷逼 / 月光族 / …），空字符串 = 没有（没数据或游戏层关着），小部件上的胶囊就不显示。
+  /// [title] 是财富称号（贫困户 / 月光族 / …），空字符串 = 没有（没数据或游戏层关着），小部件上的胶囊就不显示。
   /// [disposable] 是「可花的」，[goals] 是 4×2 目标小部件用的 JSON 数组（最多 3 条，见 AppState.pushHomeWidget）。
   Future<void> update({required String balance, required String expense, required String income, required String month, String recent = '', String today = '', String calYm = '', String calExp = '', String calInc = '', String title = '', String disposable = '', String goals = ''}) async {
     if (!supported) return;
