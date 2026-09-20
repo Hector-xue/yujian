@@ -77,6 +77,12 @@ class AuditPage extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = YujianColors.of(context).muted;
     final log = app.ledger.auditLog(limit: 300);
+    final byDay = <String, List<AuditEntry>>{};
+    for (final e in log) {
+      final d = e.at.toLocal();
+      byDay.putIfAbsent('${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}', () => []).add(e);
+    }
+    final today = todayLocal();
     return Scaffold(
       appBar: AppBar(title: const Text('审计日志')),
       body: ListView(
@@ -96,27 +102,45 @@ class AuditPage extends StatelessWidget {
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const NetLogPage())),
             ),
           ),
-          const SizedBox(height: 8),
           if (log.isEmpty)
             Padding(padding: const EdgeInsets.all(20), child: Text('还没有改动', style: theme.textTheme.bodySmall))
           else
-            GlassCard(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(children: [
-                for (final e in log)
-                  ListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    title: Text('${actionText(e)}${e.confirmedByUser ? ' ✓' : ''}'),
-                    subtitle: Text(
-                      '${e.at.toLocal().toIso8601String().substring(0, 16).replaceAll('T', ' ')} · ${_who(e)}${_how(e).isNotEmpty ? ' · ${_how(e)}' : ''}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ),
-              ]),
-            ),
+            // 按天一组一张卡（和「记录」页同款）。以前 300 条塞在一张卡的 Column 里：ListView 只对它的直接子项懒加载，
+            // 一张卡 = 一个子项，进页第一帧就得把 300 个 ListTile 全建全排，那一帧长到把整段转场动画吃掉——看起来就是「没动画」。
+            // 拆成一天一张卡后只有露出来的几张真正建出来；一天太多条再切成几张卡，一张最多 _chunk 条。
+            for (final day in byDay.entries) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 6),
+                child: Text(fmtDate(day.key, today: today), style: theme.textTheme.bodySmall),
+              ),
+              for (var i = 0; i < day.value.length; i += _chunk)
+                GlassCard(
+                  margin: EdgeInsets.fromLTRB(20, i == 0 ? 0 : 8, 20, 0),
+                  child: Column(children: [for (final e in day.value.sublist(i, i + _chunk > day.value.length ? day.value.length : i + _chunk)) _AuditRow(e: e)]),
+                ),
+            ],
         ],
       ),
+    );
+  }
+
+  static const _chunk = 40;
+}
+
+class _AuditRow extends StatelessWidget {
+  final AuditEntry e;
+  const _AuditRow({required this.e});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final at = e.at.toLocal();
+    final hm = '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+    final how = AuditPage._how(e);
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Text('${AuditPage.actionText(e)}${e.confirmedByUser ? ' ✓' : ''}'),
+      subtitle: Text('$hm · ${AuditPage._who(e)}${how.isNotEmpty ? ' · $how' : ''}', style: theme.textTheme.bodySmall),
     );
   }
 }

@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../privacy/net_log.dart';
 import '../settings_store.dart';
 import '../theme.dart';
+import '../widgets/disclosure_tile.dart';
 import '../widgets/model_picker.dart';
 import 'api_guide_page.dart';
 import 'usage_page.dart';
@@ -203,8 +204,7 @@ class _ModelPageState extends State<ModelPage> {
             ],
           ),
           const SizedBox(height: 8),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
+          DisclosureTile(
             initiallyExpanded: showOptional,
             title: Text('可选：看图用另一个模型', style: theme.textTheme.bodyMedium),
             subtitle: Text('主模型「测试连接」看图显示 ✗ 时才需要', style: theme.textTheme.bodySmall),

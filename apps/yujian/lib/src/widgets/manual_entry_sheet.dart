@@ -7,12 +7,34 @@ import 'category_icon.dart';
 
 /// 手动记一笔：金额 / 类型 / 分类 / 账户 / 时间 / 说明，直接入账（表单本身就是确认）。返回记好的交易。
 Future<Transaction?> showManualEntrySheet(BuildContext context, {String type = 'expense'}) {
+  // 表单只造这一个实例：键盘升降的每一帧 builder 都会因 viewInsets 变化重跑，传同一个 widget 对象进去 Flutter 就跳过表单的重建，
+  // 每帧只动外面那层留位
+  final form = _Form(initialType: type);
   return showModalBottomSheet<Transaction>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom), child: _Form(initialType: type)),
+    builder: (ctx) => _KeyboardPad(child: form),
   );
+}
+
+/// 给键盘让位的那层。弹层往下收的时候键盘同时在收，留位一帧一帧缩、表单一帧一帧重排，和下滑动画叠在一起就是「收回卡」；
+/// 退场期间把留位钉在最后一个值上，表单一动不动，只剩一个滑出动画。
+class _KeyboardPad extends StatefulWidget {
+  final Widget child;
+  const _KeyboardPad({required this.child});
+  @override
+  State<_KeyboardPad> createState() => _KeyboardPadState();
+}
+
+class _KeyboardPadState extends State<_KeyboardPad> {
+  double _bottom = 0;
+  @override
+  Widget build(BuildContext context) {
+    final leaving = ModalRoute.of(context)?.animation?.status == AnimationStatus.reverse;
+    if (!leaving) _bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(padding: EdgeInsets.only(bottom: _bottom), child: widget.child);
+  }
 }
 
 class _Form extends StatefulWidget {

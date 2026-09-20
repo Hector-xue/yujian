@@ -214,7 +214,19 @@ class _ShellState extends State<Shell> {
         // 子页盖上来时胶囊已滑走，子页不在这层里，不受影响
         child: Theme(
           data: theme.copyWith(snackBarTheme: theme.snackBarTheme.copyWith(insetPadding: EdgeInsets.fromLTRB(15, 5, 15, snackInset))),
-          child: ListenableBuilder(listenable: dockController, builder: (_, _) => IndexedStack(index: dockController.tab, children: pages)),
+          child: ListenableBuilder(
+            listenable: dockController,
+            builder: (inner, _) {
+              // IndexedStack 里五页都活着、都在排版。键盘升降的每一帧都会改上面这层 MediaQuery（留位随键盘连续变），
+              // 五页一起重建（首页 / 记录页的 build 里是一串查库）+ 五个 Scaffold 一起给键盘让位，看不见的四页白干活，
+              // 这就是弹层 / 键盘「略卡」的大头。看不见的页拿一份钉死的 MediaQuery（没键盘、留位 = 胶囊高），
+              // 切到它时再换成活的；每页永远套着同一层 MediaQuery，切来切去不会重建页面、不丢状态。
+              final live = MediaQuery.of(inner);
+              final frozen = live.copyWith(viewInsets: live.viewInsets.copyWith(bottom: 0), padding: live.padding.copyWith(bottom: dockTop > live.viewPadding.bottom ? dockTop : live.viewPadding.bottom));
+              final tab = dockController.tab;
+              return IndexedStack(index: tab, children: [for (var i = 0; i < pages.length; i++) MediaQuery(data: i == tab ? live : frozen, child: pages[i])]);
+            },
+          ),
         ),
       );
     });

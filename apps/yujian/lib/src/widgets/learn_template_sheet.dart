@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:notification_templates/notification_templates.dart';
 
 import '../app_state.dart';
+import '../widgets/disclosure_tile.dart';
 import '../widgets/fmt.dart';
 
 /// 通知来源 App 的显示名：内置名单认得的给中文名，认不得的给包名最后一段，没包名就是「任意 App」。
@@ -274,8 +275,7 @@ class _LearnSheetState extends State<_LearnSheet> {
             ]),
           ),
           const SizedBox(height: 8),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
+          DisclosureTile(
             title: Text('高级：手改规则', style: theme.textTheme.bodyMedium),
             subtitle: Text('一般不用碰。这里是上面自动生成的内容', style: theme.textTheme.bodySmall),
             children: [
