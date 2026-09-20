@@ -102,6 +102,15 @@ class PersonaProfile {
       'notUnderstood': t('没听懂，说"午饭 28"这样的就行'),
       'modelUnavailable': t('模型不在线，我先按规则记了'),
       'missingFields': t('还缺 {label}，$call补一下'),
+      'goalCreated': t('「{label}」记下了，$call一定攒得到'),
+      'depositMade': t('往「{label}」存了 {n}'),
+      'goalMilestone': t('「{label}」到 {n}% 了'),
+      'goalReached': t('「{label}」攒够了，$call真棒'),
+      'taskDone': t('「{label}」做到了'),
+      'taskMissed': t('「{label}」这周没成，下周再来'),
+      'levelUp': t('$call现在是「{label}」了'),
+      'payday': t('工资到了，先往目标里放了 {n}'),
+      'monthlyReview': t('{label}'),
     };
   }
 

@@ -34,6 +34,7 @@ Future<void> main() async {
   unawaited(state.startScreenshots()); // 截图队列要调视觉模型，不挡首屏
   unawaited(state.pushHomeWidget());
   unawaited(state.checkUpdate());
+  unawaited(state.startGame()); // 目标 / 任务 / 仪式，不挡首屏
 }
 
 /// 无头引擎入口：App 没开着、但进程被通知监听 / 无障碍留着时，原生 ScreenshotBridge 起这个入口把截图队列处理掉。

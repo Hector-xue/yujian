@@ -35,4 +35,40 @@ class PersonaPack {
 }
 
 /// 人格回复所响应的事件。数据由调用方（App）给，人格只负责措辞。
-enum PersonaEvent { greeting, draftsProposed, recorded, dismissed, queryAnswered, notUnderstood, modelUnavailable, missingFields }
+/// 前 8 个是核心事件（人格包必须有模板）；财富游戏层的 9 个是可选的，人格包没写就用 [gameEventDefaults]。
+enum PersonaEvent {
+  greeting,
+  draftsProposed,
+  recorded,
+  dismissed,
+  queryAnswered,
+  notUnderstood,
+  modelUnavailable,
+  missingFields,
+  // ---- 财富游戏层（可选）
+  goalCreated, // {label}=目标名
+  depositMade, // {n}=金额（元），{label}=目标名
+  goalMilestone, // {n}=百分比，{label}=目标名
+  goalReached, // {label}
+  taskDone, // {label}=任务名
+  taskMissed, // {label}
+  levelUp, // {label}=等级名
+  payday, // {n}=分到目标的总额（元）
+  monthlyReview, // {label}=复盘正文
+}
+
+/// 人格包必须提供模板的事件（导入校验只查这些）。
+const corePersonaEvents = [PersonaEvent.greeting, PersonaEvent.draftsProposed, PersonaEvent.recorded, PersonaEvent.dismissed, PersonaEvent.queryAnswered, PersonaEvent.notUnderstood, PersonaEvent.modelUnavailable, PersonaEvent.missingFields];
+
+/// 游戏层事件的通用回退话术（中性、不羞辱）。
+const gameEventDefaults = <String, String>{
+  'goalCreated': '目标「{label}」建好了。攒起来。',
+  'depositMade': '往「{label}」存了 {n}。',
+  'goalMilestone': '「{label}」到 {n}% 了。',
+  'goalReached': '「{label}」攒够了。',
+  'taskDone': '任务完成：{label}。',
+  'taskMissed': '这周「{label}」没做到，下周再来。',
+  'levelUp': '升到「{label}」了。',
+  'payday': '工资到了，按计划往目标里放了 {n}。',
+  'monthlyReview': '{label}',
+};

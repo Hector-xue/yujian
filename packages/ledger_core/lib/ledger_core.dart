@@ -3,8 +3,10 @@
 /// 写路径唯一：`Ledger.propose` → 收件箱 → `Ledger.commit`。
 library;
 
+export 'src/achievements.dart';
 export 'src/budget.dart';
 export 'src/changes.dart';
+export 'src/goals.dart';
 export 'src/db/database.dart';
 export 'src/errors.dart';
 export 'src/ids.dart';
@@ -19,5 +21,8 @@ export 'src/models/transaction.dart';
 export 'src/money.dart';
 export 'src/occurred_at.dart';
 export 'src/portability.dart';
+export 'src/profile.dart';
 export 'src/recurring.dart';
+export 'src/tasks.dart';
 export 'src/validation.dart' show Analysis, ValidatedTransaction, analyzeCreatePayload;
+export 'src/wealth.dart';

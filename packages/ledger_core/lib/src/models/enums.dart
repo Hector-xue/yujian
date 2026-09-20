@@ -1,4 +1,4 @@
-enum AccountType { cash, bank, creditCard, eWallet, receivable, payable, investment }
+enum AccountType { cash, bank, creditCard, eWallet, receivable, payable, investment, vault }
 
 enum TransactionType { expense, income, transfer, refund, adjustment }
 
@@ -29,3 +29,7 @@ extension EnumDb on Enum {
 
 T enumFromDb<T extends Enum>(List<T> values, String s) =>
     values.firstWhere((v) => v.db == s, orElse: () => throw ArgumentError('unknown $T: $s'));
+
+/// 容错版：新版本同步过来的未知值退回 [fallback]，别让老 App 读一行就崩。
+T enumFromDbOr<T extends Enum>(List<T> values, String s, T fallback) =>
+    values.firstWhere((v) => v.db == s, orElse: () => fallback);

@@ -30,7 +30,7 @@ class Account {
   factory Account.fromRow(Map<String, Object?> r) => Account(
         id: r['id'] as String,
         name: r['name'] as String,
-        type: enumFromDb(AccountType.values, r['type'] as String),
+        type: enumFromDbOr(AccountType.values, r['type'] as String, AccountType.bank),
         currency: r['currency'] as String,
         initialBalanceMinor: r['initial_balance_minor'] as int,
         institution: r['institution'] as String?,

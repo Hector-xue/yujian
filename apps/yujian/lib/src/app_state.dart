@@ -14,6 +14,7 @@ import 'package:sync_client/sync_client.dart';
 
 import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
+import 'game/game_layer.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/screenshot_ocr.dart';
 import 'notifications/screenshot_source.dart';
@@ -57,6 +58,10 @@ class AppState extends ChangeNotifier {
   final UsageMeter usage = UsageMeter();
   /// 出网记录：每一次数据出手机都在这里留一行（更多 → 隐私 → 出网记录）。
   final NetLog netLog = NetLog();
+  /// 财富游戏层（目标 / 可花的 / 等级 / 任务 / 成就 / 仪式）。数字全从账本推导。
+  late final GameLayer game = GameLayer(this);
+  /// 周任务生成 / 月度复盘润色用的模型（出网记录标 tasks）；null = 没模型或纯本地模式。
+  ChatProvider? taskProvider;
 
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
@@ -162,6 +167,7 @@ class AppState extends ChangeNotifier {
     replier = PersonaReplier(persona, provider: tagged('reply'), memory: () => memory.lines);
     final cp = tagged('companion');
     companion = cp == null ? null : CompanionReplier(persona, cp);
+    taskProvider = tagged('tasks');
     final userTemplates = <NotificationTemplate>[];
     for (final t in settings.userTemplates) {
       try {
@@ -273,9 +279,19 @@ class AppState extends ChangeNotifier {
   @override
   void notifyListeners() {
     super.notifyListeners();
+    game.markDirty(); // 指标 / 目标进度 / 成就在账本变化后重算一次（合并），页面只读缓存
     if (homeWidget == null) return;
     _widgetTimer?.cancel();
     _widgetTimer = Timer(const Duration(seconds: 1), pushHomeWidget);
+  }
+
+  /// 启动：结算旧周 / 生成本周任务候选 / 到期定存 / 发薪日 / 月末复盘，再算一遍指标。
+  Future<void> startGame() async {
+    try {
+      await game.ensureWeek();
+      await game.runRituals();
+    } catch (_) {}
+    await game.recompute();
   }
 
   /// 本月支出 / 收入 / 余额（CNY）推给桌面小部件。
@@ -290,7 +306,7 @@ class AppState extends ChangeNotifier {
       int cny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
-      final balance = ledger.balances().values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+      final balance = ledger.balances(includeVault: true).values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
       final today = _today();
       final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
@@ -449,7 +465,7 @@ class AppState extends ChangeNotifier {
       };
       if (auto) {
         try {
-          ledger.commit(d.id);
+          unawaited(game.onIncomeCommitted(ledger.commit(d.id))); // 静默入账的工资也要触发发薪日仪式
         } on LedgerException {
           // 留在收件箱
         }
@@ -672,7 +688,7 @@ class AppState extends ChangeNotifier {
       };
       if (!auto) continue;
       try {
-        ledger.commit(d.id);
+        unawaited(game.onIncomeCommitted(ledger.commit(d.id)));
         committed++;
       } on LedgerException {
         // 留在收件箱
@@ -751,6 +767,9 @@ class AppState extends ChangeNotifier {
         if (recent.isNotEmpty) '最近几笔：${recent.map((t) => '${t.occurredAt.localDate.substring(5).replaceFirst('-', '/')} ${t.description ?? categoryName(t.categoryId)} ${fmtSigned(t)}').join('；')}',
         if (inbox.isNotEmpty) '收件箱里还有 ${inbox.length} 条待确认',
         if (ledger.listTransactions(limit: 1).isEmpty) '账本还是空的，一笔都没记过',
+        // 目标（游戏层）：名字和进度，让陪聊能接得上「日本游攒得怎么样了」
+        for (final p in game.goals.take(3)) '目标：${game.describe(p)}',
+        if (game.enabled && game.metrics?.level != null) '等级「${game.metrics!.level!.name}」，可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
       ];
       return lines.join('\n');
     } catch (_) {
@@ -789,6 +808,15 @@ class AppState extends ChangeNotifier {
       final st = ledger.budgets.statuses(today: _today());
       final lines = st.map((s) => '${s.budget.name} 已用 ${Money(s.spentMinor, s.budget.currency)} / ${Money(s.budget.amountMinor, s.budget.currency)}${s.exceeded ? '（已超）' : ''}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: st.isEmpty ? '还没有设置预算（更多 → 预算）' : lines);
+    }
+    // 目标：「日本游攒了多少」直答；「攒 5000 换手机」→ 目标建议卡（都不出网）
+    final goalAnswer = game.answerGoalQuery(text);
+    if (goalAnswer != null) {
+      return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: goalAnswer);
+    }
+    final suggestion = game.suggestFrom(text);
+    if (suggestion != null) {
+      return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: '想攒 ${fmtMoney(suggestion.amountMinor, 'CNY')} 去「${suggestion.name}」？可以建成一个目标，我帮你盯着进度。');
     }
     // 脱敏只影响发给模型的那份；规则解析仍看原文（规则不出网）
     final r = await interpreter.interpret(text, context(), redactForModel: settings.redact ? redactForModel : null);
@@ -850,12 +878,16 @@ class AppState extends ChangeNotifier {
   Transaction commit(String draftId, {Map<String, Object?>? edits}) {
     final t = ledger.commit(draftId, edits: edits);
     notifyListeners();
+    unawaited(game.onIncomeCommitted(t)); // 工资到账 → 发薪日仪式
     return t;
   }
 
   List<Transaction> commitGroup(String groupId) {
     final ts = ledger.commitGroup(groupId);
     notifyListeners();
+    for (final t in ts) {
+      unawaited(game.onIncomeCommitted(t));
+    }
     return ts;
   }
 
@@ -891,6 +923,7 @@ class AppState extends ChangeNotifier {
     final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
     final t = ledger.commit(d.id);
     notifyListeners();
+    unawaited(game.onIncomeCommitted(t)); // 手动记的工资也触发发薪日仪式
     return t;
   }
 

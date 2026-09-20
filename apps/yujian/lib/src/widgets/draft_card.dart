@@ -103,6 +103,8 @@ class _DraftRow extends StatelessWidget {
       if (draft.missingFields.isNotEmpty) '缺 ${draft.missingFields.map(_fieldName).join('、')}',
       if (draft.possibleDuplicateOf != null) '疑似重复',
     ];
+    // 代价行：这笔支出 = 目标晚几天 / 本周任务还剩多少。只显示不拦（财富页可关）
+    final cost = done || draft.kind != DraftKind.create ? null : app.game.costLineFor(p);
     return InkWell(
       onTap: done || draft.kind != DraftKind.create
           ? null
@@ -132,6 +134,7 @@ class _DraftRow extends StatelessWidget {
                   Text(title, style: theme.textTheme.titleMedium?.copyWith(color: done ? theme.textTheme.bodySmall?.color : null)),
                   Text(subtitle, style: theme.textTheme.bodySmall),
                   if (flags.isNotEmpty) Text(flags.join(' · '), style: theme.textTheme.bodySmall?.copyWith(color: YujianColors.of(context).danger)),
+                  if (cost != null) Text(cost, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                 ],
               ),
             ),

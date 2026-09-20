@@ -36,7 +36,7 @@ class PersonaReplier {
   }
 
   String template(PersonaEvent event, {int n = 0, String label = ''}) {
-    final t = persona.templates[event.name] ?? persona.templates['notUnderstood'] ?? '';
+    final t = persona.templates[event.name] ?? gameEventDefaults[event.name] ?? persona.templates['notUnderstood'] ?? '';
     return t.replaceAll('{n}', '$n').replaceAll('{label}', label);
   }
 }

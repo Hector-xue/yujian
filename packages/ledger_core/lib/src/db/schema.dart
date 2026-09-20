@@ -168,4 +168,50 @@ CREATE INDEX idx_changes_pending ON changes(origin, pushed);
 CREATE INDEX idx_changes_entity ON changes(entity, entity_id);
 CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ''',
+  5: '''
+CREATE TABLE goals (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  emoji TEXT,
+  cover TEXT,
+  target_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  deadline TEXT,
+  vault_account_id TEXT,
+  linked_account_id TEXT,
+  priority INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  rules TEXT NOT NULL DEFAULT '[]',
+  done_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  week TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  params TEXT NOT NULL,
+  title TEXT NOT NULL,
+  result TEXT NOT NULL DEFAULT 'pending',
+  reward_goal_id TEXT,
+  reward_minor INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'template',
+  evidence TEXT,
+  settled_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX idx_tasks_week ON tasks(week);
+CREATE TABLE achievements (
+  key TEXT PRIMARY KEY,
+  unlocked_at INTEGER NOT NULL,
+  evidence TEXT
+);
+CREATE TABLE profile (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''',
 };
