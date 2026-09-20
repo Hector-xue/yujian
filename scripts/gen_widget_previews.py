@@ -61,6 +61,9 @@ def summary():
     f = font(12)
     d.text((W * S - 16 * S - d.textlength('9 月', font=f), 14 * S), '9 月', font=f, fill=MUTED)
     d.text((p, 34 * S), '¥ 12,480.50', font=font(32, True), fill=BLUE)
+    ft = font(11); tv = font(16, True)
+    d.text((W * S - 16 * S - d.textlength('今日支出', font=ft), 40 * S), '今日支出', font=ft, fill=MUTED)
+    d.text((W * S - 16 * S - d.textlength('¥ 22.80', font=tv), 55 * S), '¥ 22.80', font=tv, fill=INK)
     colw = (W * S - p - 16 * S) / 3
     y = 82 * S
     for i, (label, val, col) in enumerate([('支出', '¥ 3,832', INK), ('收入', '¥ 8,000', GREEN), ('结余', '¥ 4,168', INK)]):

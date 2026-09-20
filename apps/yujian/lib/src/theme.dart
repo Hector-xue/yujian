@@ -133,7 +133,8 @@ ThemeData _base({
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    scaffoldBackgroundColor: transparentScaffold ? Colors.transparent : surface,
+    // 透明用「底色的 0 透明度」而不是 Colors.transparent（那是透明黑）：切主题时 ThemeData 会插值，透明黑 → 实色的中途是半透明的深灰，整页灰一下
+    scaffoldBackgroundColor: transparentScaffold ? surface.withValues(alpha: 0) : surface,
     canvasColor: surface,
     dividerTheme: DividerThemeData(color: y.hairline, thickness: 0.6, space: 0),
     appBarTheme: AppBarTheme(
@@ -186,8 +187,8 @@ ThemeData _base({
 
 /// 用户自定义了全局背景图：所有主题的 Scaffold / 顶栏都改透明，路由切换用 [background] 垫底（和玻璃主题同一套做法）。
 ThemeData withCustomBackground(ThemeData t, Widget Function(BuildContext) background) => t.copyWith(
-      scaffoldBackgroundColor: Colors.transparent,
-      appBarTheme: t.appBarTheme.copyWith(backgroundColor: Colors.transparent),
+      scaffoldBackgroundColor: t.colorScheme.surface.withValues(alpha: 0),
+      appBarTheme: t.appBarTheme.copyWith(backgroundColor: t.colorScheme.surface.withValues(alpha: 0)),
       pageTransitionsTheme: PageTransitionsTheme(builders: {for (final p in TargetPlatform.values) p: _BackedTransitions(background: background)}),
     );
 
