@@ -80,7 +80,7 @@ class MorePage extends StatelessWidget {
           group('目标', [
             item(Icons.flag_outlined, '目标', subtitle: app.game.goals.isEmpty ? '换手机 / 买车 / 首付 / 旅行——给钱一个用途' : app.game.goals.take(2).map((p) => '${p.goal.name} ${(p.ratio * 100).toStringAsFixed(0)}%').join(' · '), onTap: () => go(const GoalsPage())),
             item(Icons.task_alt_outlined, '周任务', subtitle: app.game.weekTasks.isEmpty ? '本周还没挑' : '本周 ${app.game.weekTasks.length} 个', onTap: () => go(const TasksPage())),
-            item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.level == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.level!.name}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),
+            item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.level == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.level!.title}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),
           ]),
           group('记账', [
             item(Icons.bar_chart_outlined, '月度统计', onTap: () => go(const StatsPage())),

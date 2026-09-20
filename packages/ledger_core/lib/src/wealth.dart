@@ -6,21 +6,23 @@ import 'models/transaction.dart';
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
 enum IncomeLine { main, side, passive, other }
 
-/// 财富等级：只是给「生存月数」起的名字。
+/// 财富等级：只是给「生存月数」起的名字。[name] 是等级名（讲进度用），[title] 是称号（首页 / 桌面小部件上挂的身份，
+/// 嘲讽但真实：最穷就是穷逼，别粉饰）。
 class WealthLevel {
   final int index; // 0..5
   final String name;
+  final String title;
   final double minMonths;
   final double? maxMonths;
-  const WealthLevel(this.index, this.name, this.minMonths, this.maxMonths);
+  const WealthLevel(this.index, this.name, this.title, this.minMonths, this.maxMonths);
 
   static const levels = [
-    WealthLevel(0, '起步', 0, 0.5),
-    WealthLevel(1, '喘口气', 0.5, 1),
-    WealthLevel(2, '站稳', 1, 3),
-    WealthLevel(3, '安心', 3, 6),
-    WealthLevel(4, '从容', 6, 12),
-    WealthLevel(5, '自由感', 12, null),
+    WealthLevel(0, '起步', '穷逼', 0, 0.5),
+    WealthLevel(1, '喘口气', '月光族', 0.5, 1),
+    WealthLevel(2, '站稳', '温饱户', 1, 3),
+    WealthLevel(3, '安心', '小康', 3, 6),
+    WealthLevel(4, '从容', '中产', 6, 12),
+    WealthLevel(5, '自由感', '人上人', 12, null),
   ];
 
   static WealthLevel of(double months) {

@@ -178,6 +178,19 @@ void main() {
       expect(Wealth(fresh).nextPayday(today: '2026-09-20'), ('2026-09-30', 'month_end'));
       expect(Wealth(fresh).compute(today: '2026-09-20').level, isNull);
     });
+
+    test('每档等级都有称号；最穷是穷逼，每档不重名，档位边界落在高一档', () {
+      expect(WealthLevel.of(0).title, '穷逼');
+      expect(WealthLevel.of(0.49).title, '穷逼');
+      expect(WealthLevel.of(0.5).title, '月光族');
+      expect(WealthLevel.of(1).title, '温饱户');
+      expect(WealthLevel.of(3).title, '小康');
+      expect(WealthLevel.of(6).title, '中产');
+      expect(WealthLevel.of(12).title, '人上人');
+      expect(WealthLevel.of(999).title, '人上人');
+      expect(WealthLevel.levels.map((l) => l.title).toSet().length, WealthLevel.levels.length);
+      expect(WealthLevel.levels.every((l) => l.title.isNotEmpty && l.name.isNotEmpty), isTrue);
+    });
   });
 
   group('tasks', () {

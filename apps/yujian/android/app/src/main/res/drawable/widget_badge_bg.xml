@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 称号胶囊：主色 12% 底，和 App 首页头卡上的角标同一个样子 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#1F1B6BC7"/>
+    <corners android:radius="999dp"/>
+</shape>

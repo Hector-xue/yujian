@@ -49,19 +49,27 @@ class WealthPage extends StatelessWidget {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('等级', style: theme.textTheme.bodySmall),
                       const SizedBox(height: 4),
-                      Text(m.level?.name ?? '还没有数据', style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: theme.colorScheme.primary)),
+                      // 称号是身份、等级名是进度：称号做大字，等级名跟在后面
+                      if (m.level == null)
+                        Text('还没有数据', style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: theme.colorScheme.primary))
+                      else
+                        Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                          Text(m.level!.title, style: theme.textTheme.headlineMedium?.copyWith(fontSize: 30, color: theme.colorScheme.primary)),
+                          const SizedBox(width: 8),
+                          Text(m.level!.name, style: theme.textTheme.bodyMedium?.copyWith(color: y.muted)),
+                        ]),
                       const SizedBox(height: 6),
                       if (m.level == null)
-                        Text('等级 = 生存月数 = 流动资产 ÷ 近 3 个月平均月支出。记满一个月的支出就有了。', style: theme.textTheme.bodySmall)
+                        Text('等级 = 生存月数 = 流动资产 ÷ 近 3 个月平均月支出。记满一个月的支出就有了，称号也跟着来。', style: theme.textTheme.bodySmall)
                       else ...[
                         Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月均支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（近 ${m.monthsOfData} 个月平均）。', style: theme.textTheme.bodySmall),
-                        if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.name}」（≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
+                        if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.title}」（${m.level!.next!.name}，≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                       ],
                       const SizedBox(height: 8),
                       Wrap(spacing: 6, runSpacing: 4, children: [
                         for (final l in WealthLevel.levels)
                           Chip(
-                            label: Text('${l.name} ${l.maxMonths == null ? '≥ ${l.minMonths.toStringAsFixed(0)}' : '${l.minMonths.toStringAsFixed(l.minMonths % 1 == 0 ? 0 : 1)}–${l.maxMonths!.toStringAsFixed(0)}'} 月', style: theme.textTheme.labelSmall),
+                            label: Text('${l.title} · ${l.name} ${l.maxMonths == null ? '≥ ${l.minMonths.toStringAsFixed(0)}' : '${l.minMonths.toStringAsFixed(l.minMonths % 1 == 0 ? 0 : 1)}–${l.maxMonths!.toStringAsFixed(0)}'} 月', style: theme.textTheme.labelSmall),
                             visualDensity: VisualDensity.compact,
                             backgroundColor: m.level?.index == l.index ? theme.colorScheme.primary.withValues(alpha: 0.15) : null,
                             side: BorderSide(color: m.level?.index == l.index ? theme.colorScheme.primary : y.hairline),

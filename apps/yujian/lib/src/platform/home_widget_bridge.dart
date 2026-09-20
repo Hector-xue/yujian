@@ -11,10 +11,11 @@ class HomeWidgetBridge {
   static HomeWidgetBridge? ifSupported() => supported ? HomeWidgetBridge() : null;
 
   /// [calYm] 是 `yyyy-MM`，[calExp] / [calInc] 是该月每天的支出 / 收入（分），逗号分隔、按日序；4×4 日历小部件用。
-  Future<void> update({required String balance, required String expense, required String income, required String month, String recent = '', String today = '', String calYm = '', String calExp = '', String calInc = ''}) async {
+  /// [title] 是财富称号（穷逼 / 月光族 / …），空字符串 = 没有（没数据或游戏层关着），小部件上的胶囊就不显示。
+  Future<void> update({required String balance, required String expense, required String income, required String month, String recent = '', String today = '', String calYm = '', String calExp = '', String calInc = '', String title = ''}) async {
     if (!supported) return;
     try {
-      await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month, 'recent': recent, 'today': today, 'cal_ym': calYm, 'cal_exp': calExp, 'cal_inc': calInc});
+      await _m.invokeMethod<void>('update', {'balance': balance, 'expense': expense, 'income': income, 'month': month, 'recent': recent, 'today': today, 'cal_ym': calYm, 'cal_exp': calExp, 'cal_inc': calInc, 'title': title});
     } on PlatformException {
       // 没装小部件或系统不给，都不影响 App
     }

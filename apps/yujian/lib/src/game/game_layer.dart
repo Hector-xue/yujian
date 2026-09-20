@@ -155,7 +155,7 @@ class GameLayer extends ChangeNotifier {
         final p = await SharedPreferences.getInstance();
         final last = p.getInt('wealth_level');
         if (last != null && lvl.index > last) {
-          pendingMessages.add((text: app.replier.template(PersonaEvent.levelUp, label: lvl.name), sticker: '⬆️', meta: '生存月数 ${m.runwayMonths!.toStringAsFixed(1)} 个月'));
+          pendingMessages.add((text: app.replier.template(PersonaEvent.levelUp, label: lvl.title), sticker: '⬆️', meta: '等级「${lvl.name}」· 生存月数 ${m.runwayMonths!.toStringAsFixed(1)} 个月'));
           changed = true;
         }
         if (last != lvl.index) await p.setInt('wealth_level', lvl.index);
@@ -566,7 +566,7 @@ class GameLayer extends ChangeNotifier {
       '$month 月：收入 ${fmtMoney(income, 'CNY')}，支出 ${fmtMoney(expense, 'CNY')}${income > 0 ? '，存下 ${((income - expense) / income * 100).toStringAsFixed(0)}%' : ''}。',
       if (top.isNotEmpty) '花得最多的是${top.take(3).map((e) => '${app.categoryName(e.key)} ${fmtMoney(e.value, 'CNY')}').join('、')}。',
       for (final p in goals.where((p) => p.goal.kind == GoalKind.wish)) describe(p),
-      if (metrics?.level != null) '现在的等级是「${metrics!.level!.name}」（够花 ${metrics!.runwayMonths!.toStringAsFixed(1)} 个月）${metrics!.toNextLevelMinor != null && metrics!.toNextLevelMinor! > 0 ? '，再攒 ${fmtMoney(metrics!.toNextLevelMinor!, 'CNY')} 升一级' : ''}。',
+      if (metrics?.level != null) '现在的称号是「${metrics!.level!.title}」、等级「${metrics!.level!.name}」（够花 ${metrics!.runwayMonths!.toStringAsFixed(1)} 个月）${metrics!.toNextLevelMinor != null && metrics!.toNextLevelMinor! > 0 ? '，再攒 ${fmtMoney(metrics!.toNextLevelMinor!, 'CNY')} 升一级' : ''}。',
     ];
     final settled = ledger.tasks.list(limit: 100).where((t) => t.week.startsWith('$year-${month.toString().padLeft(2, '0')}') && t.result != TaskResult.pending).toList();
     if (settled.isNotEmpty) lines.add('周任务 ${settled.where((t) => t.result == TaskResult.done).length} / ${settled.length} 完成。');

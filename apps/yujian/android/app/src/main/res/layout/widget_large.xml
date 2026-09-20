@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2x2：今日支出（大字）+ 本月 + 记一笔。
+<!-- 2x2：今日支出（大字）+ 称号 + 本月 + 记一笔。头行放不下三样，月份并进「N 月支出」那行。
      注意：RemoteViews 只认带 @RemoteView 的类，裸 <View> 会让启动器报「载入窗口小部件时出现问题」，占位用带权重的 LinearLayout。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -18,7 +18,7 @@
         android:orientation="vertical">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
             <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="今日支出" android:textSize="12sp" android:textColor="#1B6BC7" android:textStyle="bold"/>
-            <TextView android:id="@+id/widget_month" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="9 月" android:textSize="11sp" android:textColor="#6C7580"/>
+            <TextView android:id="@+id/widget_title_badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:background="@drawable/widget_badge_bg" android:paddingLeft="8dp" android:paddingRight="8dp" android:paddingTop="2dp" android:paddingBottom="2dp" android:text="" android:visibility="gone" android:maxLines="1" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold" android:includeFontPadding="false"/>
         </LinearLayout>
         <TextView android:id="@+id/widget_today" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="26sp" android:textColor="#1C2430" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="2dp"/>
         <TextView android:id="@+id/widget_expense" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="本月支出 ¥ 0.00" android:textSize="11sp" android:textColor="#6C7580" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="2dp"/>

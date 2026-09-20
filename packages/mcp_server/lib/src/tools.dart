@@ -186,6 +186,7 @@ class LedgerTools {
           'monthly_spend_avg': y(m.monthlySpendAvgMinor),
           'runway_months': m.runwayMonths == null ? null : double.parse(m.runwayMonths!.toStringAsFixed(2)),
           'level': m.level?.name,
+          'title': m.level?.title,
           'savings_rate': m.savingsRate == null ? null : double.parse(m.savingsRate!.toStringAsFixed(3)),
           'net_worth': y(m.netWorthMinor),
           'income_by_line': m.incomeByLine.map((k, v) => MapEntry(k.name, y(v))),
