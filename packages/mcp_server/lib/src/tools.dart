@@ -64,6 +64,19 @@ final toolDefs = <ToolDef>[
     'properties': {'target_id': {'type': 'string'}, 'patch': {'type': 'object'}},
     'required': ['target_id', 'patch'],
   }),
+  const ToolDef('list_goals', '目标（心愿 / 应急金 / 还清 / 里程碑）及进度：已攒、目标额、按当前速度还要几天', {'type': 'object', 'properties': {'today': {'type': 'string', 'description': 'yyyy-MM-dd，默认今天'}}}),
+  const ToolDef('get_wealth', '财富指标：可花的（可支配余额）、今天还能花、生存月数与等级、储蓄率、净资产、收入分线；每个数都是账本推导的', {'type': 'object', 'properties': {'today': {'type': 'string'}}}),
+  const ToolDef('list_tasks', '周任务（本周及最近几周）与结算结果', {'type': 'object', 'properties': {'week': {'type': 'string', 'description': '那一周周一 yyyy-MM-dd，默认本周'}}}),
+  const ToolDef('propose_goal', '提议建一个目标。只写进收件箱式的「待建目标」列表（返回草案），不会直接创建；用户在余见的目标页确认。', {
+    'type': 'object',
+    'properties': {'kind': {'type': 'string', 'enum': ['wish', 'emergency', 'milestone']}, 'name': {'type': 'string'}, 'amount': {'type': 'string', 'description': '目标金额，元'}, 'deadline': {'type': 'string', 'description': 'yyyy-MM-dd'}, 'emoji': {'type': 'string'}},
+    'required': ['kind', 'name', 'amount'],
+  }),
+  const ToolDef('propose_deposit', '提议往某个目标存一笔（一笔转账草稿进收件箱，用户确认后才记账）', {
+    'type': 'object',
+    'properties': {'goal_id': {'type': 'string'}, 'amount': {'type': 'string', 'description': '元'}, 'from_account_id': {'type': 'string'}},
+    'required': ['goal_id', 'amount'],
+  }),
   const ToolDef('propose_void', '提议作废一笔交易。进收件箱。', {
     'type': 'object',
     'properties': {'target_id': {'type': 'string'}, 'reason': {'type': 'string'}},
@@ -148,6 +161,51 @@ class LedgerTools {
           interpreter: 'mcp',
         ).single;
         return {'draft': _draft(d), 'message': '已进收件箱，等待用户确认。'};
+      case 'list_goals':
+        final day = (args['today'] as String?) ?? today();
+        final m = Wealth(ledger).compute(today: day);
+        return [
+          for (final g in ledger.goals.list())
+            () {
+              final p = ledger.goals.progress(g, today: day, liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor);
+              return {...g.toJson(), 'saved': Money(p.savedMinor, g.currency).toDecimalString(), 'target': Money(p.targetMinor, g.currency).toDecimalString(), 'ratio': double.parse(p.ratio.toStringAsFixed(3)), 'eta_days': p.etaDays, 'behind_days': p.behindDays, 'milestone': p.milestone};
+            }(),
+        ];
+      case 'get_wealth':
+        final m = Wealth(ledger).compute(today: (args['today'] as String?) ?? today());
+        String y(int minor) => Money(minor, m.currency).toDecimalString();
+        return {
+          'disposable': y(m.disposableMinor),
+          'daily_allowance': y(m.dailyAllowanceMinor),
+          'liquid': y(m.liquidMinor),
+          'locked': y(m.lockedMinor),
+          'fixed_due_before_payday': y(m.fixedDueMinor),
+          'payday': m.payday,
+          'payday_source': m.paydaySource,
+          'days_to_payday': m.daysToPayday,
+          'monthly_spend_avg': y(m.monthlySpendAvgMinor),
+          'runway_months': m.runwayMonths == null ? null : double.parse(m.runwayMonths!.toStringAsFixed(2)),
+          'level': m.level?.name,
+          'savings_rate': m.savingsRate == null ? null : double.parse(m.savingsRate!.toStringAsFixed(3)),
+          'net_worth': y(m.netWorthMinor),
+          'income_by_line': m.incomeByLine.map((k, v) => MapEntry(k.name, y(v))),
+        };
+      case 'list_tasks':
+        final week = (args['week'] as String?) ?? TaskStore.weekOf(today());
+        return [for (final t in ledger.tasks.list(week: week)) {...t.toJson(), 'progress': ledger.tasks.progress(t, today: today()).detail}];
+      case 'propose_goal':
+        final amount = Money.parse('${args['amount']}', 'CNY').minor;
+        return {'proposal': {'kind': args['kind'], 'name': args['name'], 'target_minor': amount, 'deadline': args['deadline'], 'emoji': args['emoji']}, 'message': '这是一份目标草案；余见不会替用户直接创建目标，请把它展示给用户，由用户在余见「目标」页里建。'};
+      case 'propose_deposit':
+        final g = ledger.goals.get(args['goal_id'] as String);
+        final from = (args['from_account_id'] as String?) ?? ledger.listAccounts().first.id;
+        final d = ledger.propose(
+          [DraftInput(payload: ledger.goals.depositPayload(g, Money.parse('${args['amount']}', g.currency).minor, fromAccountId: from), confidence: 0.7)],
+          source: Source.mcp,
+          actor: Actor.mcp,
+          interpreter: 'mcp',
+        ).single;
+        return {'draft': _draft(d), 'message': '已进收件箱，等待用户确认；不会自动入账。'};
       case 'propose_void':
         final d = ledger.propose(
           [DraftInput(kind: DraftKind.void_, targetTransactionId: args['target_id'] as String, payload: {'reason': args['reason']})],

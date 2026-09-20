@@ -1,0 +1,290 @@
+import 'package:ledger_core/ledger_core.dart';
+import 'package:ledger_core/native.dart';
+import 'package:test/test.dart';
+
+void main() {
+  late LedgerDatabase db;
+  late Ledger ledger;
+  late Account wechat;
+  late Account bank;
+
+  setUp(() {
+    db = openLedgerDatabaseInMemory();
+    ledger = Ledger(db, clock: () => DateTime.utc(2026, 9, 20, 4))..seedDefaultCategories();
+    wechat = ledger.createAccount(id: 'wechat', name: '微信', type: AccountType.eWallet, currency: 'CNY', initialBalanceMinor: 3000000);
+    bank = ledger.createAccount(id: 'bank', name: '工资卡', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 2000000);
+  });
+  tearDown(() => db.close());
+
+  Transaction add(Map<String, Object?> payload, {String? fingerprint}) {
+    final d = ledger.propose([DraftInput(payload: payload, eventFingerprint: fingerprint, fingerprintIsExact: fingerprint != null)], source: Source.manual, actor: Actor.user).single;
+    return ledger.commit(d.id);
+  }
+
+  Map<String, Object?> expense(int minor, String date, {String? cat, String? merchant, String account = 'wechat'}) =>
+      {'type': 'expense', 'amount_minor': minor, 'currency': 'CNY', 'account_id': account, 'category_id': cat ?? 'food', 'merchant': merchant, 'occurred_at': '${date}T12:00:00+08:00'};
+  Map<String, Object?> income(int minor, String date, {String cat = 'salary'}) => {'type': 'income', 'amount_minor': minor, 'currency': 'CNY', 'account_id': 'bank', 'category_id': cat, 'occurred_at': '${date}T09:00:00+08:00'};
+
+  group('goals', () {
+    test('wish goal gets a virtual vault; deposits are real transfers; progress / milestones / pace; vault hidden from account lists', () {
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '换手机', targetMinor: 699900, emoji: '📱', deadline: '2027-03-01');
+      expect(g.isVirtualVault, isTrue);
+      expect(g.vaultAccountId, 'vault:${g.id}');
+      expect(ledger.listAccounts().map((a) => a.id), isNot(contains(g.vaultAccountId)));
+      expect(ledger.listAccounts(includeVault: true).map((a) => a.id), contains(g.vaultAccountId));
+      expect(ledger.achievements.list(), isEmpty);
+
+      final t = add(ledger.goals.depositPayload(g, 100000, fromAccountId: wechat.id));
+      expect(t.type, TransactionType.transfer);
+      expect(t.toAccountId, g.vaultAccountId);
+      expect(ledger.balance(wechat.id).minor, 2900000);
+      expect(ledger.goals.savedMinor(g), 100000);
+      final p = ledger.goals.progress(g, today: '2026-09-20');
+      expect(p.ratio, closeTo(100000 / 699900, 1e-9));
+      expect(p.milestone, 10);
+      expect(p.paceMinorPerDay, closeTo(100000 / 30, 1e-6));
+      expect(p.etaDays, ((699900 - 100000) / (100000 / 30)).ceil());
+      expect(p.behindDays, isNotNull);
+      expect(ledger.goals.deposits(g.id).single.id, t.id);
+      // 审计里有 goal.create，同步日志里有 goal 实体
+      expect(ledger.auditLog().any((e) => e.action == 'goal.create'), isTrue);
+      expect(ledger.changes.pending().any((c) => c.entity == 'goal'), isTrue);
+    });
+
+    test('redeem spends from the vault (multiple), completion releases the rest to sources proportionally', () {
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '日本游', targetMinor: 1200000);
+      add(ledger.goals.depositPayload(g, 300000, fromAccountId: wechat.id));
+      add(ledger.goals.depositPayload(g, 900000, fromAccountId: bank.id));
+      expect(ledger.goals.progress(g, today: '2026-09-20').reached, isTrue);
+      add(ledger.goals.redeemPayload(g, 500000, categoryId: 'travel', merchant: '航空公司'));
+      add(ledger.goals.redeemPayload(g, 300000, categoryId: 'travel', merchant: '酒店'));
+      expect(ledger.goals.redemptions(g.id).length, 2);
+      expect(ledger.goals.savedMinor(g), 400000);
+      // 剩 4000 按 3:9 回来源
+      final backs = ledger.goals.releasePayloads(g, fallbackAccountId: wechat.id);
+      expect(backs.length, 2);
+      final byTo = {for (final b in backs) b['to_account_id']: b['amount_minor']};
+      expect(byTo[wechat.id], 100000);
+      expect(byTo[bank.id], 300000);
+      for (final b in backs) {
+        add(b);
+      }
+      expect(ledger.goals.savedMinor(g), 0);
+      ledger.goals.update(g.id, status: GoalStatus.done);
+      expect(ledger.goals.get(g.id).status, GoalStatus.done);
+      expect(ledger.goals.get(g.id).doneAt, isNotNull);
+      expect(ledger.goals.list(), isEmpty);
+      expect(ledger.goals.list(activeOnly: false).length, 1);
+    });
+
+    test('payoff goal needs a debt account; progress follows the balance', () {
+      expect(() => ledger.goals.create(kind: GoalKind.payoff, name: '还花呗', targetMinor: 0, linkedAccountId: wechat.id), throwsA(isA<ValidationException>()));
+      final huabei = ledger.createAccount(id: 'huabei', name: '花呗', type: AccountType.payable, currency: 'CNY', initialBalanceMinor: -300000);
+      final g = ledger.goals.create(kind: GoalKind.payoff, name: '还花呗', targetMinor: 0, linkedAccountId: huabei.id);
+      expect(g.targetMinor, 300000);
+      expect(g.vaultAccountId, isNull);
+      expect(ledger.goals.progress(g, today: '2026-09-20').savedMinor, 0);
+      add({'type': 'transfer', 'amount_minor': 100000, 'currency': 'CNY', 'account_id': 'bank', 'to_account_id': 'huabei', 'occurred_at': '2026-09-20T10:00:00+08:00'});
+      final p = ledger.goals.progress(g, today: '2026-09-20');
+      expect(p.savedMinor, 100000);
+      expect(p.ratio, closeTo(1 / 3, 1e-9));
+    });
+
+    test('rules: fixed due once per period with fingerprint, roundup settles weekly as one deposit, payday plan honors priority and shortfall', () {
+      final a = ledger.goals.create(kind: GoalKind.wish, name: 'A', targetMinor: 1000000, rules: const [GoalRule(kind: GoalRuleKind.salaryPct, pct: 20), GoalRule(kind: GoalRuleKind.fixed, amountMinor: 50000, every: 'monthly', day: 10)]);
+      final b = ledger.goals.create(kind: GoalKind.wish, name: 'B', targetMinor: 1000000, rules: const [GoalRule(kind: GoalRuleKind.salaryPct, pct: 30), GoalRule(kind: GoalRuleKind.roundup, roundTo: 1000)]);
+      // 定额：不是 10 号不到期
+      expect(ledger.goals.dueFixed(today: '2026-09-09'), isEmpty);
+      final due = ledger.goals.dueFixed(today: '2026-09-10');
+      expect(due.single.amountMinor, 50000);
+      expect(due.single.fingerprint, 'goal:${a.id}:fixed:2026-09');
+      // 存了这期之后同月不再到期
+      add(ledger.goals.depositPayload(a, 50000, fromAccountId: wechat.id), fingerprint: due.single.fingerprint);
+      expect(ledger.goals.dueFixed(today: '2026-09-10'), isEmpty);
+      // 零头：上周（9/14–9/20）支出 28 + 36.5 + 100 → 零头 2 + 3.5 + 0 = 5.5
+      add(expense(2800, '2026-09-14'));
+      add(expense(3650, '2026-09-16'));
+      add(expense(10000, '2026-09-19'));
+      final ru = ledger.goals.roundupDue(weekMonday: '2026-09-14');
+      expect(ru.single.goal.id, b.id);
+      expect(ru.single.amountMinor, (1000 - 2800 % 1000) + (1000 - 3650 % 1000)); // 2 元 + 3.5 元，整百的 100 元不算
+      // 发薪：10000 元，A 20% + 定额 500，B 30%；可用只有 3000 → A 拿 2000+500，B 只拿 500
+      final plan = ledger.goals.paydayPlan(1000000, availableMinor: 300000);
+      expect(plan.map((x) => x.amountMinor).toList(), [200000, 50000, 50000]);
+      expect(plan.last.short, isTrue);
+      expect(plan.last.wantedMinor, 300000);
+    });
+
+    test('reorder, update name renames the vault, sync upsert/delete raw', () {
+      final a = ledger.goals.create(kind: GoalKind.wish, name: 'A', targetMinor: 100);
+      final b = ledger.goals.create(kind: GoalKind.wish, name: 'B', targetMinor: 100);
+      ledger.goals.reorder([b.id, a.id]);
+      expect(ledger.goals.list().map((g) => g.name).toList(), ['B', 'A']);
+      ledger.goals.update(a.id, name: '改名');
+      expect(ledger.getAccount(a.vaultAccountId!).name, '改名');
+      ledger.goals.upsertRaw({'id': 'remote1', 'kind': 'wish', 'name': 'R', 'target_minor': 5, 'currency': 'CNY', 'rules': [], 'priority': 9, 'status': 'active'});
+      expect(ledger.goals.get('remote1').name, 'R');
+      ledger.goals.deleteRaw('remote1');
+      expect(ledger.goals.find('remote1'), isNull);
+    });
+  });
+
+  group('wealth metrics', () {
+    test('disposable = liquid − locked − fixed due; payday inferred from salary; level from runway; savings rate; income lines; net worth counts debt', () {
+      // 工资 6/10、7/10、8/10 到账 → 推出发薪日 10 号
+      for (final m in ['06', '07', '08']) {
+        add(income(1500000, '2026-$m-10'));
+        add(expense(400000, '2026-$m-15'));
+        add(expense(300000, '2026-$m-20', cat: 'housing'));
+      }
+      add(income(50000, '2026-09-05', cat: 'parttime'));
+      add(income(1500000, '2026-09-10'));
+      add(expense(20000, '2026-09-20'));
+      ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 220000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '2026-10-01');
+      ledger.createAccount(id: 'card', name: '信用卡', type: AccountType.creditCard, currency: 'CNY', initialBalanceMinor: -80000);
+      ledger.createAccount(id: 'usd', name: '美元', type: AccountType.bank, currency: 'USD', initialBalanceMinor: 100);
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '换手机', targetMinor: 699900);
+      add(ledger.goals.depositPayload(g, 100000, fromAccountId: wechat.id));
+
+      final m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.payday, '2026-10-10');
+      expect(m.paydaySource, 'inferred');
+      expect(m.daysToPayday, 20);
+      final liquid = ledger.balance('wechat').minor + ledger.balance('bank').minor + 100000;
+      expect(m.liquidMinor, liquid);
+      expect(m.lockedMinor, 100000);
+      expect(m.fixedDueMinor, 220000); // 10/1 房租在发薪日前
+      expect(m.disposableMinor, liquid - 100000 - 220000);
+      expect(m.spentTodayMinor, 20000);
+      expect(m.dailyAllowanceMinor, ((liquid - 100000 - 220000) / 20).floor() - 20000);
+      expect(m.monthsOfData, 3);
+      expect(m.monthlySpendAvgMinor, 700000);
+      expect(m.runwayMonths, closeTo(liquid / 700000, 1e-9));
+      expect(m.level!.name, WealthLevel.of(liquid / 700000).name);
+      expect(m.monthIncomeMinor, 1550000);
+      expect(m.incomeByLine[IncomeLine.main], 1500000);
+      expect(m.incomeByLine[IncomeLine.side], 50000);
+      expect(m.savingsRate, closeTo((1550000 - 20000) / 1550000, 1e-9));
+      expect(m.netWorthMinor, liquid - 80000);
+      expect(m.excludedForeign.single.id, 'usd');
+
+      // 画像填了发薪日就按画像
+      ledger.profile.payday = 25;
+      expect(Wealth(ledger).nextPayday(today: '2026-09-20'), ('2026-09-25', 'profile'));
+      expect(Wealth(ledger).nextPayday(today: '2026-09-26').$1, '2026-10-25');
+      ledger.profile.payday = null;
+      // 没有收入记录：月底
+      final fresh = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+      expect(Wealth(fresh).nextPayday(today: '2026-09-20'), ('2026-09-30', 'month_end'));
+      expect(Wealth(fresh).compute(today: '2026-09-20').level, isNull);
+    });
+  });
+
+  group('tasks', () {
+    test('progress and settlement for each kind; templates come from last week; reward deposit', () {
+      ledger = Ledger(db, clock: () => DateTime.utc(2026, 9, 29, 4)); // 这个用例要记到 9/25，时钟往后拨
+      // 上周 9/14–9/20：餐饮 200 + 外卖 3 次
+      add(expense(8000, '2026-09-14', merchant: '美团外卖'));
+      add(expense(6000, '2026-09-15', merchant: '饿了么'));
+      add(expense(6000, '2026-09-17', merchant: '美团'));
+      add(expense(30000, '2026-09-18', cat: 'shopping'));
+      final tpl = ledger.tasks.templates(today: '2026-09-21');
+      expect(tpl.any((t) => t.kind == TaskKind.countCap), isTrue);
+      expect(tpl.any((t) => t.kind == TaskKind.noSpendDays), isTrue);
+      expect(tpl.where((t) => t.kind == TaskKind.categoryCap).any((t) => t.params['category_id'] == 'shopping'), isTrue);
+
+      final week = TaskStore.weekOf('2026-09-23');
+      expect(week, '2026-09-21');
+      final cap = ledger.tasks.create(week: week, kind: TaskKind.categoryCap, params: {'category_id': 'food', 'cap_minor': 30000}, title: '本周餐饮不超过 300');
+      final cnt = ledger.tasks.create(week: week, kind: TaskKind.countCap, params: {'keywords': ['美团', '饿了么'], 'max': 2}, title: '外卖 ≤ 2');
+      final nsd = ledger.tasks.create(week: week, kind: TaskKind.noSpendDays, params: {'min_days': 2}, title: '2 个无消费日');
+      final g = ledger.goals.create(kind: GoalKind.wish, name: 'G', targetMinor: 100000);
+      final dep = ledger.tasks.create(week: week, kind: TaskKind.deposit, params: {'goal_id': g.id, 'min_minor': 5000}, title: '存 50', rewardGoalId: g.id, rewardMinor: 1000);
+
+      add(expense(20000, '2026-09-22', merchant: '美团外卖'));
+      add(expense(15000, '2026-09-23'));
+      ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 100, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '2026-09-24');
+      final rentDraft = ledger.recurring.generateDue(today: '2026-09-24', tzOffsetMinutes: 480).single;
+      ledger.commit(rentDraft.id); // 周期账单不破无消费日
+      add(ledger.goalsDeposit(g, 6000, from: wechat.id, date: '2026-09-25'));
+
+      expect(ledger.tasks.progress(cap, today: '2026-09-23').onTrack, isFalse); // 350 > 300
+      expect(ledger.tasks.progress(cnt, today: '2026-09-23').current, 1);
+      final n = ledger.tasks.progress(nsd, today: '2026-09-25');
+      expect(n.current, 2); // 21、24（房租不算）
+      expect(n.achieved, isTrue);
+      expect(ledger.tasks.progress(dep, today: '2026-09-25').achieved, isTrue);
+
+      expect(ledger.tasks.settle(week, today: '2026-09-27'), isEmpty); // 周还没过完
+      final settled = ledger.tasks.settle(week, today: '2026-09-28');
+      expect(settled.length, 4);
+      final byId = {for (final t in settled) t.id: t.result};
+      expect(byId[cap.id], TaskResult.missed);
+      expect(byId[cnt.id], TaskResult.done);
+      expect(byId[nsd.id], TaskResult.done);
+      expect(byId[dep.id], TaskResult.done);
+      expect(settled.firstWhere((t) => t.id == cap.id).evidence!['current'], 35000);
+      expect(ledger.tasks.settle(week, today: '2026-09-29'), isEmpty); // 不重复结算
+      expect(ledger.auditLog().where((e) => e.action == 'task.settle').length, 4);
+    });
+  });
+
+  group('achievements', () {
+    test('unlock once with evidence; sync keeps the earliest', () {
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '换手机', targetMinor: 100000);
+      add(ledger.goals.depositPayload(g, 30000, fromAccountId: wechat.id));
+      add(income(1000, '2026-09-01', cat: 'investment_income'));
+      AchievementContext ctx() {
+        final m = Wealth(ledger).compute(today: '2026-09-20');
+        return AchievementContext(ledger: ledger, metrics: m, today: '2026-09-20', goals: [for (final x in ledger.goals.list()) ledger.goals.progress(x, today: '2026-09-20', liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor)], settledTasks: const []);
+      }
+
+      final first = ledger.achievements.check(ctx());
+      final keys = first.map((a) => a.key).toSet();
+      expect(keys, containsAll(['goal.first', 'goal.p10', 'goal.p25', 'income.passive']));
+      expect(keys, isNot(contains('goal.p50')));
+      expect(first.firstWhere((a) => a.key == 'goal.p25').evidence!['goal'], '换手机');
+      expect(ledger.achievements.check(ctx()), isEmpty); // 不重复
+      add(ledger.goals.depositPayload(g, 30000, fromAccountId: wechat.id));
+      expect(ledger.achievements.check(ctx()).map((a) => a.key), ['goal.p50']);
+      ledger.achievements.upsertRaw({'key': 'goal.p50', 'unlocked_at': 1, 'evidence': {'goal': 'x'}});
+      expect(ledger.achievements.list().firstWhere((a) => a.key == 'goal.p50').unlockedAt, 1);
+      ledger.achievements.upsertRaw({'key': 'goal.p50', 'unlocked_at': 99});
+      expect(ledger.achievements.list().firstWhere((a) => a.key == 'goal.p50').unlockedAt, 1);
+    });
+  });
+
+  group('portability + sync', () {
+    test('export/restore round-trips goals, tasks, achievements, profile and the vault account', () {
+      final g = ledger.goals.create(kind: GoalKind.wish, name: '换手机', targetMinor: 100000);
+      add(ledger.goals.depositPayload(g, 30000, fromAccountId: wechat.id));
+      ledger.tasks.create(week: '2026-09-14', kind: TaskKind.noSpendDays, params: {'min_days': 2}, title: 't');
+      ledger.profile.payday = 10;
+      ledger.achievements.upsertRaw({'key': 'goal.first', 'unlocked_at': 5});
+      final j = exportJson(ledger);
+      expect((j['goals'] as List).length, 1);
+      expect((j['profile'] as Map)['payday'], '10');
+      final db2 = openLedgerDatabaseInMemory();
+      final l2 = Ledger(db2);
+      restoreFromJson(l2, j);
+      expect(l2.goals.get(g.id).name, '换手机');
+      expect(l2.goals.savedMinor(l2.goals.get(g.id)), 30000);
+      expect(l2.tasks.list().single.title, 't');
+      expect(l2.profile.payday, 10);
+      expect(l2.achievements.list().single.key, 'goal.first');
+      expect(l2.changes.pending().any((c) => c.entity == 'goal'), isTrue);
+      // 远端变更应用
+      final l3 = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+      for (final c in l2.changes.pending(limit: 1000)) {
+        l3.applyRemoteChange(c, fromDevice: 'dev2');
+      }
+      expect(l3.goals.get(g.id).name, '换手机');
+      expect(l3.profile.payday, 10);
+      expect(l3.getAccount(g.vaultAccountId!).type, AccountType.vault);
+    });
+  });
+}
+
+extension on Ledger {
+  Map<String, Object?> goalsDeposit(Goal g, int minor, {required String from, required String date}) => {...goals.depositPayload(g, minor, fromAccountId: from), 'occurred_at': '${date}T10:00:00+08:00'};
+}

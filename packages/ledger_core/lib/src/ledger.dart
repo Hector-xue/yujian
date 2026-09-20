@@ -9,10 +9,14 @@ import 'models/category.dart';
 import 'models/draft.dart';
 import 'models/enums.dart';
 import 'models/transaction.dart';
+import 'achievements.dart';
 import 'budget.dart';
 import 'changes.dart';
+import 'goals.dart';
 import 'memory.dart';
+import 'profile.dart';
 import 'recurring.dart';
+import 'tasks.dart';
 import 'occurred_at.dart';
 import 'money.dart';
 import 'validation.dart';
@@ -27,6 +31,10 @@ class Ledger implements ValidationContext {
   late final MemoryStore memory = MemoryStore(_db, _nowMs, changes);
   late final RecurringStore recurring = RecurringStore(this, _db, _nowMs, changes);
   late final BudgetStore budgets = BudgetStore(this, _db, _nowMs, changes);
+  late final GoalStore goals = GoalStore(this, _db, _nowMs, changes);
+  late final TaskStore tasks = TaskStore(this, _db, _nowMs, changes);
+  late final AchievementStore achievements = AchievementStore(this, _db, _nowMs, changes);
+  late final ProfileStore profile = ProfileStore(_db, _nowMs, changes);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -77,9 +85,11 @@ class Ledger implements ValidationContext {
 
   Account getAccount(String id) => account(id) ?? (throw NotFoundException('account', id));
 
-  List<Account> listAccounts({bool includeArchived = false}) => _db
+  /// 锁仓（vault）账户默认不列：它们属于目标页，账户页 / 选择器 / 模型上下文都不该看见；算净资产时 [includeVault]。
+  List<Account> listAccounts({bool includeArchived = false, bool includeVault = false}) => _db
       .select('SELECT * FROM accounts ${includeArchived ? '' : 'WHERE is_archived = 0'} ORDER BY sort_order, created_at')
       .map(Account.fromRow)
+      .where((a) => includeVault || a.type != AccountType.vault)
       .toList();
 
   void archiveAccount(String id) {
@@ -139,8 +149,8 @@ class Ledger implements ValidationContext {
     return Money(a.initialBalanceMinor + (r['s'] as int), a.currency);
   }
 
-  Map<String, Money> balances({bool includeArchived = false}) =>
-      {for (final a in listAccounts(includeArchived: includeArchived)) a.id: balance(a.id)};
+  Map<String, Money> balances({bool includeArchived = false, bool includeVault = false}) =>
+      {for (final a in listAccounts(includeArchived: includeArchived, includeVault: includeVault)) a.id: balance(a.id)};
 
   // -------------------------------------------------------------- categories
 
@@ -294,6 +304,9 @@ class Ledger implements ValidationContext {
       return out;
     });
   }
+
+  /// 某指纹是否已有已确认交易或待处理草稿（目标的定存 / 零头周结用它防重）。
+  bool hasFingerprint(String fp) => _findByFingerprint(fp) != null;
 
   String? _findByFingerprint(String fp) {
     final t = _db.select(
@@ -581,9 +594,13 @@ class Ledger implements ValidationContext {
     required List<Map<String, Object?>> memory,
     List<Map<String, Object?>> recurring = const [],
     List<Map<String, Object?>> budgets = const [],
+    List<Map<String, Object?>> goals = const [],
+    List<Map<String, Object?>> tasks = const [],
+    List<Map<String, Object?>> achievements = const [],
+    Map<String, String> profile = const {},
   }) {
     return _db.transaction(() {
-      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'categories', 'accounts', 'changes']) {
+      for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'goals', 'tasks', 'achievements', 'profile', 'categories', 'accounts', 'changes']) {
         _db.execute('DELETE FROM $t');
       }
       final ts = _nowMs();
@@ -637,8 +654,18 @@ class Ledger implements ValidationContext {
       _audit(Actor.user, 'ledger.restore', 'ledger', 'all', after: {'transactions': n, 'accounts': accounts.length}, confirmed: true);
       final problems = integrityCheck();
       if (problems.isNotEmpty) throw ValidationException('integrity', problems.first);
+      for (final g in goals) {
+        this.goals.upsertRaw(g);
+      }
+      for (final t in tasks) {
+        this.tasks.upsertRaw(t);
+      }
+      for (final a in achievements) {
+        this.achievements.upsertRaw(a);
+      }
+      profile.forEach((k, v) => this.profile.upsertRaw({'key': k, 'value': v}));
       // 恢复后的全量当作本机新变更，下次同步整体推上去
-      for (final a in listAccounts(includeArchived: true)) {
+      for (final a in listAccounts(includeArchived: true, includeVault: true)) {
         changes.record('account', a.id, a.toJson());
       }
       for (final c in listCategories()) {
@@ -658,6 +685,16 @@ class Ledger implements ValidationContext {
       for (final b in this.budgets.list(activeOnly: false)) {
         changes.record('budget', b.id, BudgetStore.toJson(b));
       }
+      for (final g in this.goals.list(activeOnly: false)) {
+        changes.record('goal', g.id, g.toJson());
+      }
+      for (final t in this.tasks.list(limit: 1 << 30)) {
+        changes.record('task', t.id, t.toJson());
+      }
+      for (final a in this.achievements.list()) {
+        changes.record('achievement', a.key, a.toJson());
+      }
+      this.profile.all().forEach((k, v) => changes.record('profile', k, {'key': k, 'value': v}));
       return n;
     });
   }
@@ -711,6 +748,14 @@ class Ledger implements ValidationContext {
           c.deleted ? recurring.deleteRaw(c.entityId) : recurring.upsertRaw(p);
         case 'budget':
           c.deleted ? budgets.deleteRaw(c.entityId) : budgets.upsertRaw(p);
+        case 'goal':
+          c.deleted ? goals.deleteRaw(c.entityId) : goals.upsertRaw(p);
+        case 'task':
+          c.deleted ? tasks.deleteRaw(c.entityId) : tasks.upsertRaw(p);
+        case 'achievement':
+          c.deleted ? achievements.deleteRaw(c.entityId) : achievements.upsertRaw(p);
+        case 'profile':
+          c.deleted ? profile.deleteRaw(c.entityId) : profile.upsertRaw(p);
         default:
           throw ValidationException('entity', 'unknown entity ${c.entity}');
       }
@@ -723,6 +768,10 @@ class Ledger implements ValidationContext {
   static int? _parseIsoMs(Object? v) => v is String ? DateTime.tryParse(v)?.toUtc().millisecondsSinceEpoch : null;
 
   // ------------------------------------------------------------------- audit
+
+  /// 目标 / 任务 / 成就的审计入口（这些 store 在 ledger 外面，但审计表只有 ledger 能写）。
+  void auditGoal(String action, String targetId, {Map<String, Object?>? before, Map<String, Object?>? after}) =>
+      _audit(action.startsWith('achievement') || action.startsWith('task.settle') ? Actor.automation : Actor.user, action, action.split('.').first, targetId, before: before, after: after, confirmed: !action.startsWith('achievement') && !action.startsWith('task.settle'));
 
   void _audit(
     Actor actor,

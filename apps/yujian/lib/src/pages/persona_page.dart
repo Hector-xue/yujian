@@ -103,7 +103,7 @@ class _PersonaPageState extends State<PersonaPage> {
       final j = (jsonDecode(ctl.text) as Map).cast<String, Object?>();
       final pack = PersonaPack.fromJson(j);
       if (pack.id.isEmpty || builtinPersonas.any((b) => b.id == pack.id)) throw const FormatException('id 不能为空或与内置重名');
-      final missing = PersonaEvent.values.where((e) => !pack.templates.containsKey(e.name)).map((e) => e.name).toList();
+      final missing = corePersonaEvents.where((e) => !pack.templates.containsKey(e.name)).map((e) => e.name).toList();
       if (missing.isNotEmpty) throw FormatException('templates 缺 ${missing.join('、')}');
       await app.upsertCustomPersona(j);
       if (mounted) setState(() => personaId = pack.id);

@@ -5,6 +5,7 @@ import '../db/open_db.dart';
 import '../theme.dart';
 import '../update/update_sheet.dart';
 import '../version.dart';
+import '../widgets/fmt.dart';
 import 'accounts_page.dart';
 import 'ai_page.dart';
 import 'appearance_page.dart';
@@ -14,11 +15,14 @@ import 'budgets_page.dart';
 import 'calendar_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
+import 'goals_page.dart';
 import 'persona_page.dart';
 import 'privacy_page.dart';
 import 'recurring_page.dart';
 import 'stats_page.dart';
 import 'sync_page.dart';
+import 'tasks_page.dart';
+import 'wealth_page.dart';
 import 'widgets_page.dart';
 
 /// 更多：按「记账 / 自动化 / AI / 隐私 / 外观 / 数据 / 关于」分组，每组一张卡。模型相关只留一个入口（模型与语音）。
@@ -68,9 +72,16 @@ class MorePage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('更多')),
-      body: ListView(
+      body: ListenableBuilder(
+        listenable: app.game,
+        builder: (context, _) => ListView(
         padding: EdgeInsets.only(top: 4, bottom: 8 + MediaQuery.paddingOf(context).bottom), // 底栏悬浮在页面上，最后一项要留出它的高度
         children: [
+          group('目标', [
+            item(Icons.flag_outlined, '目标', subtitle: app.game.goals.isEmpty ? '换手机 / 买车 / 首付 / 旅行——给钱一个用途' : app.game.goals.take(2).map((p) => '${p.goal.name} ${(p.ratio * 100).toStringAsFixed(0)}%').join(' · '), onTap: () => go(const GoalsPage())),
+            item(Icons.task_alt_outlined, '周任务', subtitle: app.game.weekTasks.isEmpty ? '本周还没挑' : '本周 ${app.game.weekTasks.length} 个', onTap: () => go(const TasksPage())),
+            item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.level == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.level!.name}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),
+          ]),
           group('记账', [
             item(Icons.bar_chart_outlined, '月度统计', onTap: () => go(const StatsPage())),
             item(Icons.calendar_month_outlined, '日历', onTap: () => go(const CalendarPage())),
@@ -132,6 +143,7 @@ class MorePage extends StatelessWidget {
             child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.countTransactions()} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
+        ),
       ),
     );
   }

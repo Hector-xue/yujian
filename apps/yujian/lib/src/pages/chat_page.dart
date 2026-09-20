@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:ledger_core/ledger_core.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
 import 'package:query_dsl/query_dsl.dart';
@@ -25,6 +26,7 @@ import '../widgets/persona_avatar.dart';
 import 'ai_page.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
+import 'goals_page.dart';
 import 'stats_page.dart';
 
 sealed class _Msg {
@@ -38,6 +40,7 @@ sealed class _Msg {
         'query' => _QueryMsg(QueryResult.fromJson((j['result'] as Map).cast<String, Object?>()), (j['meta'] as String?) ?? ''),
         'sticker' => _StickerMsg(j['text'] as String),
         'image' => _ImageMsg(name: (j['name'] as String?) ?? '', path: j['path'] as String?),
+        'goal' => _GoalMsg(name: (j['name'] as String?) ?? '', amountMinor: (j['amount'] as num?)?.toInt() ?? 0, goalId: j['goal_id'] as String?),
         _ => null,
       };
 }
@@ -85,6 +88,16 @@ class _ImageMsg extends _Msg {
 }
 
 /// 人格甩出来的表情包（大 emoji）。
+/// 对话里识别出的「攒 X 买 Y」：一张「建这个目标」卡；建好后记住 goalId，点开跳目标页。
+class _GoalMsg extends _Msg {
+  final String name;
+  final int amountMinor;
+  String? goalId;
+  _GoalMsg({required this.name, required this.amountMinor, this.goalId});
+  @override
+  Map<String, Object?> toJson() => {'t': 'goal', 'name': name, 'amount': amountMinor, if (goalId != null) 'goal_id': goalId};
+}
+
 class _StickerMsg extends _Msg {
   final String text;
   _StickerMsg(this.text);
@@ -118,10 +131,34 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _loadHistory();
+    // 游戏层的人格化消息（成就 / 升级 / 任务结算 / 发薪日 / 月末复盘）从这里进对话
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _game = AppScope.of(context).game..addListener(_drainGameMessages);
+      _drainGameMessages();
+    });
+  }
+
+  Listenable? _game;
+
+  void _drainGameMessages() {
+    if (!mounted || !_historyLoaded) return;
+    final app = AppScope.of(context);
+    final msgs = app.game.takeMessages();
+    if (msgs.isEmpty) return;
+    setState(() {
+      for (final m in msgs) {
+        _msgs.add(_TextMsg(m.text, meta: m.meta));
+        if (m.sticker != null) _msgs.add(_StickerMsg(m.sticker!));
+      }
+    });
+    _saveHistory();
+    _jumpToEnd();
   }
 
   @override
   void dispose() {
+    _game?.removeListener(_drainGameMessages);
     _voice.dispose();
     _tts.dispose();
     _input.dispose();
@@ -149,6 +186,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     if (mounted) setState(() => _historyLoaded = true);
     _jumpToEnd(animate: false);
+    _drainGameMessages();
     _maybeGreet();
   }
 
@@ -545,6 +583,8 @@ class _ChatPageState extends State<ChatPage> {
         _msgs.add(_DraftMsg(r.drafts.first.groupId, meta));
       }
       _msgs.add(_TextMsg(reply));
+      final sug = app.game.takeSuggestion();
+      if (sug != null) _msgs.add(_GoalMsg(name: sug.name, amountMinor: sug.amountMinor));
       if (stickerEvent != null) _maybeSticker(app, stickerEvent);
     });
     _say(reply);
@@ -896,6 +936,31 @@ class _ChatPageState extends State<ChatPage> {
         ));
       case _QueryMsg():
         return withAvatar(_QueryCard(result: m.result, meta: m.meta));
+      case _GoalMsg():
+        return withAvatar(GlassCard(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('🎯 ${m.name} · ${fmtMoney(m.amountMinor, 'CNY')}', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(m.goalId == null ? '建成目标后，存进去的钱会从「可花的」里划走，攒够了从这里花出去。' : '已经建好了。', style: theme.textTheme.bodySmall),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: m.goalId == null
+                    ? FilledButton.tonal(
+                        onPressed: () async {
+                          final g = await app.game.createGoal(kind: GoalKind.wish, name: m.name, targetMinor: m.amountMinor, emoji: '🎯');
+                          if (!mounted) return;
+                          setState(() => m.goalId = g.id);
+                          _saveHistory();
+                        },
+                        child: const Text('建这个目标'))
+                    : TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GoalsPage())), child: const Text('去目标页')),
+              ),
+            ]),
+          ),
+        ));
     }
   }
 }

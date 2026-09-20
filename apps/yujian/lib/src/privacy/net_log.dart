@@ -116,6 +116,8 @@ class NetEvent {
             return '截图自动记账「本机认不出时发文字」：本机没认出这张截图，把 OCR 出来的文字$mask发给 $where 再认一次。图片没有出手机。';
           case 'probe':
             return '「测试连接」：给 $where 发了一句固定的测试话（不含你的任何数据），看它通不通、会不会出 JSON。';
+          case 'tasks':
+            return '财富游戏：把账本速览（合计数与最近几笔）和目标名发给 $where，让模型提几个本周任务候选，或用人格口吻重讲一遍月度复盘。只进候选 / 只是措辞，不会自己动账本。';
           default:
             return '向 $where 的对话模型发了一次请求（约 $chars 字）。';
         }
