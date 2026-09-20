@@ -49,19 +49,26 @@ def button(d, x, y, w, h, text, size=13):
 
 
 def summary():
+    """4x2 本月：左栏 余额+称号+最近，右栏 月份/支出/收入/记一笔（照 widget_summary.xml 两栏画）。"""
     img, d = card(280, 140)
     p = 18 * S
-    d.text((p, 14 * S), '余额', font=font(12, True), fill=BLUE)
-    f = font(12)
-    d.text((280 * S - p - d.textlength('9 月', font=f), 14 * S), '9 月', font=f, fill=MUTED)
-    d.text((p, 30 * S), '¥ 12,480.50', font=font(30, True), fill=BLUE)
-    y = 78 * S
-    d.text((p, y), '支出', font=font(11), fill=MUTED)
-    d.text((p, y + 15 * S), '¥ 3,832', font=font(15, True), fill=INK)
-    d.text((p + 78 * S, y), '收入', font=font(11), fill=MUTED)
-    d.text((p + 78 * S, y + 15 * S), '¥ 8,000', font=font(15, True), fill=GREEN)
-    button(d, 280 * S - p - 88 * S, y + 2 * S, 88 * S, 34 * S, '＋ 记一笔')
-    d.text((p, 118 * S), '最近：美团外卖 −¥13.80 · 9/17', font=font(12), fill=MUTED)
+    d.text((p, 16 * S), '余额', font=font(12, True), fill=BLUE)
+    fb = font(11, True); badge = '温饱户'
+    bw = d.textlength(badge, font=fb) + 16 * S; bx = p + 30 * S
+    d.rounded_rectangle([bx, 14 * S, bx + bw, 14 * S + 19 * S], radius=10 * S, fill=(0x1B, 0x6B, 0xC7, 0x1F))
+    d.text((bx + 8 * S, 16 * S), badge, font=fb, fill=BLUE)
+    d.text((p, 40 * S), '¥ 12,480.50', font=font(30, True), fill=BLUE)
+    d.text((p, 88 * S), '最近：美团外卖 −¥13.80 · 9/17', font=font(12), fill=MUTED)
+    # 右栏靠右
+    R = 280 * S - 16 * S
+    def right(text, f, y, col):
+        d.text((R - d.textlength(text, font=f), y), text, font=f, fill=col)
+    right('9 月', font(12), 12 * S, MUTED)
+    right('支出', font(11), 30 * S, MUTED)
+    right('¥ 3,832', font(15, True), 43 * S, INK)
+    right('收入', font(11), 65 * S, MUTED)
+    right('¥ 8,000', font(15, True), 78 * S, GREEN)
+    button(d, R - 88 * S, 104 * S, 88 * S, 30 * S, '＋ 记一笔')
     return img
 
 
@@ -79,12 +86,19 @@ def large():
 
 
 def compact():
+    """2x1 余额：称号胶囊有一整行可用，按钮只一个「＋」。"""
     img, d = card(140, 70)
-    p = 16 * S
+    p = 14 * S
     d.text((p, 10 * S), '余额', font=font(11, True), fill=BLUE)
-    d.text((p, 25 * S), '¥ 9,480', font=font(18, True), fill=BLUE)
-    d.text((p, 50 * S), '本月支出 ¥ 3,832', font=font(11), fill=MUTED)
-    button(d, 140 * S - 12 * S - 40 * S, 20 * S, 40 * S, 30 * S, '＋记', size=12)
+    fb = font(10, True); badge = '温饱户'
+    bw = d.textlength(badge, font=fb) + 14 * S; bx = p + 26 * S
+    d.rounded_rectangle([bx, 8 * S, bx + bw, 8 * S + 17 * S], radius=9 * S, fill=(0x1B, 0x6B, 0xC7, 0x1F))
+    d.text((bx + 7 * S, 10 * S), badge, font=fb, fill=BLUE)
+    d.text((p, 27 * S), '¥ 9,480.50', font=font(18, True), fill=BLUE)
+    d.text((p, 51 * S), '本月支出 ¥ 3,832', font=font(10), fill=MUTED)
+    d.rounded_rectangle([140 * S - 10 * S - 34 * S, 18 * S, 140 * S - 10 * S, 52 * S], radius=14 * S, fill=BLUE)
+    f = font(18, True)
+    d.text((140 * S - 10 * S - 17 * S - d.textlength('＋', font=f) / 2, 22 * S), '＋', font=f, fill=WHITE)
     return img
 
 
@@ -183,8 +197,27 @@ def goals():
     return img
 
 
+def goals_small():
+    """2x2 目标：可花的 + 两个目标（名字一行、进度条、百分比·还差）。"""
+    img, d = card(140, 140)
+    p = 14 * S
+    d.text((p, 12 * S), '可花的', font=font(11, True), fill=BLUE)
+    d.text((p + 36 * S, 10 * S), '¥ 2,180.50', font=font(14, True), fill=BLUE)
+    fe = ImageFont.truetype('/usr/share/fonts/google-noto-emoji/NotoEmoji-Regular.ttf', int(12 * S))
+    y = 40 * S
+    for emoji, name, detail, pct in [('📱', '换手机', '54% · 还差 ¥ 3,199', 54), ('✈️', '日本游', '43% · 还差 ¥ 6,800', 43)]:
+        d.text((p, y + 1 * S), emoji, font=fe, fill=BLUE)
+        d.text((p + 18 * S, y), name, font=font(12), fill=INK)
+        by = y + 19 * S
+        d.rounded_rectangle([p, by, 140 * S - p, by + 5 * S], radius=3 * S, fill=(0xE6, 0xEA, 0xF0))
+        d.rounded_rectangle([p, by, p + (140 * S - 2 * p) * pct / 100, by + 5 * S], radius=3 * S, fill=BLUE)
+        d.text((p, by + 8 * S), detail, font=font(10), fill=MUTED)
+        y += 46 * S
+    return img
+
+
 if __name__ == '__main__':
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, fn in [('summary', summary), ('large', large), ('compact', compact), ('mini', mini), ('calendar', calendar), ('goals', goals)]:
+    for name, fn in [('summary', summary), ('large', large), ('compact', compact), ('mini', mini), ('calendar', calendar), ('goals', goals), ('goals_small', goals_small)]:
         fn().save(OUT / f'widget_preview_{name}.png')
         print('wrote', name)

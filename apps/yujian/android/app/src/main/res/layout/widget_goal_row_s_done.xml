@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 目标小部件的一行：emoji · 名字 / 进度 / 百分比 · 还差多少（窄，尾巴放到下一行） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_goal_row"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_goal_emoji" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🎯" android:textSize="13sp" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/widget_goal_name" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="5dp" android:text="" android:textSize="12sp" android:textColor="#1C2430" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+    </LinearLayout>
+    <ProgressBar android:id="@+id/widget_goal_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="3dp" android:max="100" android:progress="0" android:progressDrawable="@drawable/widget_progress_done"/>
+    <TextView android:id="@+id/widget_goal_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="" android:textSize="10sp" android:textColor="#6C7580" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"/>
+</LinearLayout>

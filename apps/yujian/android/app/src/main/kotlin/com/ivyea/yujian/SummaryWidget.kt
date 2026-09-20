@@ -28,7 +28,7 @@ open class SummaryWidget : AppWidgetProvider() {
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            for ((cls, layout) in listOf(SummaryWidget::class.java to R.layout.widget_summary, LargeWidget::class.java to R.layout.widget_large, CompactWidget::class.java to R.layout.widget_compact, MiniWidget::class.java to R.layout.widget_mini, CalendarWidget::class.java to R.layout.widget_calendar, GoalsWidget::class.java to R.layout.widget_goals)) {
+            for ((cls, layout) in listOf(SummaryWidget::class.java to R.layout.widget_summary, LargeWidget::class.java to R.layout.widget_large, CompactWidget::class.java to R.layout.widget_compact, MiniWidget::class.java to R.layout.widget_mini, CalendarWidget::class.java to R.layout.widget_calendar, GoalsWidget::class.java to R.layout.widget_goals, GoalsSmallWidget::class.java to R.layout.widget_goals_small)) {
                 val ids = manager.getAppWidgetIds(ComponentName(context, cls))
                 if (ids.isEmpty()) continue
                 val views = build(context, layout)
@@ -84,6 +84,11 @@ open class SummaryWidget : AppWidgetProvider() {
                     v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                     fillGoals(context, v, p.getString("goals", "") ?: "")
                 }
+                R.layout.widget_goals_small -> {
+                    v.setTextViewText(R.id.widget_disposable, p.getString("disposable", "¥ 0.00"))
+                    v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://goals", 4))
+                    fillGoalsSmall(context, v, p.getString("goals", "") ?: "")
+                }
                 else -> v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
             }
             return v
@@ -119,6 +124,25 @@ open class SummaryWidget : AppWidgetProvider() {
                     row.setViewVisibility(R.id.widget_goal_detail, View.VISIBLE)
                 }
                 val pct = o.optInt("p", 0).coerceIn(0, 100)
+                row.setProgressBar(R.id.widget_goal_bar, 100, pct, false)
+                v.addView(R.id.widget_goal_list, row)
+            }
+        }
+
+        /** 2×2 目标：最多 2 条，尾巴（还差多少）和百分比放到进度条下面那行，名字独占一行。 */
+        private fun fillGoalsSmall(context: Context, v: RemoteViews, json: String) {
+            v.removeAllViews(R.id.widget_goal_list)
+            val arr = try { if (json.isEmpty()) JSONArray() else JSONArray(json) } catch (_: Exception) { JSONArray() }
+            val n = minOf(arr.length(), 2)
+            v.setViewVisibility(R.id.widget_goals_empty, if (n == 0) View.VISIBLE else View.GONE)
+            v.setViewVisibility(R.id.widget_goal_list, if (n == 0) View.GONE else View.VISIBLE)
+            for (i in 0 until n) {
+                val o = arr.optJSONObject(i) ?: continue
+                val row = RemoteViews(context.packageName, if (o.optBoolean("d", false)) R.layout.widget_goal_row_s_done else R.layout.widget_goal_row_s)
+                row.setTextViewText(R.id.widget_goal_emoji, o.optString("e", "🎯"))
+                row.setTextViewText(R.id.widget_goal_name, o.optString("n", ""))
+                val pct = o.optInt("p", 0).coerceIn(0, 100)
+                row.setTextViewText(R.id.widget_goal_detail, "$pct% · " + o.optString("t", ""))
                 row.setProgressBar(R.id.widget_goal_bar, 100, pct, false)
                 v.addView(R.id.widget_goal_list, row)
             }
@@ -217,4 +241,8 @@ class CalendarWidget : SummaryWidget() {
 
 class GoalsWidget : SummaryWidget() {
     override val layout: Int get() = R.layout.widget_goals
+}
+
+class GoalsSmallWidget : SummaryWidget() {
+    override val layout: Int get() = R.layout.widget_goals_small
 }
