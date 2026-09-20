@@ -21,7 +21,7 @@ object WidgetBridge {
                 "update" -> {
                     val args = call.arguments as? Map<*, *>
                     val p = ctx.getSharedPreferences(SummaryWidget.PREFS, Context.MODE_PRIVATE).edit()
-                    for (k in listOf("balance", "expense", "income", "month", "recent", "today", "cal_ym", "cal_exp", "cal_inc", "title")) p.putString(k, args?.get(k) as? String ?: "")
+                    for (k in listOf("balance", "expense", "income", "month", "recent", "today", "cal_ym", "cal_exp", "cal_inc", "title", "disposable", "goals")) p.putString(k, args?.get(k) as? String ?: "")
                     p.apply()
                     SummaryWidget.refreshAll(ctx)
                     result.success(null)
@@ -37,6 +37,7 @@ object WidgetBridge {
                         "large" -> LargeWidget::class.java
                         "mini" -> MiniWidget::class.java
                         "calendar" -> CalendarWidget::class.java
+                        "goals" -> GoalsWidget::class.java
                         else -> null
                     }
                     if (cls == null) { result.error("bad_kind", "unknown widget kind: $kind", null); return@setMethodCallHandler }

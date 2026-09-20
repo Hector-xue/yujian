@@ -30,12 +30,13 @@ class TransactionsPage extends StatelessWidget {
       ]),
       body: txs.isEmpty
           ? Center(child: Text('还没有记录', style: theme.textTheme.bodySmall))
+          // 按天一组一张卡（iOS 设置那种 inset grouped）：日期和当天合计在卡外做标题，和首页「最近」是同一种卡
           : ListView(
-              padding: EdgeInsets.only(bottom: 24 + MediaQuery.paddingOf(context).bottom),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.paddingOf(context).bottom),
               children: [
                 for (final e in byDay.entries) ...[
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+                    padding: const EdgeInsets.fromLTRB(2, 16, 2, 6),
                     child: Row(
                       children: [
                         Text(fmtDate(e.key, today: today), style: theme.textTheme.bodySmall),
@@ -44,7 +45,7 @@ class TransactionsPage extends StatelessWidget {
                       ],
                     ),
                   ),
-                  for (final t in e.value) TransactionTile(tx: t),
+                  GlassCard(child: Column(children: [for (final t in e.value) TransactionTile(tx: t)])),
                 ],
               ],
             ),
@@ -71,7 +72,7 @@ class TransactionTile extends StatelessWidget {
         ? '${app.accountName(tx.accountId)} → ${app.accountName(tx.toAccountId)}'
         : '${app.categoryName(tx.categoryId)} · ${app.accountName(tx.accountId)}${tx.source != Source.manual ? ' · ${_sourceLabel(tx.source)}' : ''}';
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       leading: TransactionIcon(tx: tx),
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(sub, style: theme.textTheme.bodySmall),

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:persona/persona.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../widgets/persona_avatar.dart';
 import 'persona_editor_page.dart';
 
@@ -17,6 +18,7 @@ class PersonaPage extends StatefulWidget {
 
 class _PersonaPageState extends State<PersonaPage> {
   late String personaId;
+  var memoryExpanded = false;
 
   @override
   void initState() {
@@ -123,8 +125,10 @@ class _PersonaPageState extends State<PersonaPage> {
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
           Text('只改语气。金额、时间、余额、确认流程它碰不到。点头像可以换成自己的图片；自定义角色点右侧铅笔改设定。选了就生效。', style: theme.textTheme.bodySmall),
-          const SizedBox(height: 4),
-          RadioGroup<String>(
+          const SizedBox(height: 8),
+          // 角色列表一张卡（同质的一串行）；下面的按钮留在卡外
+          GlassCard(
+            child: RadioGroup<String>(
             groupValue: personaId,
             onChanged: (v) => v == null ? null : _select(v),
             child: Column(
@@ -132,7 +136,7 @@ class _PersonaPageState extends State<PersonaPage> {
                 for (final p in [...builtinPersonas, for (final c in app.settings.customPersonas) PersonaPack.fromJson(c)])
                   RadioListTile<String>(
                     value: p.id,
-                    contentPadding: EdgeInsets.zero,
+                    contentPadding: const EdgeInsets.fromLTRB(8, 0, 12, 0),
                     // RadioListTile 只有 secondary 一个槽：头像 + （自定义的）编辑铅笔并排放
                     secondary: Row(mainAxisSize: MainAxisSize.min, children: [
                       InkWell(
@@ -151,6 +155,7 @@ class _PersonaPageState extends State<PersonaPage> {
                     subtitle: Text('${p.tagline} · "${p.templates['recorded']?.replaceAll('{n}', '1') ?? ''}"', style: theme.textTheme.bodySmall),
                   ),
               ],
+            ),
             ),
           ),
           Wrap(children: [
@@ -171,19 +176,28 @@ class _PersonaPageState extends State<PersonaPage> {
           const SizedBox(height: 4),
           Text('聊天里你主动说过的、关于你自己的事（称呼、习惯、家人宠物、目标）。只存本机，会带进之后的对话；不想让它记的点 × 删掉。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 4),
-          if (app.memory.items.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(app.companion == null ? '配好模型后，聊着聊着它就会记住你。' : '还没记住什么，去对话里聊聊。', style: theme.textTheme.bodySmall)),
-          for (final m in app.memory.items.reversed)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: Text(m.text),
-              subtitle: m.atMs == 0 ? null : Text(DateTime.fromMillisecondsSinceEpoch(m.atMs).toIso8601String().substring(0, 10), style: theme.textTheme.bodySmall),
-              trailing: IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () async {
-                    await app.memory.remove(m.text);
-                    if (mounted) setState(() {});
-                  }),
+          if (app.memory.items.isEmpty)
+            Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(app.companion == null ? '配好模型后，聊着聊着它就会记住你。' : '还没记住什么，去对话里聊聊。', style: theme.textTheme.bodySmall))
+          else
+            // 一张卡、默认露 8 条（上限 60 条，全铺开要滑很久）
+            GlassCard(
+              child: Column(children: [
+                for (final m in app.memory.items.reversed.take(memoryExpanded ? app.memory.items.length : 8))
+                  ListTile(
+                    contentPadding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                    dense: true,
+                    title: Text(m.text),
+                    subtitle: m.atMs == 0 ? null : Text(DateTime.fromMillisecondsSinceEpoch(m.atMs).toIso8601String().substring(0, 10), style: theme.textTheme.bodySmall),
+                    trailing: IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () async {
+                          await app.memory.remove(m.text);
+                          if (mounted) setState(() {});
+                        }),
+                  ),
+                if (app.memory.items.length > 8)
+                  Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.fromLTRB(8, 0, 0, 4), child: TextButton(onPressed: () => setState(() => memoryExpanded = !memoryExpanded), child: Text(memoryExpanded ? '收起' : '展开全部 ${app.memory.items.length} 条')))),
+              ]),
             ),
         ],
       ),

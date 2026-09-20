@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 攒够 / 还清了的目标：进度条变绿 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle"><corners android:radius="3dp"/><solid android:color="#E6EAF0"/></shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip><shape android:shape="rectangle"><corners android:radius="3dp"/><solid android:color="#2E9A5C"/></shape></clip>
+    </item>
+</layer-list>

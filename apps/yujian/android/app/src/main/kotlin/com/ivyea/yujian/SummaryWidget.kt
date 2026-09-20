@@ -9,10 +9,11 @@ import android.content.Intent
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
+import org.json.JSONArray
 import java.util.Calendar
 
 /**
- * 桌面小部件（五个尺寸共用一套数据）。数字由 Flutter 侧算好经 WidgetBridge 存进 SharedPreferences，这里只负责画。
+ * 桌面小部件（六种共用一套数据）。数字由 Flutter 侧算好经 WidgetBridge 存进 SharedPreferences，这里只负责画。
  * 点整块 → 首页；点「记一笔」→ 直接进对话。
  */
 open class SummaryWidget : AppWidgetProvider() {
@@ -27,7 +28,7 @@ open class SummaryWidget : AppWidgetProvider() {
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            for ((cls, layout) in listOf(SummaryWidget::class.java to R.layout.widget_summary, LargeWidget::class.java to R.layout.widget_large, CompactWidget::class.java to R.layout.widget_compact, MiniWidget::class.java to R.layout.widget_mini, CalendarWidget::class.java to R.layout.widget_calendar)) {
+            for ((cls, layout) in listOf(SummaryWidget::class.java to R.layout.widget_summary, LargeWidget::class.java to R.layout.widget_large, CompactWidget::class.java to R.layout.widget_compact, MiniWidget::class.java to R.layout.widget_mini, CalendarWidget::class.java to R.layout.widget_calendar, GoalsWidget::class.java to R.layout.widget_goals)) {
                 val ids = manager.getAppWidgetIds(ComponentName(context, cls))
                 if (ids.isEmpty()) continue
                 val views = build(context, layout)
@@ -75,9 +76,43 @@ open class SummaryWidget : AppWidgetProvider() {
                     v.setOnClickPendingIntent(R.id.widget_grid, open(context, "yujian://records", 3))
                     fillCalendar(context, v, p.getString("cal_ym", "") ?: "", p.getString("cal_exp", "") ?: "", p.getString("cal_inc", "") ?: "")
                 }
+                R.layout.widget_goals -> {
+                    v.setTextViewText(R.id.widget_disposable, p.getString("disposable", "¥ 0.00"))
+                    title(v, p)
+                    v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://goals", 4))
+                    v.setOnClickPendingIntent(R.id.widget_head, open(context, "yujian://home", 1))
+                    fillGoals(context, v, p.getString("goals", "") ?: "")
+                }
                 else -> v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
             }
             return v
+        }
+
+        /**
+         * 铺目标行。App 推的是 JSON 数组 [{e: emoji, n: 名字, p: 0–100, t: 尾巴文案, d: 攒够了/还清了}]，最多 3 条；
+         * 空数组 / 没推过 → 显示「还没有目标」那句。行是 addView 动态加的（和日历格子一个做法），别在布局里写死三行。
+         */
+        private fun fillGoals(context: Context, v: RemoteViews, json: String) {
+            v.removeAllViews(R.id.widget_goal_list)
+            val arr = try { if (json.isEmpty()) JSONArray() else JSONArray(json) } catch (_: Exception) { JSONArray() }
+            if (arr.length() == 0) {
+                v.setViewVisibility(R.id.widget_goals_empty, View.VISIBLE)
+                v.setViewVisibility(R.id.widget_goal_list, View.GONE)
+                return
+            }
+            v.setViewVisibility(R.id.widget_goals_empty, View.GONE)
+            v.setViewVisibility(R.id.widget_goal_list, View.VISIBLE)
+            for (i in 0 until minOf(arr.length(), 3)) {
+                val o = arr.optJSONObject(i) ?: continue
+                // 攒够了 / 还清了的换绿条：RemoteViews 不能换 progressDrawable，用另一份布局最稳
+                val row = RemoteViews(context.packageName, if (o.optBoolean("d", false)) R.layout.widget_goal_row_done else R.layout.widget_goal_row)
+                row.setTextViewText(R.id.widget_goal_emoji, o.optString("e", "🎯"))
+                row.setTextViewText(R.id.widget_goal_name, o.optString("n", ""))
+                row.setTextViewText(R.id.widget_goal_tail, o.optString("t", ""))
+                val pct = o.optInt("p", 0).coerceIn(0, 100)
+                row.setProgressBar(R.id.widget_goal_bar, 100, pct, false)
+                v.addView(R.id.widget_goal_list, row)
+            }
         }
 
         /** 财富称号胶囊（穷逼 / 月光族 / …）：App 没推过或没数据就是空串，整个胶囊藏掉，不留空壳。 */
@@ -169,4 +204,8 @@ class MiniWidget : SummaryWidget() {
 
 class CalendarWidget : SummaryWidget() {
     override val layout: Int get() = R.layout.widget_calendar
+}
+
+class GoalsWidget : SummaryWidget() {
+    override val layout: Int get() = R.layout.widget_goals
 }

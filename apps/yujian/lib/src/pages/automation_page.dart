@@ -23,6 +23,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
   Map<String, Object?> shotDiag = const {};
   var screenLogExpanded = false;
   var shotLogExpanded = false;
+  var autoLogExpanded = false;
   final testText = TextEditingController();
   String? testResult;
 
@@ -458,20 +459,32 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
           const SizedBox(height: 16),
           Text('自动入账记录', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
-          if (autoLog.isEmpty) Text('还没有由通知生成的记录', style: theme.textTheme.bodySmall),
-          for (final t in autoLog)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: Text(t.description ?? app.categoryName(t.categoryId)),
-              subtitle: Text('${t.occurredAt.localDate} · ${app.categoryName(t.categoryId)} · ${app.accountName(t.accountId)}', style: theme.textTheme.bodySmall),
-              trailing: Text(fmtSigned(t), style: theme.textTheme.titleMedium),
-              onLongPress: () {
-                app.voidTransaction(t.id, '撤销自动记账');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已撤销')));
-              },
+          // 一张卡、默认只露 5 条：记录多了不用滑好久；要看全的点「展开」
+          GlassCard(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (autoLog.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('还没有由通知生成的记录', style: theme.textTheme.bodySmall)),
+                for (final t in autoLog.take(autoLogExpanded ? autoLog.length : 5))
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(t.description ?? app.categoryName(t.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${t.occurredAt.localDate} · ${app.categoryName(t.categoryId)} · ${app.accountName(t.accountId)}', style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: Text(fmtSigned(t), style: theme.textTheme.titleMedium),
+                    onLongPress: () {
+                      app.voidTransaction(t.id, '撤销自动记账');
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已撤销')));
+                    },
+                  ),
+                if (autoLog.isNotEmpty)
+                  Row(children: [
+                    Expanded(child: Text('长按一条可撤销', style: theme.textTheme.bodySmall)),
+                    if (autoLog.length > 5) TextButton(onPressed: () => setState(() => autoLogExpanded = !autoLogExpanded), child: Text(autoLogExpanded ? '收起' : '展开全部 ${autoLog.length} 条')),
+                  ]),
+              ]),
             ),
-          if (autoLog.isNotEmpty) Text('长按一条可撤销', style: theme.textTheme.bodySmall),
+          ),
           const SizedBox(height: 24),
           Text('教它认一种通知', style: theme.textTheme.titleMedium),
           Text('有些 App 的通知内置规则认不出（银行、小众平台）：拿一条真实通知当例子，点一下金额、选个方向就行，不用懂包名和正则。', style: theme.textTheme.bodySmall),

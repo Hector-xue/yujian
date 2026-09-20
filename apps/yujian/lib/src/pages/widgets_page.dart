@@ -4,7 +4,7 @@ import '../app_state.dart';
 import '../platform/home_widget_bridge.dart';
 import '../theme.dart';
 
-/// 桌面小部件：列出五种小部件（预览图 + 尺寸 + 内容），支持的桌面上一键「添加到桌面」，不支持的给手动加法。
+/// 桌面小部件：列出六种小部件（预览图 + 尺寸 + 内容），支持的桌面上一键「添加到桌面」，不支持的给手动加法。
 class WidgetsPage extends StatefulWidget {
   const WidgetsPage({super.key});
   @override
@@ -23,6 +23,7 @@ class _WidgetKind {
 
 const _kinds = [
   _WidgetKind('summary', '本月', 4, 2, '本月支出、收入、余额 + 财富称号，一键记一笔'),
+  _WidgetKind('goals', '目标', 4, 2, '可花的 + 称号 + 最多 3 个目标的进度；点开直接进目标页'),
   _WidgetKind('calendar', '日历', 4, 4, '月历：每天的支出 / 收入 + 本月收支 + 称号 + 记一笔'),
   _WidgetKind('large', '今日', 2, 2, '今日支出 + 称号 + 本月 + 记一笔'),
   _WidgetKind('compact', '余额', 2, 1, '余额 + 称号 + 记一笔'),

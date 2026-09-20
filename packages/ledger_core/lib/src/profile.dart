@@ -12,6 +12,7 @@ class ProfileStore {
   static const keyGameLayer = 'game_layer'; // 财富游戏表达层总开关（目标本身不受它管）
   static const keyRituals = 'rituals'; // {payday:bool, weekly:bool, monthly:bool}
   static const keyCostLine = 'cost_line'; // 收件箱代价行开关
+  static const keyMonthlyCost = 'monthly_cost'; // 手填的月支出（分）；没填 = 自动估
 
   final LedgerDatabase _db;
   final int Function() _nowMs;
@@ -42,6 +43,15 @@ class ProfileStore {
   }
 
   set payday(int? d) => set(keyPayday, d == null ? null : '$d');
+
+  /// 手填的「每月大概花多少」（分）；null = 让指标自己估。
+  int? get monthlyCostMinor {
+    final v = getString(keyMonthlyCost);
+    final n = v == null ? null : int.tryParse(v);
+    return n == null || n <= 0 ? null : n;
+  }
+
+  set monthlyCostMinor(int? v) => set(keyMonthlyCost, v == null || v <= 0 ? null : '$v');
 
   String? get salaryAccountId => getString(keySalaryAccount);
   set salaryAccountId(String? v) => set(keySalaryAccount, v);

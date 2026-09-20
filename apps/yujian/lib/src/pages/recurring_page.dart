@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 
@@ -20,10 +21,13 @@ class RecurringPage extends StatelessWidget {
       body: items.isEmpty
           ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text('房租、会员、话费这类固定支出放这里。到期只生成草稿进收件箱，确认后才入账。', textAlign: TextAlign.center, style: theme.textTheme.bodySmall)))
           : ListView(
+              padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
               children: [
+                GlassCard(
+                  child: Column(children: [
                 for (final r in items)
                   ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     title: Text(r.name, style: r.isActive ? null : TextStyle(color: theme.textTheme.bodySmall?.color)),
                     subtitle: Text(
                         '${freqLabel[r.frequency]}${r.interval > 1 ? ' ×${r.interval}' : ''} · 下次 ${r.nextDue} · ${app.categoryName(r.template['category_id'] as String?)} · ${app.accountName(r.template['account_id'] as String?)}',
@@ -53,6 +57,9 @@ class RecurringPage extends StatelessWidget {
                       }
                     },
                   ),
+                  ]),
+                ),
+                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('右侧开关暂停 / 恢复；长按删除。', style: theme.textTheme.bodySmall)),
               ],
             ),
     );

@@ -15,6 +15,7 @@ import 'budgets_page.dart';
 import 'calendar_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
+import 'debts_page.dart';
 import 'goals_page.dart';
 import 'persona_page.dart';
 import 'privacy_page.dart';
@@ -88,6 +89,7 @@ class MorePage extends StatelessWidget {
             item(Icons.savings_outlined, '预算', onTap: () => go(const BudgetsPage())),
             item(Icons.event_repeat_outlined, '周期账单', onTap: () => go(const RecurringPage())),
             item(Icons.account_balance_wallet_outlined, '账户', onTap: () => go(const AccountsPage())),
+            item(Icons.credit_score_outlined, '负债', subtitle: app.game.metrics == null || app.game.metrics!.debt.totalMinor <= 0 ? '房贷 / 车贷 / 网贷——填两个数，还款提醒和还清目标自动建' : '总负债 ${fmtMoney(app.game.metrics!.debt.totalMinor, 'CNY')}${app.game.metrics!.debt.monthlyMinor > 0 ? ' · 每月还 ${fmtMoney(app.game.metrics!.debt.monthlyMinor, 'CNY')}' : ''}', onTap: () => go(const DebtsPage())),
             item(Icons.label_outline, '分类', onTap: () => go(const CategoriesPage())),
           ]),
           group('自动化', [

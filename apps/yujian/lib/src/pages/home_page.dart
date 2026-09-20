@@ -20,6 +20,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
+    final y = YujianColors.of(context);
     final now = DateTime.now();
     final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
     final last = DateTime(now.year, now.month + 1, 0).day;
@@ -69,35 +70,50 @@ class HomePage extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 24),
+          // 下面几块和「最近」一样都是卡片：裸行夹在卡片中间看着不像一套
           if (alerts.isNotEmpty) ...[
             Text('预算', style: theme.textTheme.bodySmall),
-            const SizedBox(height: 8),
-            for (final a in alerts) BudgetBar(status: a),
+            const SizedBox(height: 4),
+            GlassCard(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: Column(children: [for (final a in alerts) BudgetBar(status: a)]),
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
           if (anomalies.isNotEmpty) ...[
             Text('比平时高', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
-            for (final a in anomalies)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  Expanded(child: Text('${a.tx.description ?? app.categoryName(a.tx.categoryId)} · ${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')}')),
-                  Text('${fmtMoney(a.tx.amountMinor, a.tx.currency)} · ${a.ratio.toStringAsFixed(1)}×', style: theme.textTheme.bodySmall),
-                ]),
-              ),
+            GlassCard(
+              child: Column(children: [
+                for (final a in anomalies)
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
+                    trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+              ]),
+            ),
             const SizedBox(height: 16),
           ],
           if (upcoming.isNotEmpty) ...[
             Text('近期到期', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
-            for (final r in upcoming)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  Expanded(child: Text(r.name)),
-                  Text('${r.nextDue.substring(5).replaceFirst('-', '/')} · ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}', style: theme.textTheme.bodySmall)
-                ]),
-              ),
+            GlassCard(
+              child: Column(children: [
+                for (final r in upcoming)
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(r.nextDue.substring(5).replaceFirst('-', '/'), style: theme.textTheme.bodySmall),
+                    trailing: Text(fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String), style: theme.textTheme.titleMedium?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+              ]),
+            ),
             const SizedBox(height: 16),
           ],
           if (recent.isNotEmpty) ...[
@@ -183,8 +199,13 @@ class _GameHeader extends StatelessWidget {
             ]),
             const SizedBox(height: 4),
             Text(fmtMoney(m.disposableMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: m.disposableMinor < 0 ? y.danger : y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
-            Text('到 ${m.payday.substring(5).replaceFirst('-', '/')} 发薪，今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')}', style: theme.textTheme.bodySmall),
-            Text('= 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前固定支出 ${fmtMoney(m.fixedDueMinor, 'CNY')}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            // 只留一行：今天还能花多少、几天后发薪。公式在财富页（点卡片进），首页不摆三行小字
+            Text(
+              m.disposableMinor < 0 ? '发薪前得省着：固定支出比手头的钱多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
+              style: theme.textTheme.bodySmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 12),
             Row(children: [
               Expanded(child: _Stat(label: '余额', value: fmtMoney(totalBalance, 'CNY'))),
@@ -250,37 +271,26 @@ class _GoalsStrip extends StatelessWidget {
             ),
           )
         else
-          SizedBox(
-            height: 92,
-            child: ListView(scrollDirection: Axis.horizontal, children: [
-              for (final p in goals)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: SizedBox(
-                    width: 150,
-                    child: GlassCard(
-                      child: InkWell(
-                        onTap: () => go(const GoalsPage()),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(children: [
-                              Text(p.goal.emoji ?? '🎯', style: const TextStyle(fontSize: 18)),
-                              const SizedBox(width: 6),
-                              Expanded(child: Text(p.goal.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium)),
-                            ]),
-                            const Spacer(),
-                            ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: p.ratio, minHeight: 6, backgroundColor: y.hairline, color: p.reached ? y.income : theme.colorScheme.primary)),
-                            const SizedBox(height: 4),
-                            Text('${(p.ratio * 100).toStringAsFixed(0)}% · ${p.reached ? '攒够了' : '还差 ${fmtMoney(p.remainingMinor, p.goal.currency)}'}', style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ]),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ]),
-          ),
+          // 一张通栏（多给一行 已攒 / 目标），两张平分，三张起才横滑（每张 46% 宽，露出下一张的边）
+          LayoutBuilder(builder: (context, c) {
+            final w = c.maxWidth;
+            if (goals.length <= 2) {
+              return Row(children: [
+                for (var i = 0; i < goals.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  Expanded(child: _GoalCard(p: goals[i], wide: goals.length == 1, onTap: () => go(const GoalsPage()))),
+                ],
+              ]);
+            }
+            final cardW = (w * 0.46).floorToDouble();
+            return SizedBox(
+              height: 92,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                for (final p in goals)
+                  Padding(padding: const EdgeInsets.only(right: 10), child: SizedBox(width: cardW, child: _GoalCard(p: p, wide: false, onTap: () => go(const GoalsPage())))),
+              ]),
+            );
+          }),
         if (tasks.isNotEmpty) ...[
           const SizedBox(height: 10),
           GlassCard(
@@ -310,6 +320,47 @@ class _GoalsStrip extends StatelessWidget {
           ),
         ],
       ]),
+    );
+  }
+}
+
+/// 首页目标小卡：emoji + 名字 + 进度条 + 一行数。[wide] 是首页只有一个目标时的通栏版：多放一行「已攒 / 目标」，别让一张小卡孤零零。
+class _GoalCard extends StatelessWidget {
+  final GoalProgress p;
+  final bool wide;
+  final VoidCallback onTap;
+  const _GoalCard({required this.p, required this.wide, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final y = YujianColors.of(context);
+    final payoff = p.goal.kind == GoalKind.payoff;
+    final tail = p.reached ? (payoff ? '还清了' : '攒够了') : '${payoff ? '还欠' : '还差'} ${fmtMoney(p.remainingMinor, p.goal.currency)}';
+    return GlassCard(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(wide ? 16 : 12, 10, wide ? 16 : 12, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Text(p.goal.emoji ?? '🎯', style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 6),
+              Expanded(child: Text(p.goal.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: wide ? theme.textTheme.titleMedium : theme.textTheme.bodyMedium)),
+              if (wide) Text('${(p.ratio * 100).toStringAsFixed(0)}%', style: theme.textTheme.titleMedium?.copyWith(color: p.reached ? y.income : theme.colorScheme.primary, fontFeatures: const [FontFeature.tabularFigures()])),
+            ]),
+            SizedBox(height: wide ? 10 : 12),
+            ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: p.ratio, minHeight: wide ? 8 : 6, backgroundColor: y.hairline, color: p.reached ? y.income : theme.colorScheme.primary)),
+            const SizedBox(height: 4),
+            if (wide)
+              Row(children: [
+                Expanded(child: Text('${payoff ? '已还' : '已攒'} ${fmtMoney(p.savedMinor, p.goal.currency)} / ${fmtMoney(p.targetMinor, p.goal.currency)}', style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                Text(tail, style: theme.textTheme.bodySmall, maxLines: 1),
+              ])
+            else
+              Text('${(p.ratio * 100).toStringAsFixed(0)}% · $tail', style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ]),
+        ),
+      ),
     );
   }
 }

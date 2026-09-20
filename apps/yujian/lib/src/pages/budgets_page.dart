@@ -19,8 +19,16 @@ class BudgetsPage extends StatelessWidget {
       body: statuses.isEmpty
           ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text('给某个分类或总支出定个月度上限，超过提醒线会在首页提示。', textAlign: TextAlign.center, style: theme.textTheme.bodySmall)))
           : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              children: [for (final s in statuses) BudgetBar(status: s, onLongPress: () => _delete(context, s.budget))],
+              padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
+              children: [
+                GlassCard(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: Column(children: [for (final s in statuses) BudgetBar(status: s, onLongPress: () => _delete(context, s.budget))]),
+                  ),
+                ),
+                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('长按一条删除。', style: theme.textTheme.bodySmall)),
+              ],
             ),
     );
   }

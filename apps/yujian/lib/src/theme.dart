@@ -19,9 +19,11 @@ class YujianColors extends ThemeExtension<YujianColors> {
   final Color cardBorder;
   final Color chromeFill; // 顶栏 / 底栏底色（半透明，真磨砂在 Frosted / Dock 里做）
   final double radius;
-  final bool glass; // 底栏 / 顶栏是否真磨砂（所有主题都是；留着给以后想做"纸感"主题关掉）
+  final bool glass; // 卡片 / 底栏是不是玻璃：true 走着色器取样 + 底栏真磨砂；false 是实色卡（留白 / 硬边 / 柔感 / 暖木）
   final double blur; // 玻璃背后的模糊半径（预模糊背景 / 底栏真磨砂共用）
   final double glassTint; // 玻璃面的着色强度（0 全透 → 1 实色）；苹果是 0.1~0.2，我们要在卡片上排字，稍高
+  final double borderWidth; // 实色卡的描边粗细（0 = 不描）；玻璃卡由着色器画亮边，只有 ≥ 1.5 的粗描边（卡通）才另叠一圈
+  final List<BoxShadow>? shadows; // 实色卡 / 底栏的投影：null = 默认的长距离淡影，[] = 没有（留白），硬边是一块硬影，柔感是双向光影
 
   const YujianColors({
     required this.balance,
@@ -38,6 +40,8 @@ class YujianColors extends ThemeExtension<YujianColors> {
     required this.glass,
     this.blur = 22,
     this.glassTint = 0.28,
+    this.borderWidth = 0.6,
+    this.shadows,
   });
 
   static YujianColors of(BuildContext context) => Theme.of(context).extension<YujianColors>()!;
@@ -46,7 +50,10 @@ class YujianColors extends ThemeExtension<YujianColors> {
   Color get solidFill => cardFill.withValues(alpha: (cardFill.a + 0.15).clamp(0.0, 1.0));
 
   @override
-  YujianColors copyWith({Color? balance}) => YujianColors(balance: balance ?? this.balance, income: income, expense: expense, danger: danger, warning: warning, muted: muted, hairline: hairline, cardFill: cardFill, cardBorder: cardBorder, chromeFill: chromeFill, radius: radius, glass: glass, blur: blur, glassTint: glassTint);
+  YujianColors copyWith({Color? balance}) => YujianColors(balance: balance ?? this.balance, income: income, expense: expense, danger: danger, warning: warning, muted: muted, hairline: hairline, cardFill: cardFill, cardBorder: cardBorder, chromeFill: chromeFill, radius: radius, glass: glass, blur: blur, glassTint: glassTint, borderWidth: borderWidth, shadows: shadows);
+
+  /// 卡片 / 底栏的投影：主题给了就用主题的，没给就是一条长距离的淡影（质感来自留白和发丝线，不靠重阴影）。
+  List<BoxShadow> cardShadows(Color ink) => shadows ?? [BoxShadow(color: ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))];
 
   /// 玻璃面的材质：着色取卡片底色的色相、强度按主题；折射 / 亮边各主题一致。
   GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint));
@@ -69,6 +76,8 @@ class YujianColors extends ThemeExtension<YujianColors> {
       glass: t < 0.5 ? glass : other.glass,
       blur: lerpDouble(blur, other.blur, t)!,
       glassTint: lerpDouble(glassTint, other.glassTint, t)!,
+      borderWidth: lerpDouble(borderWidth, other.borderWidth, t)!,
+      shadows: BoxShadow.lerpList(shadows, other.shadows, t),
     );
   }
 }
@@ -196,8 +205,9 @@ class _BackedTransitions extends PageTransitionsBuilder {
 
 // ------------------------------------------------------------------ 主题
 
-/// 所有主题的卡片都是真玻璃（半透明 + 背后模糊 + 高光边，见 [GlassCard]），自定义背景图下才透得出来；
-/// 主题之间的差别在底色 / 渐变、圆角、字阶、描边粗细与语义色。
+/// 前五套（玻璃 / 素纸 / 清新 / 卡通 / 樱花）的卡片都是玻璃（半透明 + 背后模糊 + 高光边，见 [GlassCard]），自定义背景图下才透得出来；
+/// 后四套（留白 / 硬边 / 柔感 / 暖木）是实色卡（`glass: false`）：看腻了玻璃换一种材质，质感各自来自发丝线 / 硬影 / 双向光影 / 暖纸。
+/// 主题之间的差别在底色 / 渐变、圆角、字阶、描边粗细、投影与语义色；强调色永远跟人格走。
 ///
 /// 玻璃（默认）：iOS 式。柔和渐变底 + 磨砂色块，卡片最通透，圆角大，字阶克制。
 final _glass = AppThemeSpec(
@@ -357,7 +367,142 @@ Widget _sakuraBg(BuildContext context, Color accent) => const DecoratedBox(
       child: SizedBox.expand(),
     );
 
-final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura];
+// ------------------------------------------------------------------ 实色主题（不是玻璃）
+
+/// 留白：白纸黑字，只有发丝线，没有投影。Things / Notion 那一路——最不打扰的一套，字和数字自己站出来。
+final _blank = AppThemeSpec(
+  id: 'blank',
+  name: '留白',
+  tagline: '只有纸和字，最安静',
+  build: (accent) {
+    const ink = Color(0xFF1A1D21);
+    const soft = Color(0xFF6E7378);
+    const y = YujianColors(
+      balance: Color(0xFF1F5FBF),
+      income: Color(0xFF2E8B57),
+      expense: ink,
+      danger: Color(0xFFD64545),
+      warning: Color(0xFFC9861B),
+      muted: soft,
+      hairline: Color(0xFFECEEF0),
+      cardFill: Color(0xFFFFFFFF),
+      cardBorder: Color(0xFFE4E7EA),
+      chromeFill: Color(0xFFFFFFFF),
+      radius: 10,
+      glass: false,
+      borderWidth: 0.8,
+      shadows: [], // 没有影子：质感只靠发丝线
+    );
+    return _base(accent: accent, surface: const Color(0xFFFFFFFF), ink: ink, soft: soft, y: y, buttonRadius: 8, titleWeight: 600);
+  },
+);
+
+/// 硬边：奶白底、2px 墨线、右下一块不虚化的硬影。新粗野主义（Gumroad / Figma 社区那一挂）——够劲、不腻。
+final _bold = AppThemeSpec(
+  id: 'bold',
+  name: '硬边',
+  tagline: '粗线、硬影，够劲',
+  build: (accent) {
+    const ink = Color(0xFF141414);
+    const soft = Color(0xFF5B5750);
+    const y = YujianColors(
+      balance: Color(0xFF1D4ED8),
+      income: Color(0xFF15803D),
+      expense: ink,
+      danger: Color(0xFFDC2626),
+      warning: Color(0xFFD97706),
+      muted: soft,
+      hairline: Color(0xFFE6DFCF),
+      cardFill: Color(0xFFFFFFFF),
+      cardBorder: ink,
+      chromeFill: Color(0xFFFDF6EC),
+      radius: 12,
+      glass: false,
+      borderWidth: 2,
+      shadows: [BoxShadow(color: ink, offset: Offset(4, 4), blurRadius: 0)],
+    );
+    return _base(
+      accent: accent,
+      surface: const Color(0xFFFDF6EC),
+      ink: ink,
+      soft: soft,
+      y: y,
+      buttonRadius: 10,
+      titleWeight: 800,
+      cardSide: const BorderSide(color: ink, width: 2),
+      navIndicator: accent.withValues(alpha: 0.35),
+      appBarTitle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: ink),
+    );
+  },
+);
+
+/// 柔感：卡片和底色同色，靠左上的亮光和右下的暗影「鼓」出来。拟物柔感（neumorphism）的浅色版——像一块软软的硅胶面板。
+final _soft = AppThemeSpec(
+  id: 'soft',
+  name: '柔感',
+  tagline: '从底色里鼓起来，软',
+  build: (accent) {
+    const ink = Color(0xFF2B3440);
+    const soft = Color(0xFF6F7B89);
+    const surface = Color(0xFFE9EEF3);
+    const y = YujianColors(
+      balance: Color(0xFF3A6FD8),
+      income: Color(0xFF2F9E6B),
+      expense: ink,
+      danger: Color(0xFFD9534F),
+      warning: Color(0xFFD0902A),
+      muted: soft,
+      hairline: Color(0xFFD9E0E8),
+      cardFill: surface,
+      cardBorder: Color(0xFFD5DCE4),
+      chromeFill: surface,
+      radius: 18,
+      glass: false,
+      borderWidth: 0,
+      shadows: [
+        BoxShadow(color: Color(0xFFFFFFFF), offset: Offset(-6, -6), blurRadius: 14),
+        BoxShadow(color: Color(0xE6B9C3CF), offset: Offset(7, 7), blurRadius: 16),
+      ],
+    );
+    return _base(accent: accent, surface: surface, ink: ink, soft: soft, y: y, buttonRadius: 14, titleWeight: 600);
+  },
+);
+
+/// 暖木：米色纸、木色数字、暖色的软影。无印 / Kinfolk 那种慢一点的调子——标题轻、正文稳。
+final _warm = AppThemeSpec(
+  id: 'warm',
+  name: '暖木',
+  tagline: '米色、木色，慢一点',
+  background: _warmBg,
+  build: (accent) {
+    const ink = Color(0xFF3B2F2A);
+    const soft = Color(0xFF8A7B70);
+    const y = YujianColors(
+      balance: Color(0xFF8A5A2B),
+      income: Color(0xFF4E7D4A),
+      expense: ink,
+      danger: Color(0xFFB5482E),
+      warning: Color(0xFFC08A2E),
+      muted: soft,
+      hairline: Color(0xFFE8DFD2),
+      cardFill: Color(0xFFFFFCF7),
+      cardBorder: Color(0xFFEADFCF),
+      chromeFill: Color(0xFFF6F1E8),
+      radius: 14,
+      glass: false,
+      borderWidth: 0.8,
+      shadows: [BoxShadow(color: Color(0x1A6B4F3A), offset: Offset(0, 6), blurRadius: 18)],
+    );
+    return _base(accent: accent, surface: const Color(0xFFF6F1E8), ink: ink, soft: soft, y: y, transparentScaffold: true, background: _warmBg, buttonRadius: 12, titleWeight: 500);
+  },
+);
+
+Widget _warmBg(BuildContext context, Color accent) => const DecoratedBox(
+      decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF8F3EA), Color(0xFFF3ECE0)])),
+      child: SizedBox.expand(),
+    );
+
+final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura, _blank, _bold, _soft, _warm];
 
 AppThemeSpec themeById(String id) => appThemes.firstWhere((t) => t.id == id, orElse: () => _glass);
 
@@ -439,13 +584,14 @@ class Dock extends StatelessWidget {
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
         ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: y.glassTint * 0.7), thickness: 22, refract: 14, light: 0.6), radius: 999, blur: 22, fallback: y.cardFill, child: inner)
-        : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: Border.all(color: y.cardBorder, width: 0.6)), child: inner);
+        // 实色主题：胶囊就是一块实色卡（描边 / 投影跟卡片同一套），页面从它下面滑过时不透
+        : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: y.borderWidth > 0 ? Border.all(color: y.cardBorder, width: y.borderWidth) : null), child: inner);
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, dockBottomMargin(context)), // 胶囊宽一点、贴底一点；边距按 viewPadding，键盘动的时候不跳
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: r,
-          boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))],
+          boxShadow: y.shadows ?? [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))],
         ),
         child: ClipRRect(borderRadius: r, child: pill),
       ),
@@ -471,6 +617,16 @@ class GlassCard extends StatelessWidget {
     final shape = theme.cardTheme.shape;
     final side = shape is RoundedRectangleBorder ? shape.side : BorderSide.none;
     final r = BorderRadius.circular(y.radius);
+    if (!y.glass) {
+      // 实色主题：一块纸 / 一块板——底色 + 描边 + 主题自己的投影，没有取样没有模糊
+      return Padding(
+        padding: margin ?? EdgeInsets.zero,
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: color ?? y.cardFill, borderRadius: r, border: y.borderWidth > 0 ? Border.all(color: y.cardBorder, width: y.borderWidth) : null, boxShadow: y.cardShadows(theme.colorScheme.onSurface)),
+          child: ClipRRect(borderRadius: r, clipBehavior: clipBehavior == Clip.none ? Clip.antiAlias : clipBehavior, child: Material(type: MaterialType.transparency, child: child)),
+        ),
+      );
+    }
     final spec = color == null ? y.glassSpec : y.glassSpec.copyWith(tint: color!.withValues(alpha: (color!.a * 0.6).clamp(y.glassTint, 0.9)));
     Widget body = GlassSurface(
       radius: y.radius,
@@ -483,7 +639,7 @@ class GlassCard extends StatelessWidget {
     return Padding(
       padding: margin ?? EdgeInsets.zero,
       child: DecoratedBox(
-        decoration: BoxDecoration(borderRadius: r, boxShadow: [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))]),
+        decoration: BoxDecoration(borderRadius: r, boxShadow: y.cardShadows(theme.colorScheme.onSurface)),
         child: ClipRRect(borderRadius: r, clipBehavior: clipBehavior == Clip.none ? Clip.antiAlias : clipBehavior, child: body),
       ),
     );

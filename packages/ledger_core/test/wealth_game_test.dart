@@ -154,10 +154,13 @@ void main() {
       expect(m.liquidMinor, liquid);
       expect(m.lockedMinor, 100000);
       expect(m.fixedDueMinor, 220000); // 10/1 房租在发薪日前
-      expect(m.disposableMinor, liquid - 100000 - 220000);
+      expect(m.cardOwedMinor, 80000); // 信用卡欠的：刷了就从可花的里扣
+      expect(m.disposableMinor, liquid - 100000 - 220000 - 80000);
       expect(m.spentTodayMinor, 20000);
-      expect(m.dailyAllowanceMinor, ((liquid - 100000 - 220000) / 20).floor() - 20000);
+      // 可花的来自余额，今天的 200 已经扣过了：今天还能花 = 可花的 ÷ 天数，不再减一次（以前减两次，可花 150 却显示 0）
+      expect(m.dailyAllowanceMinor, ((liquid - 100000 - 220000 - 80000) / 20).floor());
       expect(m.monthsOfData, 3);
+      expect(m.spendBasis, SpendBasis.history);
       expect(m.monthlySpendAvgMinor, 700000);
       expect(m.runwayMonths, closeTo(liquid / 700000, 1e-9));
       expect(m.level!.name, WealthLevel.of(liquid / 700000).name);
@@ -166,6 +169,9 @@ void main() {
       expect(m.incomeByLine[IncomeLine.side], 50000);
       expect(m.savingsRate, closeTo((1550000 - 20000) / 1550000, 1e-9));
       expect(m.netWorthMinor, liquid - 80000);
+      expect(m.assetsMinor, liquid);
+      expect(m.debt.cardMinor, 80000);
+      expect(m.debt.loanMinor, 0);
       expect(m.excludedForeign.single.id, 'usd');
 
       // 画像填了发薪日就按画像
@@ -176,7 +182,92 @@ void main() {
       // 没有收入记录：月底
       final fresh = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
       expect(Wealth(fresh).nextPayday(today: '2026-09-20'), ('2026-09-30', 'month_end'));
-      expect(Wealth(fresh).compute(today: '2026-09-20').level, isNull);
+      final fm = Wealth(fresh).compute(today: '2026-09-20');
+      expect(fm.level, isNull);
+      expect(fm.spendBasis, SpendBasis.none);
+    });
+
+    test('称号不用等一个月：本月按天外推 → 周期账单 → 近 31 天收入 → 手填，依次兜底', () {
+      // 只有本月：9/2 发工资 1 万，9/5、9/12 各花 300；今天 9/20 → 外推 600 × 30 / 20 = 900/月
+      add(income(1000000, '2026-09-02'));
+      add(expense(30000, '2026-09-05'));
+      add(expense(30000, '2026-09-12'));
+      var m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.monthsOfData, 0);
+      expect(m.spendBasis, SpendBasis.thisMonth);
+      expect(m.monthlySpendAvgMinor, (60000 * 30 / 20).round());
+      expect(m.level, isNotNull);
+      expect(m.runwayMonths, closeTo(m.liquidMinor / 90000, 1e-9));
+      // 周期账单比外推大：按周期账单合计（房租 2200 + 还贷 3000 = 5200）
+      ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 220000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '2026-10-01');
+      final loan = ledger.debts.add(name: '车贷', kind: DebtKind.car, owedMinor: 6000000, monthlyMinor: 300000, day: 15, fromAccountId: 'bank', today: '2026-09-20');
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.spendBasis, SpendBasis.thisMonth);
+      expect(m.monthlySpendAvgMinor, 520000);
+      expect(m.repaymentMonthlyMinor, 300000);
+      expect(m.debt.loanMinor, 6000000);
+      expect(m.debt.monthsLeft, 20);
+      expect(m.netWorthMinor, m.assetsMinor - 6000000);
+      expect(m.inDebt, isTrue);
+      // 发薪日 10/2（从 9/2 的工资推的）之前要还的：房租 10/1 + 车贷 9/15→ 下次 10/15 不在窗口内
+      expect(m.payday, '2026-10-02');
+      expect(loan.repayment!.nextDue, '2026-10-15');
+      expect(m.fixedDueMinor, 220000);
+      // 手填月支出压过一切
+      ledger.profile.monthlyCostMinor = 800000;
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.spendBasis, SpendBasis.manual);
+      expect(m.monthlySpendAvgMinor, 800000);
+      ledger.profile.monthlyCostMinor = null;
+      // 一笔支出都没有、只有工资：按收入当月支出（月光）
+      final fresh = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+      fresh.createAccount(id: 'w', name: '微信', type: AccountType.eWallet, currency: 'CNY');
+      final d = fresh.propose([DraftInput(payload: {'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'w', 'category_id': 'salary', 'occurred_at': '2026-09-10T09:00:00+08:00'})], source: Source.manual, actor: Actor.user).single;
+      fresh.commit(d.id);
+      final fm = Wealth(fresh).compute(today: '2026-09-20');
+      expect(fm.spendBasis, SpendBasis.income);
+      expect(fm.monthlySpendAvgMinor, 1000000);
+      expect(fm.level!.title, '温饱户'); // 1 万 ÷ 1 万 = 1 个月
+      expect(fm.dailyAllowanceMinor, (1000000 / fm.daysToPayday).floor());
+    });
+
+    test('负债三件套：账户 + 周期转账 + 还清目标；还一期后余额 / 进度 / 每月合计都跟着走；等级口径把还贷算进月支出', () {
+      final setup = ledger.debts.add(name: '房贷', kind: DebtKind.mortgage, owedMinor: 50000000, monthlyMinor: 400000, day: 10, fromAccountId: 'bank', today: '2026-09-20');
+      expect(setup.account.type, AccountType.payable);
+      expect(ledger.balance(setup.account.id).minor, -50000000);
+      expect(setup.repayment!.template['type'], 'transfer');
+      expect(setup.repayment!.nextDue, '2026-10-10');
+      expect(setup.goal.kind, GoalKind.payoff);
+      expect(setup.goal.targetMinor, 50000000);
+      final card = ledger.createAccount(id: 'cc', name: '信用卡', type: AccountType.creditCard, currency: 'CNY', initialBalanceMinor: -30000);
+      var list = ledger.debts.list();
+      expect(list.map((d) => d.account.id).toList(), [setup.account.id, card.id]);
+      expect(list.first.kind, DebtKind.mortgage);
+      expect(list.first.monthlyMinor, 400000);
+      expect(list.first.monthsLeft, 125);
+      var t = ledger.debts.totals();
+      expect(t.loanMinor, 50000000);
+      expect(t.cardMinor, 30000);
+      expect(t.monthlyMinor, 400000);
+      expect(t.count, 2);
+      // 还一期：转账 4000 到房贷账户
+      add({'type': 'transfer', 'amount_minor': 400000, 'currency': 'CNY', 'account_id': 'bank', 'to_account_id': setup.account.id, 'occurred_at': '2026-08-10T09:00:00+08:00'});
+      list = ledger.debts.list();
+      expect(list.first.owedMinor, 49600000);
+      expect(list.first.paidMinor, 400000);
+      expect(ledger.goals.progress(setup.goal, today: '2026-09-20').savedMinor, 400000);
+      // 上个月的还贷算进月支出：8 月流出 = 4000（没有别的支出）
+      add(expense(100000, '2026-08-20'));
+      final m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.spendBasis, SpendBasis.history);
+      expect(m.monthlySpendAvgMinor, 500000);
+      // 换还款额：旧的停掉，新的一条
+      ledger.debts.setRepayment(setup.account.id, monthlyMinor: 450000, day: 12, fromAccountId: 'bank', today: '2026-09-20');
+      t = ledger.debts.totals();
+      expect(t.monthlyMinor, 450000);
+      expect(ledger.recurring.list().where((r) => r.template['to_account_id'] == setup.account.id).length, 1);
+      // 每月几号从今天起算：今天 20 号、要 12 号 → 下个月
+      expect(ledger.recurring.list().firstWhere((r) => r.template['to_account_id'] == setup.account.id).nextDue, '2026-10-12');
     });
 
     test('每档等级都有称号；最穷是穷逼，每档不重名，档位边界落在高一档', () {
