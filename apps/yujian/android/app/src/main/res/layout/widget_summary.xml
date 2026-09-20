@@ -1,89 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 桌面小部件：余额（+ 财富称号胶囊）/ 本月支出 / 本月收入 + 记一笔。RemoteViews 只认基础控件。 -->
+<!-- 4×2 本月：左右两栏——左：余额（+ 称号胶囊）大字 + 最近一笔；右：月份 / 支出 / 收入 靠右一列 + 记一笔。
+     以前支出 / 收入 / 按钮挤在下面一行、右半边全空；两栏后右边有内容了。RemoteViews 只认基础控件。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:gravity="center_vertical"
     android:background="@drawable/widget_bg"
     android:paddingLeft="18dp"
-    android:paddingRight="18dp"
+    android:paddingRight="16dp"
     android:paddingTop="14dp"
     android:paddingBottom="14dp">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
         android:gravity="center_vertical">
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="余额"
-            android:textSize="12sp"
-            android:textColor="#1B6BC7"
-            android:textStyle="bold"/>
-        <TextView android:id="@+id/widget_title_badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="8dp" android:background="@drawable/widget_badge_bg" android:paddingLeft="8dp" android:paddingRight="8dp" android:paddingTop="2dp" android:paddingBottom="2dp" android:text="" android:visibility="gone" android:maxLines="1" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold" android:includeFontPadding="false"/>
-        <TextView
-            android:id="@+id/widget_month"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:gravity="right"
-            android:text="9 月"
-            android:textSize="12sp"
-            android:textColor="#6C7580"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/widget_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="余额" android:textSize="12sp" android:textColor="#1B6BC7" android:textStyle="bold"/>
+            <TextView android:id="@+id/widget_title_badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="8dp" android:background="@drawable/widget_badge_bg" android:paddingLeft="8dp" android:paddingRight="8dp" android:paddingTop="2dp" android:paddingBottom="2dp" android:text="" android:visibility="gone" android:maxLines="1" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold" android:includeFontPadding="false"/>
+        </LinearLayout>
+        <TextView android:id="@+id/widget_balance" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="¥ 0.00" android:textSize="30sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/widget_recent" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="" android:maxLines="2" android:ellipsize="end" android:textSize="12sp" android:textColor="#6C7580"/>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_balance"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="¥ 0.00"
-        android:textSize="30sp"
-        android:textColor="#1B6BC7"
-        android:textStyle="bold"
-        android:layout_marginTop="2dp"/>
-
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="10dp">
-        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="支出" android:textSize="11sp" android:textColor="#6C7580"/>
-            <TextView android:id="@+id/widget_expense" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#1C2430" android:textStyle="bold"/>
-        </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="收入" android:textSize="11sp" android:textColor="#6C7580"/>
-            <TextView android:id="@+id/widget_income" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#2E9A5C" android:textStyle="bold"/>
-        </LinearLayout>
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_marginLeft="12dp"
+        android:orientation="vertical"
+        android:gravity="center_vertical|right">
+        <TextView android:id="@+id/widget_month" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="9 月" android:textSize="12sp" android:textColor="#6C7580"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="支出" android:textSize="11sp" android:textColor="#6C7580"/>
+        <TextView android:id="@+id/widget_expense" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#1C2430" android:textStyle="bold" android:maxLines="1"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="收入" android:textSize="11sp" android:textColor="#6C7580"/>
+        <TextView android:id="@+id/widget_income" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="¥ 0.00" android:textSize="15sp" android:textColor="#2E9A5C" android:textStyle="bold" android:maxLines="1"/>
         <TextView
             android:id="@+id/widget_add"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
+            android:layout_marginTop="8dp"
             android:background="@drawable/widget_button_bg"
-            android:paddingLeft="14dp"
-            android:paddingRight="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="＋ 记一笔"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold"/>
+            android:paddingLeft="14dp" android:paddingRight="14dp" android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:text="＋ 记一笔" android:textColor="#FFFFFF" android:textSize="13sp" android:textStyle="bold"/>
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/widget_recent"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text=""
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textSize="12sp"
-        android:textColor="#6C7580"/>
 </LinearLayout>

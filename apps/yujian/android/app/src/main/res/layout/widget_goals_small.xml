@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2「目标」：可花的 一行 + 最多 2 个目标（emoji · 名字 / 进度条 / 百分比 · 还差多少），行由代码 addView、weight 平分。点整块 → 目标页。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="10dp">
+    <LinearLayout android:id="@+id/widget_head" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="可花的" android:textSize="11sp" android:textColor="#1B6BC7" android:textStyle="bold"/>
+        <TextView android:id="@+id/widget_disposable" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginLeft="5dp" android:text="¥ 0.00" android:textSize="14sp" android:textColor="#1B6BC7" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_goal_list" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="2dp" android:orientation="vertical" android:gravity="center_vertical"/>
+    <TextView android:id="@+id/widget_goals_empty" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center_vertical" android:visibility="gone" android:text="还没有目标 · 点这里建一个" android:textSize="12sp" android:textColor="#6C7580" android:maxLines="3"/>
+</LinearLayout>
