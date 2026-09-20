@@ -190,7 +190,7 @@ void main() {
       state.addManual({'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'salary', 'occurred_at': '${day(-1)}T09:00:00+08:00'});
       state.addManual(expense(5000, day(0)));
       final m = state.game.metrics!;
-      expect(m.spendBasis, anyOf(SpendBasis.thisMonth, SpendBasis.income)); // 月初头两天外推不了就按收入
+      expect(m.spendBasis, SpendBasis.income); // 第一个月按收入当月支出，不拿两笔支出外推
       expect(m.level, isNotNull);
       expect(m.disposableMinor, 995000);
       expect(m.dailyAllowanceMinor, (995000 / m.daysToPayday).floor());

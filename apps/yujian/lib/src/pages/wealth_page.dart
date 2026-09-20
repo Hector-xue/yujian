@@ -183,7 +183,7 @@ class WealthPage extends StatelessWidget {
         SpendBasis.history => '近 ${m.monthsOfData} 个月平均，含每月还贷',
         SpendBasis.thisMonth => '本月到今天按天外推，记满一个月换成真实均值',
         SpendBasis.recurring => '还没记支出，按周期账单和还贷合计估',
-        SpendBasis.income => '还没记支出，先按近一个月的收入当月支出，记几笔支出就准了',
+        SpendBasis.income => '还没记满一个月，先按近一个月的收入当月支出（月光算法）；记满一个月换成真实均值，嫌不准可在下面手填',
         SpendBasis.none => '没数据',
       };
 

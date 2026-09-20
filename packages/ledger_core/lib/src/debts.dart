@@ -2,6 +2,7 @@ import 'goals.dart';
 import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
+import 'money.dart';
 import 'recurring.dart';
 
 /// 负债的种类，只决定图标和默认名字；账本里不另存字段，用负债账户的 [Account.icon]（emoji）回推。
@@ -31,7 +32,7 @@ class DebtSummary {
 
   bool get isCard => account.type == AccountType.creditCard;
   DebtKind get kind => DebtKindX.ofIcon(account.icon);
-  int get paidMinor => (originalMinor - owedMinor).clamp(0, 1 << 62);
+  int get paidMinor => (originalMinor - owedMinor).clamp(0, maxMinor);
   double get paidRatio => originalMinor <= 0 ? 0 : (paidMinor / originalMinor).clamp(0.0, 1.0);
   String? get nextDue => repayment?.nextDue;
 

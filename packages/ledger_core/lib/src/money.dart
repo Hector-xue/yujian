@@ -19,6 +19,10 @@ class Currency {
   }
 }
 
+/// 金额（分）的上限：clamp 用。别写 `1 << 62`——dart2js 的整数移位超过 31 位直接得 0，Web 上 clamp(0, 0) 会把所有余额 / 差额压成 0
+/// （0.9.2 在 Web 产物上看到「还欠 ¥0.00」就是它）。2^52 在 JS 双精度里仍是精确整数。
+const int maxMinor = 4503599627370496;
+
 /// 不可变金额值：整数最小单位。
 class Money implements Comparable<Money> {
   final int minor;

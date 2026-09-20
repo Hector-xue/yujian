@@ -141,7 +141,7 @@ class GoalProgress {
   const GoalProgress({required this.goal, required this.savedMinor, required this.targetMinor, this.paceMinorPerDay, this.etaDays, this.behindDays});
 
   double get ratio => targetMinor <= 0 ? 0 : (savedMinor / targetMinor).clamp(0.0, 1.0);
-  int get remainingMinor => (targetMinor - savedMinor).clamp(0, 1 << 62);
+  int get remainingMinor => (targetMinor - savedMinor).clamp(0, maxMinor);
   bool get reached => targetMinor > 0 && savedMinor >= targetMinor;
 
   /// 已过的阶段里程碑（10 / 25 / 50 / 75 / 100）。
@@ -329,7 +329,7 @@ class GoalStore {
   // -------------------------------------------------------------- progress
 
   /// 锁仓里的钱（心愿 / 里程碑 / 应急金的锁仓）。
-  int savedMinor(Goal g) => g.vaultAccountId == null ? 0 : ledger.balance(g.vaultAccountId!).minor.clamp(0, 1 << 62);
+  int savedMinor(Goal g) => g.vaultAccountId == null ? 0 : ledger.balance(g.vaultAccountId!).minor.clamp(0, maxMinor);
 
   /// 存入记录：转进锁仓账户的 transfer（最新在前）。
   List<Transaction> deposits(String goalId, {int limit = 500}) {
@@ -365,7 +365,7 @@ class GoalStore {
         final owed = g.linkedAccountId == null ? 0 : _payoffTarget(g.linkedAccountId!);
         saved = (target - owed).clamp(0, target);
       case GoalKind.milestone:
-        saved = (netWorthMinor ?? 0).clamp(0, 1 << 62);
+        saved = (netWorthMinor ?? 0).clamp(0, maxMinor);
     }
     // 速度：最近 30 天存入之和 / 30
     double? pace;
@@ -482,7 +482,7 @@ class GoalStore {
         }
         wanted = wanted.clamp(0, p.remainingMinor);
         if (wanted <= 0) continue;
-        final amount = wanted.clamp(0, left.clamp(0, 1 << 62));
+        final amount = wanted.clamp(0, left.clamp(0, maxMinor));
         out.add(PaydayAllocation(goal: g, rule: r, wantedMinor: wanted, amountMinor: amount));
         left -= amount;
       }

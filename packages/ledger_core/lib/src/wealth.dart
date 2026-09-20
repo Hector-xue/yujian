@@ -2,6 +2,7 @@ import 'debts.dart';
 import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
+import 'money.dart';
 import 'models/transaction.dart';
 
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
@@ -36,7 +37,7 @@ class WealthLevel {
   WealthLevel? get next => index + 1 < levels.length ? levels[index + 1] : null;
 }
 
-/// 「月支出」是按什么估的：手填 > 历史整月均值 > 本月按天外推 > 周期账单合计 > 近 31 天收入（先按月光算）> 没数据。
+/// 「月支出」是按什么估的：手填 > 历史整月均值 > 近 31 天收入（先按月光算）> 本月按天外推 > 周期账单合计 > 没数据。
 /// 目的：用户录完第一批账就能有等级 / 称号，不用等记满一个月；财富页把依据写出来。
 enum SpendBasis { manual, history, thisMonth, recurring, income, none }
 
@@ -199,33 +200,31 @@ class Wealth {
       basis = SpendBasis.history;
       baseline = spendSum ~/ months;
     } else {
-      // 本月按天外推（至少 3 天才外推，1–2 天的数据太抖），周期账单合计当下限
+      // 近 31 天有收入：先按收入当月支出（月光算法）。第一个月只记了几笔支出就按天外推会得出「一个月花 96 块、够花 103 个月、人上人」
+      // 这种笑话；按收入估至少是个保守的整数。记满一个整月就换成真实均值，嫌不准可以手填
+      var recentIncome = 0;
+      for (final tx in _range(from: _fmt(t.subtract(const Duration(days: 30))), to: today, currency: currency)) {
+        if (tx.type == TransactionType.income) recentIncome += tx.amountMinor;
+      }
+      // 没收入记录：本月按天外推（至少 3 天才外推，1–2 天的数据太抖），周期账单合计当下限
       final thisMonth = _outflow(from: _fmt(m0), to: today, currency: currency);
       final elapsed = t.day;
       final extrapolated = elapsed >= 3 && thisMonth > 0 ? (thisMonth * mEnd.day / elapsed).round() : 0;
-      final est = extrapolated > recurringMonthly ? extrapolated : recurringMonthly;
-      if (extrapolated > 0) {
+      if (recentIncome > 0) {
+        basis = SpendBasis.income;
+        baseline = recentIncome;
+      } else if (extrapolated > 0) {
         basis = SpendBasis.thisMonth;
-        baseline = est;
+        baseline = extrapolated > recurringMonthly ? extrapolated : recurringMonthly;
       } else if (recurringMonthly > 0) {
         basis = SpendBasis.recurring;
         baseline = recurringMonthly;
-      } else {
-        // 一笔支出都没有：近 31 天的收入先当月支出（按月光算），记几笔支出就换成真数
-        var recentIncome = 0;
-        for (final tx in _range(from: _fmt(t.subtract(const Duration(days: 30))), to: today, currency: currency)) {
-          if (tx.type == TransactionType.income) recentIncome += tx.amountMinor;
-        }
-        if (recentIncome > 0) {
-          basis = SpendBasis.income;
-          baseline = recentIncome;
-        }
       }
     }
     final runway = baseline <= 0 ? null : liquid / baseline;
     final level = runway == null ? null : WealthLevel.of(runway);
     int? toNext;
-    if (level?.next != null && baseline > 0) toNext = ((level!.next!.minMonths * baseline) - liquid).ceil().clamp(0, 1 << 62);
+    if (level?.next != null && baseline > 0) toNext = ((level!.next!.minMonths * baseline) - liquid).ceil().clamp(0, maxMinor);
 
     // 本月收入 / 支出 / 收入线
     final overrides = profile.incomeLines;

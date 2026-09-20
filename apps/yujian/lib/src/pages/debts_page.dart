@@ -142,7 +142,7 @@ class _DebtRow extends StatelessWidget {
             ? '还清了'
             : d.repayment == null
                 ? '没设每月还款 · 点这里设'
-                : '每月 ${fmtMoney(d.monthlyMinor, 'CNY')} · ${int.parse(d.repayment!.nextDue.substring(8, 10))} 号 · 还要 ${DebtsPage._monthsLabel(d.monthsLeft ?? 0)}';
+                : '每月 ${fmtMoney(d.monthlyMinor, 'CNY')} · ${int.parse(d.repayment!.nextDue.substring(8, 10))} 号';
     return InkWell(
       onTap: d.isCard ? null : () => _showRepaymentSheet(context, app, d),
       child: Padding(
@@ -164,7 +164,12 @@ class _DebtRow extends StatelessWidget {
             const SizedBox(height: 8),
             ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(value: d.paidRatio, minHeight: 5, backgroundColor: y.hairline, color: d.owedMinor <= 0 ? y.income : theme.colorScheme.primary)),
             const SizedBox(height: 3),
-            Text('已还 ${(d.paidRatio * 100).toStringAsFixed(0)}% · ${fmtMoney(d.paidMinor, d.account.currency)} / ${fmtMoney(d.originalMinor, d.account.currency)}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            Text(
+              '已还 ${(d.paidRatio * 100).toStringAsFixed(0)}%（${fmtMoney(d.paidMinor, d.account.currency)}）${d.owedMinor > 0 && d.monthsLeft != null ? ' · 还要 ${DebtsPage._monthsLabel(d.monthsLeft!)}' : ''}',
+              style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ]),
       ),

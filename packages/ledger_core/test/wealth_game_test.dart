@@ -187,9 +187,8 @@ void main() {
       expect(fm.spendBasis, SpendBasis.none);
     });
 
-    test('称号不用等一个月：本月按天外推 → 周期账单 → 近 31 天收入 → 手填，依次兜底', () {
-      // 只有本月：9/2 发工资 1 万，9/5、9/12 各花 300；今天 9/20 → 外推 600 × 30 / 20 = 900/月
-      add(income(1000000, '2026-09-02'));
+    test('称号不用等一个月：近 31 天收入（月光）→ 本月按天外推 → 周期账单 → 手填，依次兜底', () {
+      // 只有本月两笔支出、没收入：9/5、9/12 各花 300；今天 9/20 → 外推 600 × 30 / 20 = 900/月
       add(expense(30000, '2026-09-05'));
       add(expense(30000, '2026-09-12'));
       var m = Wealth(ledger).compute(today: '2026-09-20');
@@ -209,7 +208,12 @@ void main() {
       expect(m.debt.monthsLeft, 20);
       expect(m.netWorthMinor, m.assetsMinor - 6000000);
       expect(m.inDebt, isTrue);
-      // 发薪日 10/2（从 9/2 的工资推的）之前要还的：房租 10/1 + 车贷 9/15→ 下次 10/15 不在窗口内
+      // 有了工资：先按收入当月支出（月光算法），几笔支出外推出的「够花一百个月」不算数
+      add(income(1000000, '2026-09-02'));
+      m = Wealth(ledger).compute(today: '2026-09-20');
+      expect(m.spendBasis, SpendBasis.income);
+      expect(m.monthlySpendAvgMinor, 1000000);
+      // 发薪日 10/2（从 9/2 的工资推的）之前要还的：房租 10/1；车贷下次 10/15 不在窗口内
       expect(m.payday, '2026-10-02');
       expect(loan.repayment!.nextDue, '2026-10-15');
       expect(m.fixedDueMinor, 220000);
@@ -219,7 +223,7 @@ void main() {
       expect(m.spendBasis, SpendBasis.manual);
       expect(m.monthlySpendAvgMinor, 800000);
       ledger.profile.monthlyCostMinor = null;
-      // 一笔支出都没有、只有工资：按收入当月支出（月光）
+      // 一笔支出都没有、只有工资：同样按收入估；今天还能花 = 可花的 ÷ 天数
       final fresh = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
       fresh.createAccount(id: 'w', name: '微信', type: AccountType.eWallet, currency: 'CNY');
       final d = fresh.propose([DraftInput(payload: {'type': 'income', 'amount_minor': 1000000, 'currency': 'CNY', 'account_id': 'w', 'category_id': 'salary', 'occurred_at': '2026-09-10T09:00:00+08:00'})], source: Source.manual, actor: Actor.user).single;
