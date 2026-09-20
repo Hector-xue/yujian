@@ -45,26 +45,31 @@ open class SummaryWidget : AppWidgetProvider() {
                     v.setTextViewText(R.id.widget_income, p.getString("income", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_month, p.getString("month", ""))
                     v.setTextViewText(R.id.widget_recent, p.getString("recent", ""))
+                    title(v, p)
                     v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
                     v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                 }
                 R.layout.widget_large -> {
                     v.setTextViewText(R.id.widget_today, p.getString("today", "¥ 0.00"))
-                    v.setTextViewText(R.id.widget_month, p.getString("month", ""))
-                    v.setTextViewText(R.id.widget_expense, "本月支出 " + p.getString("expense", "¥ 0.00"))
+                    // 2×2 头行让给称号胶囊，月份并进支出那行：「9 月支出 ¥ …」；App 还没推过月份就退回「本月支出」
+                    val month = p.getString("month", "") ?: ""
+                    v.setTextViewText(R.id.widget_expense, (if (month.isEmpty()) "本月" else month) + "支出 " + p.getString("expense", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_balance, "余额 " + p.getString("balance", "¥ 0.00"))
+                    title(v, p)
                     v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
                     v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                 }
                 R.layout.widget_compact -> {
                     v.setTextViewText(R.id.widget_balance, p.getString("balance", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_expense, "本月支出 " + p.getString("expense", "¥ 0.00"))
+                    title(v, p)
                     v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
                     v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                 }
                 R.layout.widget_calendar -> {
                     v.setTextViewText(R.id.widget_expense, "支出 " + p.getString("expense", "¥ 0.00"))
                     v.setTextViewText(R.id.widget_income, "收入 " + p.getString("income", "¥ 0.00"))
+                    title(v, p)
                     v.setOnClickPendingIntent(R.id.widget_root, open(context, "yujian://home", 1))
                     v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
                     v.setOnClickPendingIntent(R.id.widget_grid, open(context, "yujian://records", 3))
@@ -73,6 +78,13 @@ open class SummaryWidget : AppWidgetProvider() {
                 else -> v.setOnClickPendingIntent(R.id.widget_add, open(context, "yujian://chat", 2))
             }
             return v
+        }
+
+        /** 财富称号胶囊（穷逼 / 月光族 / …）：App 没推过或没数据就是空串，整个胶囊藏掉，不留空壳。 */
+        private fun title(v: RemoteViews, p: android.content.SharedPreferences) {
+            val t = p.getString("title", "") ?: ""
+            v.setTextViewText(R.id.widget_title_badge, t)
+            v.setViewVisibility(R.id.widget_title_badge, if (t.isEmpty()) View.GONE else View.VISIBLE)
         }
 
         /**

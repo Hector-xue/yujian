@@ -178,13 +178,8 @@ class _GameHeader extends StatelessWidget {
               Icon(Icons.account_balance_wallet_outlined, size: 16, color: y.balance),
               const SizedBox(width: 6),
               Text('可花的', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
-              const Spacer(),
-              if (m.level != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
-                  child: Text('${m.level!.name} · 够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary)),
-                ),
+              // 角标靠右、能用整段剩余宽度，窄屏只会省略号不会溢出
+              Expanded(child: Align(alignment: Alignment.centerRight, child: m.level == null ? const SizedBox.shrink() : _TitleBadge(level: m.level!, runwayMonths: m.runwayMonths!))),
             ]),
             const SizedBox(height: 4),
             Text(fmtMoney(m.disposableMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 34, color: m.disposableMinor < 0 ? y.danger : y.balance, fontFeatures: const [FontFeature.tabularFigures()])),
@@ -197,6 +192,33 @@ class _GameHeader extends StatelessWidget {
               Expanded(child: _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income)),
             ]),
           ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// 称号角标：称号是身份（穷逼 / 月光族 / …），够花几个月是依据；两段一个胶囊，称号加粗做主。
+class _TitleBadge extends StatelessWidget {
+  final WealthLevel level;
+  final double runwayMonths;
+  const _TitleBadge({required this.level, required this.runwayMonths});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    return Semantics(
+      label: '称号 ${level.title}，等级 ${level.name}，够花 ${runwayMonths.toStringAsFixed(1)} 个月',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
+        decoration: BoxDecoration(color: primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
+        child: Text.rich(
+          TextSpan(children: [
+            TextSpan(text: level.title, style: theme.textTheme.labelLarge?.copyWith(color: primary, fontWeight: FontWeight.w700, height: 1.1)),
+            TextSpan(text: ' · 够花 ${runwayMonths.toStringAsFixed(1)} 个月', style: theme.textTheme.labelSmall?.copyWith(color: primary.withValues(alpha: 0.85))),
+          ]),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );

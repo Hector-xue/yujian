@@ -22,10 +22,10 @@ class _WidgetKind {
 }
 
 const _kinds = [
-  _WidgetKind('summary', '本月', 4, 2, '本月支出、收入、余额，一键记一笔'),
-  _WidgetKind('calendar', '日历', 4, 4, '月历：每天的支出 / 收入 + 本月收支 + 记一笔'),
-  _WidgetKind('large', '今日', 2, 2, '今日支出 + 本月 + 记一笔'),
-  _WidgetKind('compact', '余额', 2, 1, '余额 + 记一笔'),
+  _WidgetKind('summary', '本月', 4, 2, '本月支出、收入、余额 + 财富称号，一键记一笔'),
+  _WidgetKind('calendar', '日历', 4, 4, '月历：每天的支出 / 收入 + 本月收支 + 称号 + 记一笔'),
+  _WidgetKind('large', '今日', 2, 2, '今日支出 + 称号 + 本月 + 记一笔'),
+  _WidgetKind('compact', '余额', 2, 1, '余额 + 称号 + 记一笔'),
   _WidgetKind('mini', '记一笔', 1, 1, '一个记一笔按钮，点开直接进对话'),
 ];
 
