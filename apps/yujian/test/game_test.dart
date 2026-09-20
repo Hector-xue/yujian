@@ -154,6 +154,9 @@ void main() {
       await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const WealthPage())));
       await tester.pumpAndSettle();
       expect(find.text('等级'), findsOneWidget);
+      // 下面的在 800×600 测试屏的折叠线下，ListView 不会提前建：滚到底再找
+      await tester.scrollUntilVisible(find.text('财富游戏'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
       expect(find.text('财富游戏'), findsOneWidget);
       expect(find.text('第一个目标'), findsOneWidget); // 成就已解锁的 chip
 
