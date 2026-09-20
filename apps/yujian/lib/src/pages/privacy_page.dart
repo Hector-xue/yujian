@@ -122,7 +122,7 @@ class PrivacyPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            Text('余见没有自己的服务器接收数据；唯一的出口是你自己填的模型 / 语音服务，每一次都进出网记录。源码开源可查。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+            Text('余见没有自己的服务器接收数据；唯一的出口是你自己填的模型 / 语音服务，每一次都进出网记录。源码按 AGPL-3.0 授权，可逐行查。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
           ],
         ),
       ),

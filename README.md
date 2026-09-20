@@ -106,4 +106,4 @@ Claude Desktop / ivyea-agent 等把它配成 stdio server 即可。工具只有�
 
 ## 许可证
 
-MIT
+AGPL-3.0（见 [LICENSE](LICENSE)）。修改后对外提供服务（含网络服务）须以同一协议公开源码。

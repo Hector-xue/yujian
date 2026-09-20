@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../version.dart';
 
-/// 源码地址：隐私声明里「开源可查」指的就是它。
+/// 源码地址：隐私声明里「可查」指的就是它（AGPL-3.0；仓库公开后任何人可逐行查）。
 const sourceRepoUrl = 'https://github.com/Hector-xue/yujian';
 
 /// 隐私声明：哪些数据会出手机、哪些永远不会、每个权限要来干什么、我们承诺什么、你怎么核对。
@@ -91,7 +91,7 @@ class PrivacyStatementPage extends StatelessWidget {
           h('我们承诺'),
           li('没有后门，没有隐藏的上报，没有第三方统计 / 广告 SDK。安装包里的第三方库只有开源社区的常见组件（数据库、语音、音频、HTTP）'),
           li('余见不运营任何接收用户数据的服务器。yujian.ivyea.com 只放版本号文件和离线模型包'),
-          li('源码开源（MIT），你或任何懂行的人都可以逐行查、自己编译对比', sub: sourceRepoUrl),
+          li('源码按 AGPL-3.0 授权：任何人拿到源码都可以逐行查、自己编译对比，改了拿去提供服务也必须公开源码', sub: sourceRepoUrl),
           li('出网记录是完整的：所有对外通信都经过同一层记账（失败也记）。没有记录 = 没有发生'),
           h('你怎么核对'),
           li('看「出网记录」：每一条都写了发给谁、发了什么类型的东西、多大'),
