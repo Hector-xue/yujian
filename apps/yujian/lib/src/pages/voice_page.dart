@@ -133,7 +133,7 @@ class _VoicePageState extends State<VoicePage> {
         await _preview.speakWith('system', line, d);
         r = '已交给系统朗读（没声音 = 手机没装语音引擎）';
       default:
-        r = await _preview.speakWith(d.speechEngine, line, d) ? '合成成功，已播放' : '合成失败：${_preview.lastError}';
+        r = await _preview.speakWith(d.speechEngine, line, d, log: AppScope.of(context).netLog) ? '合成成功，已播放' : '合成失败：${_preview.lastError}';
     }
     if (!mounted) return;
     setState(() {
@@ -194,6 +194,11 @@ class _VoicePageState extends State<VoicePage> {
     final body = ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
+          if (s.offlineMode)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text('纯本地模式已开：云端转写和云端朗读都不会用（只用离线语音包 / 手机系统识别 / 系统朗读），配置保留。到「更多 → 隐私」可关掉。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
+            ),
           Text('听你说', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text('按顺序试：${asrInstalled == true ? '离线识别包 → ' : ''}手机系统识别${(s.transcribeModel ?? '').isNotEmpty ? ' → 云端转写' : ''}。国产 ROM 常常没有系统识别，装离线包最省心。', style: muted),

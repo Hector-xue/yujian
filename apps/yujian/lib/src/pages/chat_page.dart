@@ -10,6 +10,7 @@ import 'package:query_dsl/query_dsl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../privacy/net_log.dart';
 import '../theme.dart';
 import '../version.dart';
 import '../voice/chat_files_native.dart' if (dart.library.js_interop) '../voice/chat_files_web.dart';
@@ -208,7 +209,7 @@ class _ChatPageState extends State<ChatPage> {
     if (c == null) {
       setState(() {
         _busy = false;
-        _msgs.add(_TextMsg('${app.replier.template(PersonaEvent.notUnderstood)}\n想让我陪你聊天的话，先在「更多 → 模型与语音」配一个模型。'));
+        _msgs.add(_TextMsg('${app.replier.template(PersonaEvent.notUnderstood)}\n${app.settings.offlineMode ? '现在是纯本地模式，陪聊关着（聊天要把话发给模型）。想聊的话到「更多 → 隐私」关掉纯本地模式。' : '想让我陪你聊天的话，先在「更多 → 模型与语音」配一个模型。'}'));
       });
       _saveHistory();
       _jumpToEnd();
@@ -310,8 +311,11 @@ class _ChatPageState extends State<ChatPage> {
     }
     // 云转写：用用户配的模型端点 + 转写模型名
     final cfg = app.settings.providerConfig;
-    final tm = app.settings.transcribeModel;
-    _voice.transcriber = cfg != null && tm != null && tm.isNotEmpty ? (bytes, name, mime) => transcribeAudio(cfg, bytes, filename: name, mime: mime, model: tm) : null;
+    final tm = app.settings.effectiveTranscribeModel;
+    // 录音出网也要进出网记录（多大的录音、去了哪、成没成）
+    _voice.transcriber = cfg != null && tm != null && tm.isNotEmpty
+        ? (bytes, name, mime) => app.netLog.track(() => transcribeAudio(cfg, bytes, filename: name, mime: mime, model: tm), kind: 'transcribe', purpose: 'asr', host: hostOf(cfg.baseUrl), model: tm, bytes: bytes.length)
+        : null;
     try {
       await _voice.start(
         onPartial: (t) {
@@ -559,14 +563,14 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _say(String text) async {
     if (!_speak || !mounted) return;
     final app = AppScope.of(context);
-    await _tts.speak(text, app.settings, meter: app.usage);
+    await _tts.speak(text, app.settings, meter: app.usage, log: app.netLog);
   }
 
   /// 单条朗读：不看全局开关。
   Future<void> _speakOnce(String text) async {
     if (!mounted) return;
     final app = AppScope.of(context);
-    await _tts.speak(text, app.settings, meter: app.usage);
+    await _tts.speak(text, app.settings, meter: app.usage, log: app.netLog);
   }
 
   Future<void> _toggleSpeak() async {

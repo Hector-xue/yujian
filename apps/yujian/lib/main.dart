@@ -49,6 +49,9 @@ Future<void> screenshotBackground() async {
     if (state.settings.screenshotWanted) {
       await state.ingestScreenshots(await shots.drain());
       await state.pushHomeWidget();
+      // 用量 / 出网记录平时攒 2 秒再写；这里引擎马上就销毁，得立刻落盘，否则后台那几次模型调用就没人知道
+      await state.usage.flush();
+      await state.netLog.flush();
     }
   } catch (e) {
     await shots.log({'what': 'background_error', 'err': '$e'});

@@ -296,6 +296,32 @@ void main() {
     s.status = 200;
   });
 
+  test('MeteredProvider onCall reports every call incl. failures, with purpose and sizes', () async {
+    final calls = <ProviderCall>[];
+    final p = MeteredProvider(OpenAICompatProvider(cfg()), onCall: calls.add, purpose: 'interpret');
+    s.handler = (_) => chatReply('hi');
+    await p.complete(system: 'sys', user: 'hello');
+    expect(calls.single.ok, isTrue);
+    expect(calls.single.purpose, 'interpret');
+    expect(calls.single.kind, 'chat');
+    expect(calls.single.systemChars, 3);
+    expect(calls.single.userChars, 5);
+    expect(calls.single.promptTokens, 10);
+    expect(calls.single.model, 'fake-1');
+    await p.completeWithImages(system: 's', user: 'u', images: [ImageInput(Uint8List(7), 'image/png'), ImageInput(Uint8List(3), 'image/png')]);
+    expect(calls.last.kind, 'vision');
+    expect(calls.last.imageCount, 2);
+    expect(calls.last.imageBytes, 10);
+    s.status = 500;
+    s.handler = (_) => {'error': 'boom'};
+    await expectLater(p.complete(system: 's', user: 'u'), throwsA(isA<ProviderException>()));
+    expect(calls.length, 3); // 失败也记：数据已经发出去了
+    expect(calls.last.ok, isFalse);
+    expect(calls.last.error, isNotEmpty);
+    expect(calls.last.model, 'fake-1'); // 失败时响应没 model，用配置里的
+    s.status = 200;
+  });
+
   test('doubaoSynthesize: new-console key header, resource id, additions as string, NDJSON/SSE chunks joined; error code surfaced', () async {
     final base = 'http://127.0.0.1:${s.server.port}';
     s.textReply = '{"code":20000000,"message":"OK","data":"${base64Encode([1, 2])}"}\ndata: {"code":20000000,"data":"${base64Encode([3])}"}\n{"code":20000003,"message":"done"}\n';

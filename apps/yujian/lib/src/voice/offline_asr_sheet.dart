@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
+import '../privacy/net_log.dart';
 import 'local_asr_native.dart' if (dart.library.js_interop) 'local_asr_web.dart';
 
-/// 下载离线语音包（识别）的对话框：进度条，成功返回 true。
+/// 下载离线语音包（识别）的对话框：进度条，成功返回 true。下载本身进出网记录（只下载不上传）。
 Future<bool> showOfflineAsrDownload(BuildContext context) async {
+  final log = AppScope.maybeOf(context)?.netLog;
+  Future<void> download(void Function(double) onProgress) => log == null
+      ? LocalAsr.download(onProgress)
+      : log.track(() => LocalAsr.download(onProgress), kind: 'download', purpose: 'asr_model', host: hostOf(LocalAsr.baseUrl), bytes: LocalAsr.approxMb * 1024 * 1024);
   final r = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _DownloadDialog(
       title: '离线语音包',
-      desc: '中文离线识别模型（Paraformer，约 ${LocalAsr.approxMb} MB），下载一次，之后说话不联网、不看手机系统脸色。识别在本机跑，录音不上传。',
-      download: LocalAsr.download,
+      desc: '中文离线识别模型（Paraformer，约 ${LocalAsr.approxMb} MB），从 ${hostOf(LocalAsr.baseUrl)} 下载一次，之后说话不联网、不看手机系统脸色。识别在本机跑，录音不上传；下载只拉文件，不带任何数据。',
+      download: download,
     ),
   );
   return r ?? false;
