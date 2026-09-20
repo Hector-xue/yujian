@@ -349,6 +349,7 @@ class AppState extends ChangeNotifier {
         title: m?.level?.title ?? '',
         disposable: m == null ? fmtMoney(balance, 'CNY') : fmtMoney(m.disposableMinor, 'CNY'),
         goals: game.enabled ? jsonEncode(goalRows) : '[]',
+        net: fmtMoney(income - expense, 'CNY'), // 4×2 的第三格「结余」
       );
     } catch (_) {}
   }
