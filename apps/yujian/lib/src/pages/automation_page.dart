@@ -335,7 +335,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                   ? '仅 Android 支持'
                   : screenEnabled == false
                       ? '在微信、支付宝、淘宝、京东、美团等出现「支付成功」页面时读金额和商户。需要在系统「无障碍」里打开「余见 · 支付页识别」'
-                      : '系统已授权。只看支付 / 购物 App，只在支付成功那一刻读一次',
+                      : '系统已授权。只看支付 / 购物 App，只在支付成功那一刻读一次。付完款在「支付成功」页多停两秒再走，识别更稳',
               style: theme.textTheme.bodySmall,
             ),
             value: s.screenWanted,
@@ -353,6 +353,12 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                     _refresh();
                   },
           ),
+          if (supported && s.screenWanted && screenEnabled == true)
+            // 实测：支付成功页立刻划走，页面还没画完 / 截屏 OCR 还没来得及，就漏；停两秒基本稳
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 6),
+              child: Text('小技巧：付完款别急着划走，在「支付成功」页停两秒。页面要画完余见才读得到字，自绘页面（微信）还要截一帧在本机认，太快就漏了。', style: theme.textTheme.bodySmall),
+            ),
           if (supported && s.screenWanted && screenEnabled == false) ...[
             Text('系统设置 → 无障碍 → 已下载的应用（或「更多已下载的服务」）→ 余见 · 支付页识别 → 打开。小米 / HyperOS 点不动或提示「受限制的设置」的话，先到应用信息页右上角 ⋮ →「允许受限设置」，再回来开。', style: theme.textTheme.bodySmall),
             Row(children: [
