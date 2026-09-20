@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'goals_page.dart';
@@ -31,15 +32,26 @@ class GoalDetailPage extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(g.name), actions: [
             if (active) IconButton(tooltip: '编辑', icon: const Icon(Icons.edit_outlined), onPressed: () => showGoalForm(context, edit: g)),
-            PopupMenuButton<String>(
-              onSelected: (v) async {
+            IconButton(
+              tooltip: '更多',
+              icon: const Icon(Icons.more_horiz),
+              onPressed: () async {
                 final nav = Navigator.of(context);
+                final v = await showActionSheet<String>(context, title: g.name, actions: [
+                  if (active) const SheetAction('complete', '标记达成', icon: Icons.check_circle_outline),
+                  if (active) const SheetAction('archive', '归档', icon: Icons.inventory_2_outlined),
+                  if (!active) const SheetAction('reactivate', '重新开始', icon: Icons.replay_outlined),
+                  const SheetAction('delete', '删除', icon: Icons.delete_outline, danger: true),
+                ]);
+                if (v == null || !context.mounted) return;
                 if (v == 'complete') {
                   final ok = await _confirm(context, '标记为已达成？', g.isVirtualVault && p.savedMinor > 0 ? '锁仓里还有 ${fmtMoney(p.savedMinor, g.currency)}，会按存入来源比例释放回「可花的」。' : '目标会移到已完成。');
-                  if (ok) await app.game.complete(g);
+                  if (!ok) return;
+                  await app.game.complete(g);
                 } else if (v == 'archive') {
                   final ok = await _confirm(context, '归档这个目标？', g.isVirtualVault && p.savedMinor > 0 ? '锁仓里的 ${fmtMoney(p.savedMinor, g.currency)} 会释放回来源账户。' : (g.hasVault && !g.isVirtualVault ? '钱还在「${vault?.name ?? ''}」里，只是不再算作锁定。' : '目标会移到已归档。'));
-                  if (ok) await app.game.archive(g);
+                  if (!ok) return;
+                  await app.game.archive(g);
                 } else if (v == 'reactivate') {
                   app.ledger.goals.update(g.id, status: GoalStatus.active);
                   app.touch();
@@ -61,12 +73,6 @@ class GoalDetailPage extends StatelessWidget {
                 }
                 if (nav.canPop()) nav.pop();
               },
-              itemBuilder: (_) => [
-                if (active) const PopupMenuItem(value: 'complete', child: Text('标记达成')),
-                if (active) const PopupMenuItem(value: 'archive', child: Text('归档')),
-                if (!active) const PopupMenuItem(value: 'reactivate', child: Text('重新开始')),
-                const PopupMenuItem(value: 'delete', child: Text('删除')),
-              ],
             ),
           ]),
           body: ListView(

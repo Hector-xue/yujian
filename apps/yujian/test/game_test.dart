@@ -256,7 +256,7 @@ void main() {
       expect(state.ledger.balance('wechat').minor, 700000);
       await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: GoalDetailPage(goalId: g.id))));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.tap(find.byIcon(Icons.more_horiz));
       await tester.pumpAndSettle();
       await tester.tap(find.text('删除'));
       await tester.pumpAndSettle();
