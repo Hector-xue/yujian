@@ -115,6 +115,29 @@ class Ledger implements ValidationContext {
     });
   }
 
+  /// 这个账户有几条 posting（含作废交易的）——有就不能删，只能归档。
+  int accountPostingCount(String id) => _db.select('SELECT COUNT(*) AS n FROM postings WHERE account_id = ?', [id]).first['n'] as int;
+
+  /// 删账户：只允许删「没有任何交易记录」的账户（有记录就删不了——历史对不上，用 [archiveAccount]）。
+  /// 目标 / 周期项还引用着它也拒绝（调用方先清引用，见 Debts.remove）；记忆里的默认账户和发薪账户会自动清掉。
+  void deleteAccount(String id) {
+    final a = getAccount(id);
+    final n = accountPostingCount(id);
+    if (n > 0) throw InvalidStateException('account has $n postings; archive it instead');
+    final refs = <String>[];
+    if ((_db.select('SELECT COUNT(*) AS n FROM goals WHERE vault_account_id = ? OR linked_account_id = ?', [id, id]).first['n'] as int) > 0) refs.add('goals');
+    if ((_db.select("SELECT COUNT(*) AS n FROM recurring WHERE template LIKE '%' || ? || '%'", [id]).first['n'] as int) > 0) refs.add('recurring');
+    if ((_db.select("SELECT COUNT(*) AS n FROM drafts WHERE status = 'pending' AND payload LIKE '%' || ? || '%'", [id]).first['n'] as int) > 0) refs.add('drafts');
+    if (refs.isNotEmpty) throw InvalidStateException('account in use by ${refs.join(', ')}');
+    _db.transaction(() {
+      _db.execute('UPDATE memory_map SET account_id = NULL WHERE account_id = ?', [id]);
+      if (profile.salaryAccountId == id) profile.salaryAccountId = null;
+      _db.execute('DELETE FROM accounts WHERE id = ?', [id]);
+      _audit(Actor.user, 'account.delete', 'account', id, before: a.toJson(), confirmed: true);
+      changes.record('account', id, null, deleted: true);
+    });
+  }
+
   /// 改账户。币种只有在没有任何 posting 时才能改（否则历史交易币种对不上）。
   Account updateAccount(String id, {String? name, AccountType? type, String? currency, int? initialBalanceMinor, String? institution, String? icon, int? sortOrder}) {
     final before = getAccount(id);
@@ -716,7 +739,21 @@ class Ledger implements ValidationContext {
       final ts = _nowMs();
       switch (c.entity) {
         case 'account':
-          if (c.deleted) break; // 账户不删只归档
+          if (c.deleted) {
+            // 对方删了：本机没有它的交易 / 目标 / 周期项就跟着删；有（对方没同步到的记录）就退成归档，历史不丢
+            if (account(c.entityId) == null) break;
+            final inUse = accountPostingCount(c.entityId) > 0 ||
+                (_db.select('SELECT COUNT(*) AS n FROM goals WHERE vault_account_id = ? OR linked_account_id = ?', [c.entityId, c.entityId]).first['n'] as int) > 0 ||
+                (_db.select("SELECT COUNT(*) AS n FROM recurring WHERE template LIKE '%' || ? || '%'", [c.entityId]).first['n'] as int) > 0;
+            if (inUse) {
+              _db.execute('UPDATE accounts SET is_archived = 1, updated_at = ? WHERE id = ?', [ts, c.entityId]);
+            } else {
+              _db.execute('UPDATE memory_map SET account_id = NULL WHERE account_id = ?', [c.entityId]);
+              if (profile.salaryAccountId == c.entityId) profile.salaryAccountId = null;
+              _db.execute('DELETE FROM accounts WHERE id = ?', [c.entityId]);
+            }
+            break;
+          }
           _db.execute(
             'INSERT OR REPLACE INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM accounts WHERE id = ?),?),?)',
             [p['id'], p['name'], p['type'], p['currency'], p['initial_balance_minor'] ?? 0, p['institution'], p['icon'], p['is_archived'] == true ? 1 : 0, p['sort_order'] ?? 0, p['id'], ts, ts],

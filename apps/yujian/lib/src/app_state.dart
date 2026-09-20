@@ -995,6 +995,19 @@ class AppState extends ChangeNotifier {
     return r;
   }
 
+  /// 删一笔负债：还款提醒 + 还清目标一起删；账户没还款记录就真删，有就归档（见 Debts.remove）。
+  DebtRemoval removeDebt(String accountId) {
+    final r = ledger.debts.remove(accountId);
+    notifyListeners();
+    return r;
+  }
+
+  /// 删账户（只允许没有任何交易记录的）。
+  void deleteAccount(String id) {
+    ledger.deleteAccount(id);
+    notifyListeners();
+  }
+
   Category addCategory({required String name, required CategoryKind kind, String? parentId}) {
     final c = ledger.createCategory(name: name, kind: kind, parentId: parentId);
     notifyListeners();

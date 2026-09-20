@@ -76,7 +76,7 @@ class HomePage extends StatelessWidget {
             const SizedBox(height: 4),
             GlassCard(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Column(children: [for (final a in alerts) BudgetBar(status: a)]),
               ),
             ),

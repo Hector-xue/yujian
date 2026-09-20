@@ -23,7 +23,7 @@ class BudgetsPage extends StatelessWidget {
               children: [
                 GlassCard(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Column(children: [for (final s in statuses) BudgetBar(status: s, onLongPress: () => _delete(context, s.budget))]),
                   ),
                 ),
@@ -117,10 +117,11 @@ class BudgetBar extends StatelessWidget {
     final s = status;
     final y = YujianColors.of(context);
     final color = s.exceeded ? y.danger : (s.overAlert ? y.warning : theme.colorScheme.primary);
+    // 内边距在 InkWell 里面：按压高亮撑满卡片、由 GlassCard 的圆角裁掉；放在外面就是卡片中间一块长方形
     return InkWell(
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

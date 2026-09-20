@@ -288,6 +288,14 @@ class GoalStore {
     return after;
   }
 
+  /// 真删一个目标（不是归档）。锁仓账户不动——里面可能还有钱，归档那条路才处理释放。
+  void delete(String id) {
+    final g = get(id);
+    _db.execute('DELETE FROM goals WHERE id = ?', [id]);
+    ledger.auditGoal('goal.delete', id, before: g.toJson());
+    _changes?.record('goal', id, null, deleted: true);
+  }
+
   /// 换锁仓：[vaultAccountId] 为 null = 改回虚拟锁仓（没有就建一个）。不动钱，调用方自己处理释放 / 转入。
   Goal setVault(String id, String? vaultAccountId) {
     final g = get(id);

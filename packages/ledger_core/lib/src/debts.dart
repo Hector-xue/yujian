@@ -1,3 +1,4 @@
+import 'errors.dart';
 import 'goals.dart';
 import 'ledger.dart';
 import 'models/account.dart';
@@ -52,6 +53,15 @@ class DebtTotals {
 
   /// 按现在的还款额，贷款还要几个月还清；没设还款 = null。
   int? get monthsLeft => monthlyMinor <= 0 || loanMinor <= 0 ? (loanMinor <= 0 ? 0 : null) : (loanMinor / monthlyMinor).ceil();
+}
+
+/// 删一笔负债的结果：账户是真删了（没有还款记录）还是退成归档（有记录，历史不能丢）。
+class DebtRemoval {
+  final bool accountDeleted;
+  final int postingCount; // 这个账户上的交易记录数；> 0 时账户只归档
+  final int repaymentsRemoved;
+  final int goalsRemoved;
+  const DebtRemoval({required this.accountDeleted, required this.postingCount, required this.repaymentsRemoved, required this.goalsRemoved});
 }
 
 /// 建好的三件：负债账户、每月还款的周期转账（没填每月还款就没有）、还清目标。
@@ -138,6 +148,36 @@ class Debts {
       firstDue: _nextDay(today, day.clamp(1, 28)),
       reminderDaysBefore: 3,
     );
+  }
+
+  /// 删一笔负债：还款的周期转账（活着的、停掉的都算）和还清目标一起删；账户没有任何交易记录就真删，
+  /// 有还款记录就归档（历史交易还指着它，删了对不上），账户页「已归档」里能恢复。
+  DebtRemoval remove(String accountId) {
+    final a = ledger.getAccount(accountId);
+    if (!isLiability(a.type)) throw InvalidStateException('not a liability account');
+    return ledger.database.transaction(() {
+      var reps = 0;
+      for (final r in ledger.recurring.list(activeOnly: false)) {
+        if (r.template['to_account_id'] == accountId && r.template['type'] == 'transfer') {
+          ledger.recurring.delete(r.id);
+          reps++;
+        }
+      }
+      var goals = 0;
+      for (final g in ledger.goals.list(activeOnly: false)) {
+        if (g.kind == GoalKind.payoff && g.linkedAccountId == accountId) {
+          ledger.goals.delete(g.id);
+          goals++;
+        }
+      }
+      final n = ledger.accountPostingCount(accountId);
+      if (n > 0) {
+        if (!a.isArchived) ledger.archiveAccount(accountId);
+      } else {
+        ledger.deleteAccount(accountId);
+      }
+      return DebtRemoval(accountDeleted: n == 0, postingCount: n, repaymentsRemoved: reps, goalsRemoved: goals);
+    });
   }
 
   /// 全部负债账户（信用卡 + 应付），按还剩多少倒序；还清了的排最后。

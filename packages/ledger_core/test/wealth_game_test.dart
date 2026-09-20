@@ -274,6 +274,74 @@ void main() {
       expect(ledger.recurring.list().firstWhere((r) => r.template['to_account_id'] == setup.account.id).nextDue, '2026-10-12');
     });
 
+    test('删负债：没还过款 → 账户 / 还款提醒（含停掉的）/ 还清目标全真删；还过款 → 账户归档保历史、另外两件删；发薪账户和记忆里的引用清掉', () {
+      // 没还过款的：真删
+      final s1 = ledger.debts.add(name: '网贷', kind: DebtKind.online, owedMinor: 500000, monthlyMinor: 100000, day: 5, fromAccountId: 'bank', today: '2026-09-20');
+      ledger.debts.setRepayment(s1.account.id, monthlyMinor: 120000, day: 6, fromAccountId: 'bank', today: '2026-09-20'); // 旧的那条停掉，不是删
+      expect(ledger.recurring.list(activeOnly: false).where((r) => r.template['to_account_id'] == s1.account.id).length, 2);
+      ledger.profile.salaryAccountId = s1.account.id;
+      var r = ledger.debts.remove(s1.account.id);
+      expect(r.accountDeleted, isTrue);
+      expect(r.postingCount, 0);
+      expect(r.repaymentsRemoved, 2);
+      expect(r.goalsRemoved, 1);
+      expect(ledger.account(s1.account.id), isNull);
+      expect(ledger.recurring.list(activeOnly: false).where((r) => r.template['to_account_id'] == s1.account.id), isEmpty);
+      expect(ledger.goals.find(s1.goal.id), isNull);
+      expect(ledger.profile.salaryAccountId, isNull);
+      expect(ledger.debts.list().where((d) => d.account.id == s1.account.id), isEmpty);
+      // 变更日志里是三条 deleted，另一台设备同步后一样没了
+      final deleted = ledger.changes.pending().where((c) => c.deleted).map((c) => c.entity).toList();
+      expect(deleted, containsAll(['account', 'recurring', 'goal']));
+
+      // 还过一期的：账户只归档
+      final s2 = ledger.debts.add(name: '车贷', kind: DebtKind.car, owedMinor: 6000000, monthlyMinor: 300000, day: 15, fromAccountId: 'bank', today: '2026-09-20');
+      add({'type': 'transfer', 'amount_minor': 300000, 'currency': 'CNY', 'account_id': 'bank', 'to_account_id': s2.account.id, 'occurred_at': '2026-09-15T09:00:00+08:00'});
+      expect(() => ledger.deleteAccount(s2.account.id), throwsA(isA<InvalidStateException>()));
+      r = ledger.debts.remove(s2.account.id);
+      expect(r.accountDeleted, isFalse);
+      expect(r.postingCount, 1); // 转账两条 posting，落在这个账户上的一条
+      expect(ledger.account(s2.account.id)!.isArchived, isTrue);
+      expect(ledger.goals.find(s2.goal.id), isNull);
+      expect(ledger.recurring.list(activeOnly: false).where((r) => r.template['to_account_id'] == s2.account.id), isEmpty);
+      expect(ledger.debts.list().where((d) => d.account.id == s2.account.id), isEmpty); // 负债页不再列
+      expect(ledger.listTransactions(accountId: s2.account.id, limit: 10).length, 1); // 还款流水没被动
+      // 不是负债账户不让走这条路
+      expect(() => ledger.debts.remove('bank'), throwsA(isA<InvalidStateException>()));
+      // 目标 / 周期项还引用着的账户不能删（先清引用）
+      final s3 = ledger.debts.add(name: '借款', kind: DebtKind.loan, owedMinor: 100000, monthlyMinor: 50000, day: 1, fromAccountId: 'bank', today: '2026-09-20');
+      expect(() => ledger.deleteAccount(s3.account.id), throwsA(predicate((e) => e is InvalidStateException && '$e'.contains('goals'))));
+    });
+
+    test('同步：对方删了账户，本机没它的记录就跟着删，有记录就退成归档', () {
+      final l2 = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+      final s = ledger.debts.add(name: '网贷', kind: DebtKind.online, owedMinor: 500000, today: '2026-09-20');
+      final pushed = ledger.changes.pending();
+      for (final c in pushed) {
+        l2.applyRemoteChange(c, fromDevice: 'dev1');
+      }
+      ledger.changes.markPushed(pushed.map((c) => c.seq));
+      expect(l2.account(s.account.id), isNotNull);
+      // l2 上对它记了一笔还款（还没同步回去），dev1 那边把负债删了
+      l2.createAccount(id: 'bank2', name: '卡', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 100000);
+      final d = l2.propose([DraftInput(payload: {'type': 'transfer', 'amount_minor': 10000, 'currency': 'CNY', 'account_id': 'bank2', 'to_account_id': s.account.id, 'occurred_at': '2026-09-21T09:00:00+08:00'})], source: Source.manual, actor: Actor.user).single;
+      l2.commit(d.id);
+      // 干净的第三台先拿到建账那批
+      final l3 = Ledger(openLedgerDatabaseInMemory())..seedDefaultCategories();
+      for (final c in pushed) {
+        l3.applyRemoteChange(c, fromDevice: 'dev1');
+      }
+      ledger.debts.remove(s.account.id);
+      for (final c in ledger.changes.pending()) {
+        expect(l2.applyRemoteChange(c, fromDevice: 'dev1'), 'applied');
+        expect(l3.applyRemoteChange(c, fromDevice: 'dev1'), 'applied');
+      }
+      expect(l2.account(s.account.id)!.isArchived, isTrue); // 有记录：归档
+      expect(l2.goals.find(s.goal.id), isNull);
+      expect(l3.account(s.account.id), isNull); // 没记录：真删
+      expect(l3.goals.find(s.goal.id), isNull);
+    });
+
     test('每档等级都有称号；最穷是贫困户，每档不重名，档位边界落在高一档', () {
       expect(WealthLevel.of(0).title, '贫困户');
       expect(WealthLevel.of(0.49).title, '贫困户');

@@ -80,7 +80,8 @@ class DebtsPage extends StatelessWidget {
                     ],
                   ]),
                 ),
-                const SizedBox(height: 10),
+                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点一笔设每月还款，长按一笔删除。', style: theme.textTheme.bodySmall)),
+                const SizedBox(height: 2),
                 Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔'))),
               ],
               const SizedBox(height: 18),
@@ -145,6 +146,7 @@ class _DebtRow extends StatelessWidget {
                 : '每月 ${fmtMoney(d.monthlyMinor, 'CNY')} · ${int.parse(d.repayment!.nextDue.substring(8, 10))} 号';
     return InkWell(
       onTap: d.isCard ? null : () => _showRepaymentSheet(context, app, d),
+      onLongPress: () => _confirmRemove(context, app, d),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -174,6 +176,32 @@ class _DebtRow extends StatelessWidget {
         ]),
       ),
     );
+  }
+
+  /// 删这笔负债。没还过款：账户 / 还款提醒 / 还清目标全删；还过款：账户归档保历史（账户页「已归档」能恢复），另外两件删。
+  Future<void> _confirmRemove(BuildContext context, AppState app, DebtSummary d) async {
+    final n = app.ledger.accountPostingCount(d.account.id);
+    final name = d.account.name;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dlg) => AlertDialog(
+        title: Text('删除「$name」？'),
+        content: Text(n == 0
+            ? '账户、每月还款提醒和还清目标一起删掉，没有记录会丢。'
+            : '它已有 $n 条${d.isCard ? '交易' : '还款'}记录，账户会归档保留历史（账户页「已归档」里能恢复）；每月还款提醒和还清目标删掉，负债页不再显示。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(n == 0 ? '删除' : '归档并删除')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      final r = app.removeDebt(d.account.id);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.accountDeleted ? '已删除「$name」' : '「$name」已归档，还款提醒和还清目标已删')));
+    } on Exception catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   /// 设 / 改每月还款：金额、几号、从哪个账户扣。
