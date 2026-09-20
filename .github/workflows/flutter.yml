@@ -33,12 +33,17 @@ jobs:
           echo "sqlite3 $ver"
           curl -sSfL -o web/sqlite3.wasm "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
       - run: flutter build web --release --base-href /
+      # 产物只是走查用的，留 3 天；仓库 Actions 存储配额有限（曾因 200 多份 130MB 的 debug apk 撞满配额把 CI 判失败），上传失败不算 CI 失败
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: web
           path: apps/yujian/build/web
+          retention-days: 3
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: apk-debug
           path: apps/yujian/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 3
