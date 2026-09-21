@@ -33,6 +33,17 @@ class GameLayer extends ChangeNotifier {
   List<TaskTemplate> candidates = const [];
   bool candidatesFromModel = false;
 
+  /// 本周被用户划掉的候选（按 [candidateKey] 记），落 SharedPreferences；换周自动清空。
+  /// 候选本身不落库（每次打开按上周账本现算），不记这份的话划掉的下次打开又冒出来。
+  Set<String> _dismissedCandidates = const {};
+  static const _dismissedKey = 'task_candidates_dismissed';
+
+  /// 候选的身份：类型 + 参数（键排序后的 JSON）。同一周里同一个模板算出来的参数是一样的，模型提的也按内容认。
+  static String candidateKey(TaskTemplate t) {
+    final keys = t.params.keys.toList()..sort();
+    return '${t.kind.name}|${jsonEncode({for (final k in keys) k: t.params[k]})}';
+  }
+
   /// 缓存按需重算：账本变了只打个脏标记，谁先读谁触发这一次计算（一次变化只算一次，不在每次 build 里算）。
   WealthMetrics? get metrics {
     _ensure();
@@ -377,8 +388,9 @@ class GameLayer extends ChangeNotifier {
     // 本周候选
     try {
       final p = await SharedPreferences.getInstance();
+      _loadDismissed(p, week);
       if (p.getString('task_candidates_week') != week && ledger.tasks.list(week: week).isEmpty) {
-        candidates = ledger.tasks.templates(today: today);
+        candidates = _withoutDismissed(ledger.tasks.templates(today: today));
         candidatesFromModel = false;
         await p.setString('task_candidates_week', week);
         if (rituals['weekly'] == true && enabled && candidates.isNotEmpty) {
@@ -386,7 +398,7 @@ class GameLayer extends ChangeNotifier {
         }
         unawaited(refineCandidatesWithModel());
       } else if (candidates.isEmpty && ledger.tasks.list(week: week).isEmpty) {
-        candidates = ledger.tasks.templates(today: today);
+        candidates = _withoutDismissed(ledger.tasks.templates(today: today));
       }
     } catch (_) {}
     await recompute();
@@ -428,8 +440,11 @@ class GameLayer extends ChangeNotifier {
             extra.add(TaskTemplate(kind: TaskKind.deposit, params: {'goal_id': gid, 'min_minor': ((t['min'] as num?) ?? 0).round() * 100}, title: title));
         }
       }
-      if (extra.isNotEmpty) {
-        candidates = [...candidates, ...extra.take(3)];
+      // 划掉过的不再提；和模板撞车的（模型也提「外卖不超过 3 次」）不重复列，列表里的 key 也是 Dismissible 的 key，重了会炸
+      final have = candidates.map(candidateKey).toSet();
+      final fresh = _withoutDismissed(extra).where((c) => have.add(candidateKey(c))).toList();
+      if (fresh.isNotEmpty) {
+        candidates = [...candidates, ...fresh.take(3)];
         candidatesFromModel = true;
         notifyListeners();
       }
@@ -438,11 +453,48 @@ class GameLayer extends ChangeNotifier {
     }
   }
 
-  Future<WeeklyTask> acceptCandidate(TaskTemplate t, {String? rewardGoalId, int rewardMinor = 0, String source = 'template'}) async {
+  /// 把候选（或用户改过数字的候选 [t]，原候选传 [replacing]）加入本周。原候选一并从列表拿掉并记成划掉——
+  /// 不记的话下次打开候选重算，「外卖不超过 3 次」改成 2 次加进本周后，3 次那条又会冒出来。
+  Future<WeeklyTask> acceptCandidate(TaskTemplate t, {TaskTemplate? replacing, String? rewardGoalId, int rewardMinor = 0, String source = 'template'}) async {
     final task = ledger.tasks.create(week: thisWeek, kind: t.kind, params: t.params, title: t.title, rewardGoalId: rewardGoalId, rewardMinor: rewardMinor, source: source);
-    candidates = candidates.where((c) => c != t).toList();
+    final gone = {candidateKey(t), if (replacing != null) candidateKey(replacing)};
+    candidates = candidates.where((c) => c != t && c != replacing).toList();
+    await _rememberDismissed(gone);
     app.touch();
     return task;
+  }
+
+  /// 用户划掉一个候选：本周不再出现（换周重算）。
+  Future<void> dismissCandidate(TaskTemplate t) async {
+    candidates = candidates.where((c) => c != t).toList();
+    notifyListeners(); // 先把它从列表拿掉再落盘：Dismissible 划完下一帧就得不在树里
+    await _rememberDismissed({candidateKey(t)});
+  }
+
+  List<TaskTemplate> _withoutDismissed(List<TaskTemplate> list) => list.where((c) => !_dismissedCandidates.contains(candidateKey(c))).toList();
+
+  void _loadDismissed(SharedPreferences p, String week) {
+    try {
+      final raw = p.getString(_dismissedKey);
+      if (raw == null) {
+        _dismissedCandidates = const {};
+        return;
+      }
+      final j = (jsonDecode(raw) as Map).cast<String, Object?>();
+      _dismissedCandidates = j['week'] == week ? ((j['keys'] as List?) ?? const []).map((k) => '$k').toSet() : const {};
+    } catch (_) {
+      _dismissedCandidates = const {};
+    }
+  }
+
+  Future<void> _rememberDismissed(Set<String> keys) async {
+    _dismissedCandidates = {..._dismissedCandidates, ...keys};
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_dismissedKey, jsonEncode({'week': thisWeek, 'keys': _dismissedCandidates.toList()}));
+    } catch (_) {
+      // 记不下就只是这次会话里不再出现
+    }
   }
 
   Future<void> removeTask(String id) async {
