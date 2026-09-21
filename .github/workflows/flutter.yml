@@ -23,10 +23,17 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      # runner 盘只有 ~14G 空余：llamadart 的原生包（每个 ABI 解压 + 拷进 APK）加上 web / apk 两个产物会撞满。先把用不到的预装件清掉（.NET / Haskell / CodeQL / boost，约 20G）
+      - name: free disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY/CodeQL" /usr/local/lib/node_modules || true
+          df -h / | tail -1
       - run: ../../scripts/check_version.sh
       - run: flutter pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
+      - run: df -h / | tail -1
       - name: sqlite3.wasm for web
         run: |
           ver=$(awk '/^  sqlite3:$/{f=1} f&&/^    version:/{gsub(/[" ]/,"",$2); print $2; exit}' pubspec.lock)
@@ -40,7 +47,7 @@ jobs:
           name: web
           path: apps/yujian/build/web
           retention-days: 3
-      - run: flutter build apk --debug
+      - run: rm -rf build/web && flutter build apk --debug && df -h / | tail -1
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
