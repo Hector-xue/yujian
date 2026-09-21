@@ -61,9 +61,10 @@ jobs:
         if: github.head_ref == 'spike/local-model'
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }} # PR 事件里 GITHUB_SHA 是临时合并提交，tag 不能指它
         run: |
           cp build/app/outputs/flutter-apk/app-debug.apk yujian-spike-local-model-debug.apk
           gh release delete spike-local-model --cleanup-tag --yes -R "$GITHUB_REPOSITORY" || true
-          gh release create spike-local-model yujian-spike-local-model-debug.apk --prerelease --target "$GITHUB_SHA" -R "$GITHUB_REPOSITORY" \
+          gh release create spike-local-model yujian-spike-local-model-debug.apk --prerelease --target "$HEAD_SHA" -R "$GITHUB_REPOSITORY" \
             --title "本地模型打样 debug APK（不是正式版）" \
-            --notes "spike/local-model 的 debug 包，只为真机跑「更多 → AI → 本地模型（打样）」拿数字。commit ${GITHUB_SHA::7}" 
+            --notes "spike/local-model 的 debug 包，只为真机跑「更多 → AI → 本地模型（打样）」拿数字。commit ${HEAD_SHA::7}"
