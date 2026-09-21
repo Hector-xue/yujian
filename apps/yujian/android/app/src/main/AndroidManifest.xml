@@ -154,5 +154,14 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- 「支持余见」：拉起支付宝付款页 / 微信扫一扫（Android 11+ 不声明就查不到、拉不起） -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="alipays"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="weixin"/>
+        </intent>
     </queries>
 </manifest>

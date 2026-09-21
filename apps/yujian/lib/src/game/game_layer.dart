@@ -155,6 +155,8 @@ class GameLayer extends ChangeNotifier {
         pendingMessages.add((text: app.replier.template(PersonaEvent.goalMilestone, n: int.parse(a.key.substring(6)), label: '${a.evidence?['goal'] ?? ''}'), sticker: null, meta: '成就 · ${d.title}'));
       } else if (a.key == 'goal.reached') {
         pendingMessages.add((text: app.replier.template(PersonaEvent.goalReached, label: '${a.evidence?['goal'] ?? ''}'), sticker: '🎉', meta: '成就 · ${d.title}'));
+      } else if (a.key == 'support.yujian') {
+        pendingMessages.add((text: '收到你的一块钱了。谢谢，那条提醒已经永久关掉。', sticker: '🙏', meta: '成就 · ${d.title}'));
       } else {
         pendingMessages.add((text: '${d.title}：${d.description}。', sticker: null, meta: '成就解锁'));
       }

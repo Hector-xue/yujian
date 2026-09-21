@@ -593,6 +593,12 @@ class Ledger implements ValidationContext {
   int countTransactions({TransactionStatus status = TransactionStatus.confirmed}) =>
       _db.select('SELECT COUNT(*) AS n FROM transactions WHERE status = ?', [status.db]).first['n'] as int;
 
+  /// 最早一笔记录的入库时间（毫秒）；空账本 = null。用作「用了多久」的依据：跟着账本走，换机 / 重装恢复后不会归零。
+  int? firstRecordedAtMs() {
+    final r = _db.select('SELECT MIN(created_at) AS t FROM transactions');
+    return r.isEmpty ? null : r.first['t'] as int?;
+  }
+
   Map<String, List<Posting>> _postingsOfAll(List<String> txIds) {
     final out = <String, List<Posting>>{};
     const chunk = 500; // SQLite 绑定变量上限之内
