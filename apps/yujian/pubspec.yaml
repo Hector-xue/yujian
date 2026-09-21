@@ -38,7 +38,7 @@ dependencies:
   sherpa_onnx: ^1.13.8
   flutter_tts: ^4.2.0
   just_audio: ^0.10.6
-  archive: ^3.6.1
+  archive: ^4.0.7 # llamadart 要 4.x；只用到 extractFileToDisk，4.x 签名不变
   http: ^1.2.0
   url_launcher: ^6.3.0
 
