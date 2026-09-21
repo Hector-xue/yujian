@@ -13,6 +13,8 @@ class ProfileStore {
   static const keyRituals = 'rituals'; // {payday:bool, weekly:bool, monthly:bool}
   static const keyCostLine = 'cost_line'; // 收件箱代价行开关
   static const keyMonthlyCost = 'monthly_cost'; // 手填的月支出（分）；没填 = 自动估
+  static const keySupporterSince = 'supporter_since'; // 「支持余见」付过 / 点过「我已支持」的日期（YYYY-MM-DD）；放画像是为了随同步走，换机重装不再问
+  static const keySupportSnoozeUntil = 'support_snooze_until'; // 「支持余见」按下「30 天后再说」的到期日（YYYY-MM-DD）
 
   final LedgerDatabase _db;
   final int Function() _nowMs;
@@ -52,6 +54,14 @@ class ProfileStore {
   }
 
   set monthlyCostMinor(int? v) => set(keyMonthlyCost, v == null || v <= 0 ? null : '$v');
+
+  /// 支持余见的日期；null = 没支持过（或没点过「我已支持」）。
+  String? get supporterSince => getString(keySupporterSince);
+  set supporterSince(String? d) => set(keySupporterSince, d == null || d.isEmpty ? null : d);
+
+  /// 「30 天后再说」到期日；null = 没按过。
+  String? get supportSnoozeUntil => getString(keySupportSnoozeUntil);
+  set supportSnoozeUntil(String? d) => set(keySupportSnoozeUntil, d == null || d.isEmpty ? null : d);
 
   String? get salaryAccountId => getString(keySalaryAccount);
   set salaryAccountId(String? v) => set(keySalaryAccount, v);

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../game/game_layer.dart';
 import '../theme.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 
@@ -39,18 +41,31 @@ class TasksPage extends StatelessWidget {
               if (game.candidates.isNotEmpty) ...[
                 const SizedBox(height: 18),
                 Text('候选', style: theme.textTheme.titleMedium),
-                Text(game.candidatesFromModel ? '按上周账本挑的（后面几个是模型提的，只进候选）。点「＋」加入本周。' : '按上周账本挑的。点「＋」加入本周。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+                Text('${game.candidatesFromModel ? '按上周账本挑的（后面几个是模型提的，只进候选）。' : '按上周账本挑的。'}「＋」加入本周，点一下改数字，左滑不要。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                 const SizedBox(height: 6),
                 GlassCard(
                   child: Column(children: [
                     for (final c in game.candidates)
-                      ListTile(
-                        contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
-                        dense: true,
-                        leading: Icon(_kindIcon(c.kind), size: 20, color: theme.colorScheme.primary),
-                        title: Text(c.title),
-                        subtitle: Text(_kindText(c.kind), style: theme.textTheme.bodySmall),
-                        trailing: IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _accept(context, c)),
+                      Dismissible(
+                        key: ValueKey('candidate-${GameLayer.candidateKey(c)}'),
+                        direction: DismissDirection.endToStart,
+                        onDismissed: (_) => game.dismissCandidate(c),
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          color: y.muted.withValues(alpha: 0.15),
+                          child: Icon(Icons.delete_outline, color: y.muted),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+                          dense: true,
+                          leading: Icon(_kindIcon(c.kind), size: 20, color: theme.colorScheme.primary),
+                          title: Text(c.title),
+                          subtitle: Text(_kindText(c.kind), style: theme.textTheme.bodySmall),
+                          trailing: IconButton(tooltip: '加入本周', icon: const Icon(Icons.add_circle_outline), onPressed: () => _accept(context, c)),
+                          onTap: () => _editCandidate(context, c),
+                          onLongPress: () => _candidateMenu(context, c),
+                        ),
                       ),
                   ]),
                 ),
@@ -95,7 +110,33 @@ class TasksPage extends StatelessWidget {
         TaskKind.deposit => '看往目标的存入',
       };
 
-  Future<void> _accept(BuildContext context, TaskTemplate c) async {
+  /// 长按候选：编辑 / 不要。和别处的「更多」一样走底部动作单。
+  Future<void> _candidateMenu(BuildContext context, TaskTemplate c) async {
+    final game = AppScope.of(context).game;
+    final r = await showActionSheet<String>(context, title: c.title, actions: const [
+      SheetAction('add', '加入本周', icon: Icons.add_circle_outline),
+      SheetAction('edit', '改一下再加入', icon: Icons.edit_outlined),
+      SheetAction('dismiss', '不要这个（本周不再出现）', icon: Icons.delete_outline, danger: true),
+    ]);
+    if (r == null || !context.mounted) return;
+    switch (r) {
+      case 'add':
+        await _accept(context, c);
+      case 'edit':
+        await _editCandidate(context, c);
+      case 'dismiss':
+        await game.dismissCandidate(c);
+    }
+  }
+
+  /// 点候选：把它的类型 / 参数填进「自己写一个」的表单改，改完当新任务加入本周，原候选一并拿掉。
+  Future<void> _editCandidate(BuildContext context, TaskTemplate c) async {
+    final edited = await _composeTask(context, initial: c);
+    if (edited == null || !context.mounted) return;
+    await _accept(context, edited, replacing: c);
+  }
+
+  Future<void> _accept(BuildContext context, TaskTemplate c, {TaskTemplate? replacing}) async {
     final app = AppScope.of(context);
     final goals = app.game.goals.where((p) => p.goal.hasVault && !p.reached).toList();
     String? rewardGoal;
@@ -119,38 +160,61 @@ class TasksPage extends StatelessWidget {
       ),
     );
     if (ok != true) return;
-    await app.game.acceptCandidate(c, rewardGoalId: rewardGoal, rewardMinor: rewardGoal == null ? 0 : ((int.tryParse(reward.text.trim()) ?? 0) * 100), source: app.game.candidatesFromModel ? 'model' : 'template');
+    await app.game.acceptCandidate(c, replacing: replacing, rewardGoalId: rewardGoal, rewardMinor: rewardGoal == null ? 0 : ((int.tryParse(reward.text.trim()) ?? 0) * 100), source: app.game.candidatesFromModel ? 'model' : 'template');
   }
 
   Future<void> _customTask(BuildContext context) async {
+    final r = await _composeTask(context);
+    if (r == null || !context.mounted) return;
+    await _accept(context, r);
+  }
+
+  /// 任务表单：空白（自己写一个）或带 [initial]（改候选）。返回填好的模板；取消 = null。
+  /// 「往目标存」只在有锁仓目标（或就是在改一条存钱候选）时给选，存钱任务判定看的是往 vault 的存入，没锁仓无从判。
+  Future<TaskTemplate?> _composeTask(BuildContext context, {TaskTemplate? initial}) async {
     final app = AppScope.of(context);
     final cats = app.categories.where((c) => c.kind == CategoryKind.expense).toList();
-    var kind = TaskKind.categoryCap;
-    String? cat = cats.first.id;
-    final numCtl = TextEditingController();
-    final kw = TextEditingController();
+    final goals = app.game.goals.where((p) => p.goal.hasVault && !p.reached).map((p) => p.goal).toList();
+    final initGoal = initial?.kind == TaskKind.deposit ? app.ledger.goals.find('${initial!.params['goal_id']}') : null;
+    if (initGoal != null && !goals.any((g) => g.id == initGoal.id)) goals.add(initGoal);
+    final canDeposit = goals.isNotEmpty;
+
+    var kind = initial?.kind ?? TaskKind.categoryCap;
+    if (kind == TaskKind.deposit && !canDeposit) kind = TaskKind.categoryCap;
+    final initCat = initial?.kind == TaskKind.categoryCap ? '${initial!.params['category_id']}' : null;
+    String? cat = cats.any((c) => c.id == initCat) ? initCat : (cats.isEmpty ? null : cats.first.id);
+    String? goalId = initGoal?.id ?? (canDeposit ? goals.first.id : null);
+    final numCtl = TextEditingController(text: _initialNumber(initial));
+    final kw = TextEditingController(text: initial?.kind == TaskKind.countCap ? ((initial!.params['keywords'] as List?) ?? const []).map((k) => '$k').join(', ') : '');
     final r = await showDialog<TaskTemplate>(
       context: context,
       builder: (d) => StatefulBuilder(
         builder: (d, setSt) => AlertDialog(
-          title: const Text('自己写一个任务'),
+          title: Text(initial == null ? '自己写一个任务' : '改一下这个任务'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               PickerField<TaskKind>(
                 value: kind,
                 decoration: const InputDecoration(labelText: '类型'),
-                items: const [
-                  DropdownMenuItem(value: TaskKind.categoryCap, child: Text('某分类本周不超过 N 元')),
-                  DropdownMenuItem(value: TaskKind.countCap, child: Text('某关键词本周不超过 N 次')),
-                  DropdownMenuItem(value: TaskKind.noSpendDays, child: Text('至少 N 个无消费日')),
-                  DropdownMenuItem(value: TaskKind.streakDays, child: Text('每天都记账')),
+                items: [
+                  const DropdownMenuItem(value: TaskKind.categoryCap, child: Text('某分类本周不超过 N 元')),
+                  const DropdownMenuItem(value: TaskKind.countCap, child: Text('某关键词本周不超过 N 次')),
+                  const DropdownMenuItem(value: TaskKind.noSpendDays, child: Text('至少 N 个无消费日')),
+                  const DropdownMenuItem(value: TaskKind.streakDays, child: Text('每天都记账')),
+                  if (canDeposit) const DropdownMenuItem(value: TaskKind.deposit, child: Text('往某个目标存至少 N 元')),
                 ],
                 onChanged: (v) => setSt(() => kind = v ?? kind),
               ),
               const SizedBox(height: 8),
               if (kind == TaskKind.categoryCap) PickerField<String>(value: cat, decoration: const InputDecoration(labelText: '分类'), items: [for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name))], onChanged: (v) => setSt(() => cat = v)),
+              if (kind == TaskKind.deposit) PickerField<String>(value: goalId, decoration: const InputDecoration(labelText: '目标'), items: [for (final g in goals) DropdownMenuItem(value: g.id, child: Text(g.name))], onChanged: (v) => setSt(() => goalId = v)),
               if (kind == TaskKind.countCap) TextField(controller: kw, decoration: const InputDecoration(labelText: '关键词（逗号分开）', hintText: '美团, 饿了么')),
-              if (kind != TaskKind.streakDays) TextField(controller: numCtl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: kind == TaskKind.categoryCap ? '上限（元）' : kind == TaskKind.countCap ? '最多几次' : '至少几天')),
+              if (kind != TaskKind.streakDays)
+                TextField(
+                  controller: numCtl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: switch (kind) { TaskKind.categoryCap => '上限（元）', TaskKind.countCap => '最多几次', TaskKind.deposit => '至少存（元）', _ => '至少几天' }),
+                ),
             ]),
           ),
           actions: [
@@ -173,7 +237,9 @@ class TasksPage extends StatelessWidget {
                   case TaskKind.streakDays:
                     t = const TaskTemplate(kind: TaskKind.streakDays, params: {}, title: '本周每天都记账');
                   case TaskKind.deposit:
-                    return;
+                    final g = goalId == null ? null : goals.where((g) => g.id == goalId).firstOrNull;
+                    if (n <= 0 || g == null) return;
+                    t = TaskTemplate(kind: kind, params: {'goal_id': g.id, 'min_minor': n * 100}, title: '本周往「${g.name}」存 ¥$n');
                 }
                 Navigator.pop(d, t);
               },
@@ -183,8 +249,23 @@ class TasksPage extends StatelessWidget {
         ),
       ),
     );
-    if (r == null || !context.mounted) return;
-    await _accept(context, r);
+    return r;
+  }
+
+  /// 候选参数里的那个数（元 / 次 / 天）填进表单；模板里金额是分。
+  static String _initialNumber(TaskTemplate? t) {
+    if (t == null) return '';
+    final p = t.params;
+    final Object? v = switch (t.kind) {
+      TaskKind.categoryCap => p['cap_minor'],
+      TaskKind.countCap => p['max'],
+      TaskKind.noSpendDays => p['min_days'],
+      TaskKind.deposit => p['min_minor'],
+      TaskKind.streakDays => null,
+    };
+    if (v is! num) return '';
+    final n = (t.kind == TaskKind.categoryCap || t.kind == TaskKind.deposit) ? v ~/ 100 : v.toInt();
+    return n <= 0 ? '' : '$n';
   }
 }
 

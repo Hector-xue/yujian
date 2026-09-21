@@ -5,6 +5,7 @@ import 'package:ledger_core/native.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/main.dart';
 import 'package:yujian/src/app_state.dart';
+import 'package:yujian/src/game/game_layer.dart';
 import 'package:yujian/src/pages/debts_page.dart';
 import 'package:yujian/src/pages/goal_detail_page.dart';
 import 'package:yujian/src/pages/goals_page.dart';
@@ -196,6 +197,65 @@ void main() {
       await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const TasksPage())));
       await tester.pumpAndSettle();
       expect(find.text('周任务'), findsOneWidget);
+    });
+
+    testWidgets('task candidates: swipe away sticks for the week, tap opens the form prefilled and the edited task replaces the candidate', (tester) async {
+      // 上周餐饮 94.5（其中美团 3 次）→ 模板给「本周餐饮不超过 ¥80」+「本周外卖不超过 2 次」+「至少 2 个无消费日」
+      final lastWeek = TaskStore.previousWeek(TaskStore.weekOf(day(0)));
+      String f(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      state.addManual(expense(2800, f(DateTime.parse(lastWeek))));
+      state.addManual(expense(3650, f(DateTime.parse(lastWeek).add(const Duration(days: 2)))));
+      for (var i = 0; i < 3; i++) {
+        state.addManual(expense(1000, f(DateTime.parse(lastWeek).add(Duration(days: 1 + i))), merchant: '美团'));
+      }
+      await state.game.ensureWeek();
+      final game = state.game;
+      final food = game.candidates.firstWhere((c) => c.kind == TaskKind.categoryCap);
+      final noSpend = game.candidates.firstWhere((c) => c.kind == TaskKind.noSpendDays);
+      expect(game.candidates.where((c) => c.kind == TaskKind.countCap), hasLength(1));
+      expect(food.params['cap_minor'], 8000);
+
+      // 划掉「无消费日」：本次不在了，候选重算也不回来（落了 SharedPreferences，按周记）
+      await game.dismissCandidate(noSpend);
+      expect(game.candidates.map(GameLayer.candidateKey), isNot(contains(GameLayer.candidateKey(noSpend))));
+      game.candidates = const [];
+      await game.ensureWeek();
+      expect(game.candidates, isNotEmpty);
+      expect(game.candidates.map(GameLayer.candidateKey), isNot(contains(GameLayer.candidateKey(noSpend))));
+      expect(game.candidates.map(GameLayer.candidateKey), contains(GameLayer.candidateKey(food)));
+
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const TasksPage())));
+      await tester.pumpAndSettle();
+      expect(find.text('本周至少 2 个无消费日'), findsNothing);
+      expect(find.text('本周餐饮不超过 ¥80'), findsOneWidget);
+
+      // 点候选 → 表单带着 80 打开 → 改成 40 → 下一步 → 加入本周
+      await tester.tap(find.text('本周餐饮不超过 ¥80'));
+      await tester.pumpAndSettle();
+      expect(find.text('改一下这个任务'), findsOneWidget);
+      expect(find.widgetWithText(TextField, '80'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, '80'), '40');
+      await tester.tap(find.text('下一步'));
+      await tester.pumpAndSettle();
+      expect(find.text('本周餐饮不超过 ¥40'), findsOneWidget); // 奖励弹窗标题就是改后的任务
+      await tester.tap(find.text('加入本周'));
+      await tester.pumpAndSettle();
+      expect(game.weekTasks.length, 1);
+      expect(game.weekTasks.single.params['cap_minor'], 4000);
+      expect(game.weekTasks.single.title, '本周餐饮不超过 ¥40');
+      // 原候选（80）没了，而且记成划掉：候选重算也不回来
+      expect(game.candidates.map(GameLayer.candidateKey), isNot(contains(GameLayer.candidateKey(food))));
+      expect(find.text('本周餐饮不超过 ¥80'), findsNothing);
+
+      // 剩下「外卖不超过 2 次」：长按 → 动作单 → 不要这个
+      final left = game.candidates.single;
+      expect(left.kind, TaskKind.countCap);
+      await tester.longPress(find.text(left.title));
+      await tester.pumpAndSettle();
+      expect(find.text('不要这个（本周不再出现）'), findsOneWidget);
+      await tester.tap(find.text('不要这个（本周不再出现）'));
+      await tester.pumpAndSettle();
+      expect(game.candidates.map(GameLayer.candidateKey), isNot(contains(GameLayer.candidateKey(left))));
     });
 
     testWidgets('title shows up right after the first salary (no month of waiting); today allowance follows disposable', (tester) async {
