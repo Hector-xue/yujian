@@ -12,6 +12,7 @@ class MainActivity : FlutterActivity() {
         SpeechBridge.register(this, flutterEngine)
         WidgetBridge.register(applicationContext, flutterEngine)
         UpdateBridge.register(applicationContext, flutterEngine)
+        SupportBridge.register(applicationContext, flutterEngine)
         ScreenshotBridge.register(applicationContext, flutterEngine, this)
         ScreenshotWatcher.ensureStarted(applicationContext)
         ShareBridge.handle(this, intent, initial = true)

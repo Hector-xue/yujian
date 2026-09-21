@@ -23,6 +23,7 @@ import 'platform/avatar_files_native.dart' if (dart.library.js_interop) 'platfor
 import 'platform/home_widget_bridge.dart';
 import 'privacy/net_log.dart';
 import 'settings_store.dart';
+import 'support/support_config.dart';
 import 'update/updater.dart';
 import 'usage/usage_meter.dart';
 import 'widgets/fmt.dart';
@@ -198,6 +199,59 @@ class AppState extends ChangeNotifier {
   }
 
   void touch() => notifyListeners();
+
+  // ---------------------------------------------------------------- 支持余见
+
+  /// 点了「支付宝 / 微信」付款按钮的时刻；之后 [SupportConfig.detectWindow] 内识别到一笔 ¥1 支出就算支持过。
+  DateTime? supportPayTappedAt;
+  void noteSupportPayTapped() => supportPayTappedAt = DateTime.now();
+
+  bool get isSupporter => ledger.profile.supporterSince != null;
+
+  /// 这次运行里是怎么记成支持者的（页面上道谢用；重启后为 null，日期本身在画像里）。
+  String? supportMarkedVia;
+
+  /// 更多页顶部那张卡要不要出现：没支持过、不在「30 天后再说」里、且用到一定程度（记满 30 笔或用满 14 天）。
+  bool get supportPromptVisible {
+    if (isSupporter) return false;
+    final snooze = ledger.profile.supportSnoozeUntil;
+    if (snooze != null && snooze.compareTo(_today()) > 0) return false;
+    if (ledger.countTransactions() >= SupportConfig.minTransactions) return true;
+    final first = ledger.firstRecordedAtMs();
+    if (first == null) return false;
+    return DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(first)).inDays >= SupportConfig.minDays;
+  }
+
+  /// 记成支持者：日期落在画像里（随同步走，换机重装不再问）；成就下一轮重算解锁「支持者」并在对话里道谢。
+  /// [via]：manual（点了「我已支持」）/ screen（支付页识别到）/ notification（通知识别到）。
+  void markSupporter({required String via}) {
+    if (isSupporter) return;
+    ledger.profile.supporterSince = _today();
+    ledger.profile.supportSnoozeUntil = null;
+    supportPayTappedAt = null;
+    supportMarkedVia = via;
+    notifyListeners();
+  }
+
+  void snoozeSupport() {
+    final d = DateTime.now().add(const Duration(days: SupportConfig.snoozeDays));
+    ledger.profile.supportSnoozeUntil = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    notifyListeners();
+  }
+
+  /// 通知 / 支付页识别到的一笔：刚点过付款按钮、金额正好是 ¥1 的支出 → 就是那笔支持。
+  /// 只看时间窗 + 金额，不认收款方名字（微信 / 支付宝 / 通知 / 屏幕四条路的文案各不相同，认名字每条都得单独验；
+  /// 点完「支持」十分钟内恰好另付一笔一块钱的概率极低，认错的后果也只是提醒关掉）。
+  void _maybeSupportPayment(NotificationEvent e, Extraction x) {
+    final t = supportPayTappedAt;
+    if (t == null || isSupporter) return;
+    if (DateTime.now().difference(t) > SupportConfig.detectWindow) {
+      supportPayTappedAt = null;
+      return;
+    }
+    if (x.ignored || x.amountMinor != SupportConfig.amountMinor || x.direction == 'income') return;
+    markSupporter(via: e.source == 'screen' ? 'screen' : 'notification');
+  }
 
   /// 周期账单到期 → 草稿进收件箱。启动和新增周期项时调用。
   int generateRecurring() {
@@ -438,6 +492,7 @@ class AppState extends ChangeNotifier {
     var n = 0;
     for (final e in events) {
       final x = matcher.extract(e);
+      _maybeSupportPayment(e, x);
       // 认不出金额/方向的（验证码、聊天消息之类）不进收件箱：那不是账
       if (x.ignored || !x.usable) {
         _remember(e, x);

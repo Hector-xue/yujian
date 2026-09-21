@@ -131,6 +131,7 @@ final achievementDefs = <AchievementDef>[
   AchievementDef(key: 'record.30', group: 'record', title: '一个月', description: '连续 30 天有记录', check: (c) => _streak(c, 30)),
   AchievementDef(key: 'record.100', group: 'record', title: '一百天', description: '连续 100 天有记录', check: (c) => _streak(c, 100)),
   AchievementDef(key: 'record.1000', group: 'record', title: '一千笔', description: '账本满 1000 笔', check: (c) => c.ledger.countTransactions() >= 1000 ? {'count': c.ledger.countTransactions()} : null),
+  AchievementDef(key: 'support.yujian', group: 'record', title: '支持者', description: '给余见付了一块钱', check: (c) => c.ledger.profile.supporterSince == null ? null : {'since': c.ledger.profile.supporterSince}),
 ];
 
 Map<String, Object?>? _streak(AchievementContext c, int days) {

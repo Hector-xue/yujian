@@ -501,6 +501,26 @@ void main() {
       ledger.achievements.upsertRaw({'key': 'goal.p50', 'unlocked_at': 99});
       expect(ledger.achievements.list().firstWhere((a) => a.key == 'goal.p50').unlockedAt, 1);
     });
+
+    test('supporter: profile kv drives the achievement; first record time follows the ledger', () {
+      expect(ledger.firstRecordedAtMs(), isNull);
+      add(income(1000, '2026-09-01', cat: 'investment_income'));
+      expect(ledger.firstRecordedAtMs(), isNotNull);
+      AchievementContext ctx() {
+        final m = Wealth(ledger).compute(today: '2026-09-20');
+        return AchievementContext(ledger: ledger, metrics: m, today: '2026-09-20', goals: const [], settledTasks: const []);
+      }
+
+      expect(ledger.achievements.check(ctx()).map((a) => a.key), isNot(contains('support.yujian')));
+      expect(ledger.profile.supporterSince, isNull);
+      ledger.profile.supportSnoozeUntil = '2026-10-21';
+      expect(ledger.profile.supportSnoozeUntil, '2026-10-21');
+      ledger.profile.supporterSince = '2026-09-21';
+      final got = ledger.achievements.check(ctx()).where((a) => a.key == 'support.yujian').single;
+      expect(got.evidence!['since'], '2026-09-21');
+      ledger.profile.supporterSince = '';
+      expect(ledger.profile.supporterSince, isNull); // 空串当没设
+    });
   });
 
   group('portability + sync', () {

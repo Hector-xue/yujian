@@ -21,6 +21,7 @@ import 'persona_page.dart';
 import 'privacy_page.dart';
 import 'recurring_page.dart';
 import 'stats_page.dart';
+import 'support_page.dart';
 import 'sync_page.dart';
 import 'tasks_page.dart';
 import 'wealth_page.dart';
@@ -78,6 +79,14 @@ class MorePage extends StatelessWidget {
         builder: (context, _) => ListView(
         padding: EdgeInsets.only(top: 4, bottom: 8 + MediaQuery.paddingOf(context).bottom), // 底栏悬浮在页面上，最后一项要留出它的高度
         children: [
+          // 支持余见：用到一定程度才出现；支持过 / 按了「30 天后再说」就不在这儿（「关于」里永远有入口）
+          if (app.supportPromptVisible)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+              child: GlassCard(
+                child: item(Icons.favorite_border, '支持余见 ¥1', subtitle: '一杯白开水的钱，这条提醒永久关掉', onTap: () => go(const SupportPage())),
+              ),
+            ),
           group('目标', [
             item(Icons.flag_outlined, '目标', subtitle: app.game.goals.isEmpty ? '换手机 / 买车 / 首付 / 旅行——给钱一个用途' : app.game.goals.take(2).map((p) => '${p.goal.name} ${(p.ratio * 100).toStringAsFixed(0)}%').join(' · '), onTap: () => go(const GoalsPage())),
             item(Icons.task_alt_outlined, '周任务', subtitle: app.game.weekTasks.isEmpty ? '本周还没挑' : '本周 ${app.game.weekTasks.length} 个', onTap: () => go(const TasksPage())),
@@ -118,6 +127,7 @@ class MorePage extends StatelessWidget {
             item(Icons.history, '审计日志', subtitle: '账本每一次改动', onTap: () => go(const AuditPage())),
           ]),
           group('关于', [
+            item(Icons.favorite_border, '支持余见', subtitle: app.isSupporter ? '已支持 · 谢谢' : '¥1 · 不付也一样用', onTap: () => go(const SupportPage())),
             item(
               Icons.system_update_alt_outlined,
               '检查更新',
@@ -142,7 +152,7 @@ class MorePage extends StatelessWidget {
           ]),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.countTransactions()} 笔记录\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
+            child: SelectableText('余见 $appVersion · 本地账本 · ${app.ledger.countTransactions()} 笔记录${app.isSupporter ? ' · 支持者' : ''}\n${appDatabasePath ?? ''}', style: theme.textTheme.bodySmall),
           ),
         ],
         ),
