@@ -4,7 +4,7 @@ on:
     branches: [main]
     paths: ['apps/yujian/**', 'packages/**', '.github/workflows/flutter.yml']
   pull_request:
-    paths: ['apps/yujian/**', 'packages/**']
+    paths: ['apps/yujian/**', 'packages/**', '.github/workflows/flutter.yml']
   workflow_dispatch:
 jobs:
   app:
