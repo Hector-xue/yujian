@@ -17,6 +17,7 @@ import 'categories_page.dart';
 import 'data_page.dart';
 import 'debts_page.dart';
 import 'goals_page.dart';
+import '../local_model/lab_page.dart';
 import 'persona_page.dart';
 import 'privacy_page.dart';
 import 'recurring_page.dart';
@@ -99,6 +100,7 @@ class MorePage extends StatelessWidget {
           group('AI', [
             item(Icons.tune, '模型与语音', subtitle: '$modelLine · $voiceLine', onTap: () => go(const AiPage())),
             item(Icons.face_outlined, '人格与角色', subtitle: app.persona.name, onTap: () => go(const PersonaPage())),
+            item(Icons.memory_outlined, '本地模型（打样）', subtitle: '下载 Qwen3.5 小模型在手机上跑一遍，看耗时和内存', onTap: () => go(const LocalModelLabPage())),
           ]),
           group('隐私', [
             item(
