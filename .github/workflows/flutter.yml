@@ -9,6 +9,8 @@ on:
 jobs:
   app:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 打样分支把 debug APK 挂到预发布上（Actions 产物配额常年是满的）
     defaults:
       run:
         working-directory: apps/yujian
@@ -54,3 +56,14 @@ jobs:
           name: apk-debug
           path: apps/yujian/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 3
+      # 打样分支：Actions 产物配额撞满时拿不到 APK，改挂到一个预发布上（每次覆盖），真机装这个测
+      - name: spike prerelease
+        if: github.head_ref == 'spike/local-model'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-debug.apk yujian-spike-local-model-debug.apk
+          gh release delete spike-local-model --cleanup-tag --yes -R "$GITHUB_REPOSITORY" || true
+          gh release create spike-local-model yujian-spike-local-model-debug.apk --prerelease --target "$GITHUB_SHA" -R "$GITHUB_REPOSITORY" \
+            --title "本地模型打样 debug APK（不是正式版）" \
+            --notes "spike/local-model 的 debug 包，只为真机跑「更多 → AI → 本地模型（打样）」拿数字。commit ${GITHUB_SHA::7}" 
