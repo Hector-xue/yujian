@@ -35,5 +35,5 @@ class SupportConfig {
 
   // 收款码内容在这里（发版前填；也可在构建时用 --dart-define 覆盖）。
   static const _alipayQr = '';
-  static const _wechatQr = '';
+  static const _wechatQr = 'wxp://f2f03Pb3FgIFbhpbb-FXdFJGRW9QaZ2wZVDfmkTwZLyPnhQ';
 }
