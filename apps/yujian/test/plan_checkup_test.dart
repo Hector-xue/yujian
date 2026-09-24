@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:ledger_core/native.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yujian/src/app_state.dart';
+import 'package:yujian/src/demo/demo_data.dart';
 import 'package:yujian/src/pages/about_page.dart';
 import 'package:yujian/src/pages/calendar_page.dart';
 import 'package:yujian/src/pages/checkup_page.dart';
@@ -112,5 +113,21 @@ void main() {
     await tester.pumpAndSettle();
     final btn = tester.widget<FilledButton>(find.ancestor(of: find.text('发送'), matching: find.byWidgetPredicate((w) => w is FilledButton)));
     expect(btn.onPressed, isNull);
+  });
+
+  test('演示数据：空账本写入一套；卡和花呗都是「已出账、还没到期」；有数据就不再写', () async {
+    await seedDemoData(state);
+    expect(state.ledger.countTransactions(), greaterThan(40));
+    final cards = state.cardStatuses();
+    expect(cards.map((c) => c.account.name).toSet(), {'招行信用卡', '花呗'});
+    for (final c in cards) {
+      expect(c.state, CardBillState.due, reason: c.account.name);
+      expect(c.statementMinor, greaterThan(0), reason: c.account.name);
+    }
+    expect(state.game.goals.length, greaterThanOrEqualTo(2));
+    expect(state.game.metrics!.disposableMinor, lessThanOrEqualTo(state.game.metrics!.cashMinor));
+    final n = state.ledger.countTransactions();
+    await seedDemoData(state);
+    expect(state.ledger.countTransactions(), n);
   });
 }
