@@ -121,8 +121,11 @@ class DebtsPage extends StatelessWidget {
       SheetAction('card', '信用卡', icon: Icons.credit_card),
     ]);
     if (!context.mounted) return;
-    if (v == 'debt') await showAddDebtSheet(context);
-    if (v == 'card') await showCardTermsSheet(context);
+    if (v == 'debt') {
+      await showAddDebtSheet(context);
+    } else if (v == 'card') {
+      await showCardTermsSheet(context);
+    }
   }
 
   static String _monthsLabel(int months) {
