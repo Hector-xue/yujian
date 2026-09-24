@@ -4,6 +4,10 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+# 同一个 tag 重推只跑最后一次（Windows job 按 2 倍计费，一次发版约 50 计费分钟，别重复烧）
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   desktop-linux:
     runs-on: ubuntu-latest

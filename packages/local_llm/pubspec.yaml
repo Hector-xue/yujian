@@ -1,0 +1,15 @@
+name: local_llm
+description: 余见本地模型：Qwen3.5 小模型目录、下载（断点续传 / 校验）、llamadart 推理封装、ChatProvider 适配。
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.10.7
+dependencies:
+  http: ^1.2.0
+  llamadart: ^0.8.24
+  providers:
+    path: ../providers
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

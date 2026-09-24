@@ -23,6 +23,8 @@ dependencies:
     path: ../../packages/notification_templates
   sync_client:
     path: ../../packages/sync_client
+  local_llm:
+    path: ../../packages/local_llm
   sqlite3: ^3.6.0
   sqlite3_flutter_libs: ^0.5.0
   path_provider: ^2.1.0
@@ -36,7 +38,7 @@ dependencies:
   sherpa_onnx: ^1.13.8
   flutter_tts: ^4.2.0
   just_audio: ^0.10.6
-  archive: ^3.6.1
+  archive: ^4.0.7 # llamadart 要 4.x；只用到 extractFileToDisk，4.x 签名不变
   http: ^1.2.0
   url_launcher: ^6.3.0
   qr_flutter: ^4.1.0
@@ -45,6 +47,21 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# llamadart 原生包裁剪：只要 llama.cpp（GGUF），不拉 LiteRT-LM；Android 先只带 CPU（Vulkan 等 L1 再按机型评估）。
+# 不裁的话 CI 一次要拉 3 套运行时 + 各自解压再拷进 APK，runner 磁盘直接爆。
+hooks:
+  user_defines:
+    llamadart:
+      llamadart_native_runtimes: [llama_cpp]
+      llamadart_native_backends:
+        platforms:
+          android-arm64:
+            backends: []
+            cpu_profile: full
+          android-x64: []
+          linux-x64: []
+          windows-x64: []
 
 flutter:
   uses-material-design: true
