@@ -5,6 +5,7 @@ import 'package:query_dsl/query_dsl.dart';
 import '../app_state.dart';
 import '../game/cheer.dart';
 import '../theme.dart';
+import '../widgets/cheer_carousel.dart';
 import '../widgets/credit_card_sheet.dart';
 import '../widgets/fmt.dart';
 import 'automation_page.dart';
@@ -180,7 +181,7 @@ class _BalanceCard extends StatelessWidget {
                   Row(children: [
                     Icon(Icons.account_balance_wallet_outlined, size: 16, color: y.balance),
                     const SizedBox(width: 6),
-                    Text('余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
+                    Text('现金余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
                   ]),
                   const SizedBox(height: 4),
                   _BigMoney(fmtMoney(totalBalance, 'CNY'), color: y.balance),
@@ -237,20 +238,17 @@ class _GameHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
+            // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 所有账户里正的钱（含投资，不扣负债）
             _StatRow(children: [
-              _Stat(label: '余额', value: fmtMoney(m.cashMinor, 'CNY')), // 和「可花的」同一次计算，保证可花的 ≤ 余额
+              _Stat(label: '现金余额', value: fmtMoney(m.cashMinor, 'CNY')),
+              _Stat(label: '总资产', value: fmtMoney(m.assetsMinor, 'CNY')),
               _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
               _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),
-            // 寄语：收入排位（低于三成的不在首页亮出来，财富页里有）+ 一句按处境挑的话
-            if (cheerFor(m) case final c?) ...[
+            // 寄语轮播：收入排位（低于三成的不在首页亮出来，财富页里有）+ 按处境挑的一池话，几秒换一句、点一下换一句
+            if (cheerToneFor(m) != null) ...[
               const SizedBox(height: 10),
-              Text(
-                [if (m.incomeRank != null && m.incomeRank!.percentile >= 0.3) incomeRankLine(m)!, c.line].join(' · '),
-                style: theme.textTheme.bodySmall?.copyWith(color: c.tone == CheerTone.abundant ? y.income : y.muted),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+              CheerCarousel(m: m),
             ],
           ]),
         ),
@@ -447,7 +445,7 @@ class _StatRow extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) const SizedBox(width: 22), children[i]]],
+          children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) SizedBox(width: children.length >= 4 ? 16 : 22), children[i]]], // 四格时间距收一点，少缩字
         ),
       );
 }

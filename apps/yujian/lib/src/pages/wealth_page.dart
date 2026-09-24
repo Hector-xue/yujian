@@ -6,7 +6,9 @@ import '../game/cheer.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import 'checkup_page.dart';
 import 'debts_page.dart';
+import 'repayment_plan_page.dart';
 
 /// 财富页：可花的 / 今天还能花 / 等级（生存月数）/ 储蓄率 / 净资产 / 收入线 / 成就，每个数都写清怎么来的；
 /// 底部是游戏层的设置：发薪日、工资账户、总开关、代价行、三个仪式。
@@ -101,6 +103,13 @@ class WealthPage extends StatelessWidget {
                     ]),
                   ),
                 ),
+                // 体检 / 还款计划的入口：放在等级下面，一眼能点到
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(child: OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CheckupPage())), icon: const Icon(Icons.health_and_safety_outlined, size: 18), label: const Text('资产体检'))),
+                  const SizedBox(width: 10),
+                  Expanded(child: OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RepaymentPlanPage())), icon: const Icon(Icons.event_note_outlined, size: 18), label: const Text('还款计划'))),
+                ]),
                 // 你在哪儿：收入在全国的位置（统计局五等份分组估算）+ 寄语
                 if (cheerFor(m) case final c?) ...[
                   const SizedBox(height: 12),

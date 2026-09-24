@@ -1088,9 +1088,22 @@ class AppState extends ChangeNotifier {
   }
 
   /// 设 / 改一张信用卡的额度、账单日、还款日、利率这些条款。
-  void setCardTerms(String accountId, CardTerms terms) {
-    ledger.cards.setTerms(accountId, terms);
+  /// 设 / 改条款；[name] 不为空就顺便改名（信用卡、花呗这些建好后也能改名字）。
+  void setCardTerms(String accountId, CardTerms terms, {String? name}) {
+    ledger.database.transaction(() {
+      if (name != null && name.trim().isNotEmpty) ledger.cards.rename(accountId, name);
+      ledger.cards.setTerms(accountId, terms);
+    });
     notifyListeners();
+  }
+
+  /// 还款计划（从今天排到第二个发薪日前）。
+  RepaymentPlan repaymentPlan() => RepaymentPlanner(ledger).build(today: _today(), metrics: game.metrics);
+
+  /// 资产体检 + 调优方案。
+  Checkup checkup() {
+    final m = game.metrics;
+    return Checkups(ledger).run(today: _today(), metrics: m, plan: RepaymentPlanner(ledger).build(today: _today(), metrics: m));
   }
 
   /// 删一笔负债：还款提醒 + 还清目标一起删；账户没还款记录就真删，有就归档（见 Debts.remove）。

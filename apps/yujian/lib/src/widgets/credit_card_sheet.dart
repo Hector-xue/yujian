@@ -79,10 +79,10 @@ class _CardDetail extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.paddingOf(context).bottom),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
         Row(children: [
-          const Text('💳', style: TextStyle(fontSize: 20)),
+          Text(s.account.icon ?? s.terms.product.emoji, style: const TextStyle(fontSize: 20)),
           const SizedBox(width: 8),
           Expanded(child: Text(s.account.name, style: theme.textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
-          TextButton(onPressed: () => showCardTermsSheet(context, card: s.account), child: const Text('改条款')),
+          TextButton(onPressed: () => showCardTermsSheet(context, card: s.account), child: const Text('设置')),
         ]),
         const SizedBox(height: 8),
         // 额度
@@ -125,8 +125,11 @@ class _CardDetail extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 [
-                  if (s.lateFeeMinor > 0) '违约金 ${fmtMoney(s.lateFeeMinor, 'CNY')}（最低还款没还够的 ${fmtMoney(s.minPaymentMinor - s.repaidByDueMinor, 'CNY')} × ${_pct(t.lateFeeRate)}）' else '最低还款还够了，不收违约金',
-                  '利息约 ${fmtMoney(s.interestMinor, 'CNY')}（${t.mode == CardInterestMode.full ? '全额计息' : '未还部分计息'}，日${_rate(t.dailyRate)}，算到 ${_md(s.nextStatementDate)} 出账）',
+                  if (s.lateFeeMinor > 0)
+                    '违约金 ${fmtMoney(s.lateFeeMinor, 'CNY')}（${[if (t.lateFeeRate > 0 && s.minPaymentMinor > s.repaidByDueMinor) '最低还款没还够的 ${fmtMoney(s.minPaymentMinor - s.repaidByDueMinor, 'CNY')} × ${_pct(t.lateFeeRate)}', if (t.lateFeeDailyRate > 0) '没还的每天 ${_pct(t.lateFeeDailyRate)}，算到 ${_md(s.nextStatementDate)}'].join(' + ')}）'
+                  else
+                    '不收违约金',
+                  if (s.interestMinor > 0) '利息约 ${fmtMoney(s.interestMinor, 'CNY')}（${cardModeLabel(t.mode)}，日${_rate(t.dailyRate)}${t.overdueMultiplier > 1 ? '、逾期 × ${_num(t.overdueMultiplier)}' : ''}，算到 ${_md(s.nextStatementDate)} 出账）',
                   '尽快还上：越晚利息越多；逾期太久会上征信。',
                 ].join('\n'),
                 style: theme.textTheme.bodySmall,
@@ -138,10 +141,11 @@ class _CardDetail extends StatelessWidget {
           const SizedBox(height: 14),
           Text('如果到期没还清', style: theme.textTheme.bodySmall),
           const SizedBox(height: 4),
-          kv('还清 ${fmtMoney(s.remainingMinor, 'CNY')}', '不花一分钱', color: y.income),
+          // 按天计息（分付）按时还清也有利息，照实写；其余按时还清免息
+          kv('还清 ${fmtMoney(s.remainingMinor, 'CNY')}', t.mode == CardInterestMode.daily ? '利息约 ${fmtMoney(s.interestMinor, 'CNY')}（越早还越少）' : '不花一分钱', color: y.income),
           for (final (label, p) in what)
             kv(label, [if (p.lateFeeMinor > 0) '违约金 ${fmtMoney(p.lateFeeMinor, 'CNY')}', '利息约 ${fmtMoney(p.interestMinor, 'CNY')}'].join(' + '), color: y.danger),
-          Text('利息按每笔消费的记账日起、日${_rate(t.dailyRate)}算到下次出账（${t.mode == CardInterestMode.full ? '全额计息：没还清整笔都计' : '只对没还的部分计'}）。和银行账单有出入以银行为准。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+          Text('${cardModeLabel(t.mode)}：${_cardModeHint(t.mode)}；日${_rate(t.dailyRate)}，算到下次出账。和账单页有出入以账单页为准。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
         ],
         const SizedBox(height: 14),
         Text('还款记成「从银行卡 / 钱包转账到这张卡」，额度马上回来；刷卡记成这张卡的支出。账单日之后刷的算下一期。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
@@ -159,20 +163,56 @@ String _rate(double r) {
   return '万分之$s';
 }
 
-/// 信用卡条款表单：[card] 为 null = 新建一张卡（多一栏名字和「现在欠多少」）。
+/// 计息方式的叫法（表单 / 详情页共用）。
+String cardModeLabel(CardInterestMode m) => switch (m) {
+      CardInterestMode.full => '全额计息',
+      CardInterestMode.unpaid => '未还部分计息',
+      CardInterestMode.afterDue => '到期后才计息',
+      CardInterestMode.daily => '按天计息',
+    };
+
+String _cardModeHint(CardInterestMode m) => switch (m) {
+      CardInterestMode.full => '没还清，整笔账单从每笔消费那天起计息（多数银行信用卡）',
+      CardInterestMode.unpaid => '没还清，只对没还的部分计息（部分国有行）',
+      CardInterestMode.afterDue => '按时还清不收利息；逾期后没还的部分按天计息（花呗、抖音月付、白条）',
+      CardInterestMode.daily => '从用的那天起按天计息，按时还也有利息（微信分付）',
+    };
+
+String _num(double v) => v.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+
+/// 信用卡 / 花呗 / 分付 / 白条 / 抖音月付 的条款表单。[card] 为 null = 新建（先选是哪一类，默认条款跟着换）；
+/// 建好的也能改名字。
 Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
   final app = AppScope.of(context);
   final old = card == null ? null : app.ledger.cards.terms(card.id);
+  var product = old?.product ?? CreditProduct.bank;
+  var base = old ?? product.defaults();
   final name = TextEditingController(text: card?.name ?? '');
   final owed = TextEditingController();
   final limit = TextEditingController(text: old == null ? '' : Money(old.limitMinor, 'CNY').toDecimalString());
-  final rate = TextEditingController(text: ((old?.dailyRate ?? CardTerms.defaultDailyRate) * 10000).toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), ''));
-  final minRatio = TextEditingController(text: ((old?.minPayRatio ?? CardTerms.defaultMinPayRatio) * 100).toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), ''));
-  final feeRate = TextEditingController(text: ((old?.lateFeeRate ?? CardTerms.defaultLateFeeRate) * 100).toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), ''));
-  final feeMin = TextEditingController(text: old == null || old.lateFeeMinMinor == 0 ? '' : Money(old.lateFeeMinMinor, 'CNY').toDecimalString());
-  var statementDay = old?.statementDay ?? 5;
-  var dueDay = old?.dueDay ?? 25;
-  var mode = old?.mode ?? CardInterestMode.full;
+  final rate = TextEditingController();
+  final minRatio = TextEditingController();
+  final feeRate = TextEditingController();
+  final feeMin = TextEditingController();
+  final feeDaily = TextEditingController();
+  final overdueMult = TextEditingController();
+  var statementDay = base.statementDay;
+  var dueDay = base.dueDay;
+  var mode = base.mode;
+  // 把一套条款的数字填进输入框（新建时换产品会整套换掉）
+  void fill(CardTerms t) {
+    rate.text = _num(t.dailyRate * 10000);
+    minRatio.text = _num(t.minPayRatio * 100);
+    feeRate.text = _num(t.lateFeeRate * 100);
+    feeMin.text = t.lateFeeMinMinor == 0 ? '' : Money(t.lateFeeMinMinor, 'CNY').toDecimalString();
+    feeDaily.text = _num(t.lateFeeDailyRate * 100);
+    overdueMult.text = _num(t.overdueMultiplier);
+    statementDay = t.statementDay;
+    dueDay = t.dueDay;
+    mode = t.mode;
+  }
+
+  fill(base);
   final ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -181,24 +221,59 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
         final theme = Theme.of(ctx);
+        final y = YujianColors.of(ctx);
         final days = [for (var i = 1; i <= 28; i++) DropdownMenuItem(value: i, child: Text('$i 号'))];
         return SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.viewInsetsOf(ctx).bottom),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(card == null ? '添加信用卡' : '${card.name} · 条款', style: theme.textTheme.titleMedium),
+            Text(card == null ? '添加信用卡 / 花呗 / 白条' : '${card.name} · 设置', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
-            Text('额度、账单日、还款日在信用卡 App 的「账单」页都能看到；利率这些不改就是国内最常见的那套。', style: theme.textTheme.bodySmall),
+            Text('额度、账单日、还款日在对应 App 的「账单」页都能看到；利率这些默认是各家公开的常见规则，以你自己的账单页为准。', style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             if (card == null) ...[
-              TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '招行信用卡 / 花呗不算这里'), textInputAction: TextInputAction.next),
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                for (final p in CreditProduct.values)
+                  ChoiceChip(
+                    label: Text('${p.emoji} ${p.label}'),
+                    selected: product == p,
+                    onSelected: (_) => setState(() {
+                      product = p;
+                      base = p.defaults();
+                      fill(base);
+                      // 名字还是空的 / 还是某个产品的默认名：跟着换；用户自己改过的不动
+                      if (name.text.trim().isEmpty || CreditProduct.values.any((x) => x.label == name.text.trim())) name.text = p == CreditProduct.bank ? '' : p.label;
+                    }),
+                  ),
+              ]),
               const SizedBox(height: 12),
             ],
-            TextField(controller: limit, autofocus: card != null, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '额度（元）'), textInputAction: TextInputAction.next),
+            TextField(
+              controller: name,
+              decoration: InputDecoration(labelText: '名称', hintText: product == CreditProduct.bank ? '招行信用卡 / 中行白金卡' : product.label),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: limit, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '额度（元）'), textInputAction: TextInputAction.next),
             if (card == null) ...[
               const SizedBox(height: 12),
-              TextField(controller: owed, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '现在欠多少（元）', helperText: '没欠填 0；按已出账算，之后刷卡 / 还款记在这张卡上')),
+              TextField(controller: owed, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '现在欠多少（元）', helperText: '没欠填 0；按已出账算，之后的消费 / 还款记在它上面')),
             ],
             const SizedBox(height: 12),
+            // 各家能选的「账单日 → 还款日」组合，点一下填好
+            if (product.dayOptions.length > 1) ...[
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                for (final (sd, dd) in product.dayOptions)
+                  ChoiceChip(
+                    label: Text('$sd 号出账 · $dd 号还'),
+                    selected: statementDay == sd && dueDay == dd,
+                    onSelected: (_) => setState(() {
+                      statementDay = sd;
+                      dueDay = dd;
+                    }),
+                  ),
+              ]),
+              const SizedBox(height: 10),
+            ],
             Row(children: [
               Expanded(child: PickerField<int>(value: statementDay, decoration: const InputDecoration(labelText: '账单日'), items: days, onChanged: (v) => setState(() => statementDay = v ?? statementDay))),
               const SizedBox(width: 10),
@@ -208,28 +283,32 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
             Text(dueDay > statementDay ? '每月 $statementDay 号出账，当月 $dueDay 号前还' : '每月 $statementDay 号出账，次月 $dueDay 号前还', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
             DisclosureTile(
-              title: Text('利率、最低还款、违约金', style: theme.textTheme.bodyMedium),
-              subtitle: Text('不改 = 日万分之五、最低还 10%、违约金 5%', style: theme.textTheme.bodySmall),
+              title: Text('计息方式、利率、最低还款、违约金', style: theme.textTheme.bodyMedium),
+              subtitle: Text('现在：${cardModeLabel(mode)} · 日万分之${rate.text}', style: theme.textTheme.bodySmall),
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<CardInterestMode>(
-                    segments: const [ButtonSegment(value: CardInterestMode.full, label: Text('全额计息')), ButtonSegment(value: CardInterestMode.unpaid, label: Text('未还部分计息'))],
-                    selected: {mode},
-                    onSelectionChanged: (v) => setState(() => mode = v.first),
-                  ),
+                PickerField<CardInterestMode>(
+                  value: mode,
+                  decoration: const InputDecoration(labelText: '没还清时怎么算利息'),
+                  items: [for (final m in CardInterestMode.values) DropdownMenuItem(value: m, child: Text(cardModeLabel(m)))],
+                  onChanged: (v) => setState(() => mode = v ?? mode),
                 ),
                 const SizedBox(height: 4),
-                Text('没还清时怎么算利息，看信用卡领用合约；拿不准选全额计息（算出来只多不少）。', style: theme.textTheme.bodySmall),
+                Text(_cardModeHint(mode), style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                 const SizedBox(height: 12),
                 Row(children: [
-                  Expanded(child: TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '日利率 万分之', helperText: '常见 5'))),
+                  Expanded(child: TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '日利率 万分之', helperText: '信用卡常见 5'), onChanged: (_) => setState(() {}))),
                   const SizedBox(width: 10),
-                  Expanded(child: TextField(controller: minRatio, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '最低还款 %', helperText: '常见 10'))),
+                  Expanded(child: TextField(controller: overdueMult, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '逾期利率倍数', helperText: '分付 1.5，其余 1'))),
                 ]),
                 const SizedBox(height: 12),
                 Row(children: [
-                  Expanded(child: TextField(controller: feeRate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '违约金 %', helperText: '按没还够的最低还款算'))),
+                  Expanded(child: TextField(controller: minRatio, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '最低还款 %', helperText: '常见 10'))),
+                  const SizedBox(width: 10),
+                  Expanded(child: TextField(controller: feeRate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '违约金 %', helperText: '没还够最低还款的部分'))),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: TextField(controller: feeDaily, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '每天违约金 %', helperText: '白条 0.07，没有填 0'))),
                   const SizedBox(width: 10),
                   Expanded(child: TextField(controller: feeMin, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '违约金最低（元）', helperText: '没有就空着'))),
                 ]),
@@ -257,23 +336,27 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
       say('额度得大于 0');
       return;
     }
-    final r = parseNum(rate), mr = parseNum(minRatio), fr = parseNum(feeRate);
-    if ((r != null && (r < 0 || r > 100)) || (mr != null && (mr < 0 || mr > 100)) || (fr != null && (fr < 0 || fr > 100))) {
-      say('利率 / 比例填得不对：日利率是万分之几，其余是百分之几');
+    final r = parseNum(rate), mr = parseNum(minRatio), fr = parseNum(feeRate), fd = parseNum(feeDaily), om = parseNum(overdueMult);
+    bool bad(double? v, double max) => v != null && (v < 0 || v > max);
+    if (bad(r, 100) || bad(mr, 100) || bad(fr, 100) || bad(fd, 100) || (om != null && (om < 1 || om > 5))) {
+      say('利率 / 比例填得不对：日利率是万分之几，逾期倍数 1–5，其余是百分之几');
       return;
     }
-    final terms = CardTerms(
+    final terms = base.copyWith(
       limitMinor: limitMinor,
       statementDay: statementDay,
       dueDay: dueDay,
-      dailyRate: (r ?? CardTerms.defaultDailyRate * 10000) / 10000,
-      minPayRatio: (mr ?? CardTerms.defaultMinPayRatio * 100) / 100,
-      lateFeeRate: (fr ?? CardTerms.defaultLateFeeRate * 100) / 100,
+      dailyRate: (r ?? base.dailyRate * 10000) / 10000,
+      minPayRatio: (mr ?? base.minPayRatio * 100) / 100,
+      lateFeeRate: (fr ?? base.lateFeeRate * 100) / 100,
+      lateFeeDailyRate: (fd ?? base.lateFeeDailyRate * 100) / 100,
+      overdueMultiplier: om ?? base.overdueMultiplier,
       lateFeeMinMinor: feeMin.text.trim().isEmpty ? 0 : Money.parse(feeMin.text.trim(), 'CNY').minor,
       mode: mode,
+      product: product,
     );
+    final n = name.text.trim().isEmpty ? product.label : name.text.trim();
     if (card == null) {
-      final n = name.text.trim().isEmpty ? '信用卡' : name.text.trim();
       final owedMinor = owed.text.trim().isEmpty ? 0 : Money.parse(owed.text.trim(), 'CNY').minor;
       if (owedMinor < 0) {
         say('现在欠多少不能是负数');
@@ -282,8 +365,8 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
       app.addCreditCard(name: n, terms: terms, owedMinor: owedMinor);
       say('建好了：「$n」，额度 ${fmtMoney(limitMinor, 'CNY')}，每月 $statementDay 号出账');
     } else {
-      app.setCardTerms(card.id, terms);
-      say('已保存「${card.name}」的条款');
+      app.setCardTerms(card.id, terms, name: n == card.name ? null : n);
+      say('已保存「$n」');
     }
   } on Exception catch (e) {
     say('$e');

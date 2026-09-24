@@ -63,7 +63,7 @@ void main() {
   testWidgets('添加信用卡表单：填额度和欠款就建好账户 + 条款', (tester) async {
     await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage())));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('添加信用卡'));
+    await tester.tap(find.text('添加信用卡 / 花呗'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, '名称'), '中行');
     await tester.enterText(find.widgetWithText(TextField, '额度（元）'), '20000');
@@ -92,8 +92,17 @@ void main() {
     expect(m.incomeRank, isNotNull);
     await tester.pumpWidget(YujianApp(state: state));
     await tester.pumpAndSettle();
-    expect(find.text(fmtMoney(m.cashMinor, 'CNY')), findsOneWidget);
-    expect(find.textContaining(cheerFor(m)!.line), findsOneWidget);
+    // 只有微信一个正余额账户：现金余额和总资产是同一个数
+    expect(m.assetsMinor, m.cashMinor);
+    expect(find.text(fmtMoney(m.cashMinor, 'CNY')), findsNWidgets(2));
+    expect(find.text('总资产'), findsOneWidget);
+    // 寄语轮播从今天那句开始，点一下换下一句
+    final first = cheerFor(m)!;
+    expect(find.text(first.line), findsOneWidget);
+    await tester.tap(find.text(first.line));
+    await tester.pumpAndSettle();
+    final pool = cheerLines(first.tone);
+    expect(find.text(pool[(pool.indexOf(first.line) + 1) % pool.length]), findsOneWidget);
   });
 
   testWidgets('深色主题：外观页分组显示；「跟随系统深色」默认关，打开默认选夜玻璃；每套深色主题都能渲染首页', (tester) async {
@@ -113,7 +122,7 @@ void main() {
       await state.saveSettings(state.settings.copyWith(themeId: t.id));
       await tester.pumpWidget(YujianApp(state: state));
       await tester.pumpAndSettle();
-      expect(find.text('余额'), findsOneWidget, reason: t.id);
+      expect(find.text('现金余额'), findsOneWidget, reason: t.id);
       expect(tester.takeException(), isNull, reason: t.id);
     }
   });

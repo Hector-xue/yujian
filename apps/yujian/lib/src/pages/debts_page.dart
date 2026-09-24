@@ -9,6 +9,7 @@ import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'accounts_page.dart';
 import 'goals_page.dart';
+import 'repayment_plan_page.dart';
 
 /// 负债：总负债 / 每月还款 / 预计还清 一眼看完；每一笔负债一行（还剩多少、每月还多少、已还进度）。
 /// 一张表单建三件（负债账户 + 每月还款的周期转账 + 还清目标），别的地方（可花的 / 等级 / 首页目标条 / 小部件）自动跟着走。
@@ -45,7 +46,7 @@ class DebtsPage extends StatelessWidget {
                       const SizedBox(height: 12),
                       Wrap(spacing: 8, runSpacing: 8, children: [
                         FilledButton.tonalIcon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('添加负债')),
-                        OutlinedButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡')),
+                        OutlinedButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡 / 花呗')),
                       ]),
                     ]),
                   ),
@@ -90,7 +91,7 @@ class DebtsPage extends StatelessWidget {
                 const SizedBox(height: 2),
                 Wrap(spacing: 4, children: [
                   TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔')),
-                  TextButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡')),
+                  TextButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡 / 花呗')),
                 ]),
               ],
               const SizedBox(height: 18),
@@ -105,6 +106,7 @@ class DebtsPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Wrap(spacing: 4, children: [
+                TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RepaymentPlanPage())), child: const Text('还款计划')),
                 TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GoalsPage())), child: const Text('还清目标')),
                 TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountsPage())), child: const Text('账户余额')),
               ]),
@@ -119,7 +121,7 @@ class DebtsPage extends StatelessWidget {
   static Future<void> _add(BuildContext context) async {
     final v = await showActionSheet<String>(context, title: '添加', actions: const [
       SheetAction('debt', '房贷 / 车贷 / 网贷 / 借款', icon: Icons.account_balance_outlined),
-      SheetAction('card', '信用卡', icon: Icons.credit_card),
+      SheetAction('card', '信用卡 / 花呗 / 分付 / 白条 / 抖音月付', icon: Icons.credit_card),
     ]);
     if (!context.mounted) return;
     if (v == 'debt') {

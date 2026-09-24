@@ -137,6 +137,75 @@ void main() {
       expect(s.availableMinor, 1020000);
     });
 
+    test('花呗 / 月付：按时还清免息，逾期后只对没还的部分按日计息', () {
+      ledger.cards.setTerms(card.id, CreditProduct.huabei.defaults(limitMinor: 1000000).copyWith(statementDay: 5, dueDay: 25));
+      spend(300000, '2026-08-10');
+      spend(200000, '2026-08-20');
+      repay(200000, '2026-09-08');
+      final s = ledger.cards.status(card.id, today: '2026-09-10')!;
+      // 还清：0；只还了 2000 就不管：3000 × 9 天(9/26–10/4) × 0.0005 = 13.50
+      expect(ledger.cards.project(s, totalPayMinor: 500000).costMinor, 0);
+      final p = ledger.cards.project(s, totalPayMinor: 200000);
+      expect(p.interestMinor, 1350);
+      expect(p.lateFeeMinor, 0); // 花呗没有银行那种 5% 违约金
+      expect(ledger.cards.status(card.id, today: '2026-09-28')!.interestMinor, 1350);
+    });
+
+    test('白条：不计利息，逾期按未还金额每天 0.07% 收违约金', () {
+      ledger.cards.setTerms(card.id, CreditProduct.baitiao.defaults(limitMinor: 1000000).copyWith(statementDay: 5, dueDay: 25));
+      spend(300000, '2026-08-10');
+      spend(200000, '2026-08-20');
+      repay(200000, '2026-09-08');
+      final s = ledger.cards.status(card.id, today: '2026-09-28')!;
+      expect(s.state, CardBillState.overdue);
+      expect(s.interestMinor, 0);
+      expect(s.lateFeeMinor, 1890); // 3000 × 0.0007 × 9 天 = 18.90
+    });
+
+    test('分付：按天计息，按时还清也有利息；逾期日利率 × 1.5；不到 100 元要全还', () {
+      ledger.cards.setTerms(card.id, CreditProduct.fenfu.defaults(limitMinor: 1000000).copyWith(statementDay: 5, dueDay: 25));
+      spend(300000, '2026-08-10');
+      spend(200000, '2026-08-20');
+      repay(200000, '2026-09-08');
+      var s = ledger.cards.status(card.id, today: '2026-09-10')!;
+      // 9/25 当天还清剩下的 3000：(3000×10 + 5000×19 + 3000×17 天) × 0.0004 = 70.40
+      expect(s.interestMinor, 7040);
+      expect(ledger.cards.project(s, totalPayMinor: 500000).interestMinor, 7040);
+      // 不再还：到期前 (3000×10 + 5000×19 + 3000×18) × 0.0004 = 71.60，逾期 9 天 3000 × 0.0006 = 16.20 → 87.80
+      s = ledger.cards.status(card.id, today: '2026-09-28')!;
+      expect(s.interestMinor, 8780);
+      expect(s.lateFeeMinor, 0);
+      final t = ledger.cards.terms(card.id)!;
+      expect(CreditCards.minPayment(9000, t), 9000);
+      expect(CreditCards.minPayment(20000, t), 2000);
+    });
+
+    test('按产品建：图标和默认条款跟产品走；建好能改名；旧版存的条款（没有新字段）照常读', () {
+      final hb = ledger.cards.add(name: '花呗', terms: CreditProduct.huabei.defaults(limitMinor: 500000));
+      expect(hb.icon, '🌸');
+      final t = ledger.cards.terms(hb.id)!;
+      expect(t.product, CreditProduct.huabei);
+      expect((t.statementDay, t.dueDay), (1, 9));
+      expect(t.mode, CardInterestMode.afterDue);
+      expect(ledger.cards.rename(hb.id, ' 我的花呗 ').name, '我的花呗');
+      expect(() => ledger.cards.rename(hb.id, '  '), throwsArgumentError);
+      final old = CardTerms.fromJson({'limit': 100, 'statement_day': 5, 'due_day': 25, 'daily_rate': 0.0005, 'min_ratio': 0.1, 'late_fee_rate': 0.05, 'late_fee_min': 0, 'mode': 'unpaid'})!;
+      expect(old.mode, CardInterestMode.unpaid);
+      expect(old.product, CreditProduct.bank);
+      expect(old.overdueMultiplier, 1);
+      expect(old.lateFeeDailyRate, 0);
+      final round = CardTerms.fromJson(CreditProduct.fenfu.defaults(limitMinor: 1).toJson())!;
+      expect(round.mode, CardInterestMode.daily);
+      expect(round.overdueMultiplier, 1.5);
+      expect(round.minFullBelowMinor, 10000);
+      for (final p in CreditProduct.values) {
+        for (final (sd, dd) in p.dayOptions) {
+          expect(sd, inInclusiveRange(1, 28));
+          expect(dd, inInclusiveRange(1, 28));
+        }
+      }
+    });
+
     test('条款随画像同步；删卡连条款一起删；非信用卡不能设条款', () {
       expect(ledger.changes.pending().any((c) => c.entity == 'profile' && c.entityId == 'card:${card.id}'), isTrue);
       final fresh = ledger.cards.add(name: '没刷过', terms: terms);

@@ -28,7 +28,7 @@ void main() {
     await tester.pumpWidget(YujianApp(state: state));
     await tester.pumpAndSettle();
     expect(find.text('本月支出'), findsOneWidget);
-    expect(find.text('余额'), findsOneWidget);
+    expect(find.text('现金余额'), findsOneWidget);
     expect(state.accounts.length, 3);
     expect(state.categories.length, 19);
   });
