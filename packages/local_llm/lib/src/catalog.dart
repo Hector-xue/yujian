@@ -56,7 +56,20 @@ class LocalModelCatalog {
     blurb: '1.95 GB。明显更聪明，建议 8 GB 内存以上；后台只在前台服务里跑。',
   );
 
-  static const tiers = [small, standard];
+  /// 对照组：上一代 Qwen3-VL-2B（标准注意力）。Qwen3.5 是 Gated DeltaNet 混合架构，ARM CPU 上的算子可能还没优化好，
+  /// 同一台手机跑一遍它就知道慢在模型还是慢在机器。
+  static const compare = LocalModelTier(
+    id: 'qwen3vl2b',
+    name: 'Qwen3-VL 2B（对照）',
+    repo: 'Qwen/Qwen3-VL-2B-Instruct-GGUF',
+    model: LocalModelFile('Qwen3VL-2B-Instruct-Q4_K_M.gguf', 1107409952),
+    mmproj: LocalModelFile('mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf', 445053216),
+    approxRamMb: 2200,
+    minTotalRamMb: 6000,
+    blurb: '1.55 GB。老架构对照组，只为比速度。',
+  );
+
+  static const tiers = [small, standard, compare];
 
   static LocalModelTier? byId(String? id) {
     for (final t in tiers) {

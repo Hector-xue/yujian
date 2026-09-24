@@ -83,6 +83,8 @@ class ModelDownloader {
     void Function(DownloadProgress p)? onProgress,
     Future<void>? cancel,
     Duration stallTimeout = const Duration(seconds: 60),
+    int attemptsPerSource = 3,
+    Duration retryDelay = const Duration(seconds: 2),
   }) async {
     final d = dirOf(t);
     if (!d.existsSync()) await d.create(recursive: true);
@@ -103,31 +105,39 @@ class ModelDownloader {
       if (part.existsSync() && part.lengthSync() > f.size) {
         await part.delete(); // 比目标还大：文件换过了，别续
       }
-      Object? lastError;
+      // 每个源试 [attemptsPerSource] 次（手机上断流很常见，.part 还在，接着续），都不行再换下一个源。
+      // 报错带上每个源各自的原因：只报最后一个的话，「hf-mirror 域名解析不了」会盖住 ModelScope 的真实错误。
+      final errors = <String>[];
       var ok = false;
       for (final url in _urls(t, f)) {
-        if (cancelled) throw DownloadCancelled();
-        try {
-          await _fetch(
-            url,
-            part,
-            f.size,
-            stallTimeout,
-            () => cancelled,
-            (got) => onProgress?.call(
-              DownloadProgress(doneBefore + got, t.totalBytes, f.name),
-            ),
-          );
-          ok = true;
-          break;
-        } on DownloadCancelled {
-          rethrow;
-        } catch (e) {
-          lastError = e;
-          // 换下一个源；.part 保留（下一个源大概率是同一个文件，可以续）
+        for (var attempt = 1; attempt <= attemptsPerSource && !ok; attempt++) {
+          if (cancelled) throw DownloadCancelled();
+          try {
+            await _fetch(
+              url,
+              part,
+              f.size,
+              stallTimeout,
+              () => cancelled,
+              (got) => onProgress?.call(
+                DownloadProgress(doneBefore + got, t.totalBytes, f.name),
+              ),
+            );
+            ok = true;
+          } on DownloadCancelled {
+            rethrow;
+          } catch (e) {
+            errors.add(
+              '${url.host}${attempt > 1 ? '(第 $attempt 次)' : ''}：${_short(e)}',
+            );
+            if (attempt < attemptsPerSource) {
+              await Future<void>.delayed(retryDelay * attempt);
+            }
+          }
         }
+        if (ok) break;
       }
-      if (!ok) throw DownloadException('${f.name} 下载失败：$lastError');
+      if (!ok) throw DownloadException('${f.name} 下载失败。${errors.join('；')}');
       final got = part.lengthSync();
       if (got != f.size) {
         await part.delete();
@@ -137,6 +147,16 @@ class ModelDownloader {
       doneBefore += f.size;
     }
     _okFile(t).writeAsStringSync(DateTime.now().toIso8601String());
+  }
+
+  /// 异常里最有用的那一句：SocketException 这类自带一长串 uri，手机屏上全是噪音。
+  static String _short(Object e) {
+    var m = e is DownloadException ? e.message : '$e';
+    m = m.replaceAll(RegExp(r',?\s*uri=\S+'), '');
+    m = m
+        .replaceFirst('ClientException with ', '')
+        .replaceFirst('SocketException: ', '');
+    return m.length > 120 ? '${m.substring(0, 120)}…' : m;
   }
 
   Future<void> _fetch(

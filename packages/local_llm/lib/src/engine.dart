@@ -13,12 +13,50 @@ class LocalGeneration {
   final int promptTokens;
   final int completionTokens;
   final Duration latency;
+  final double promptMs; // 提示（含图）阶段耗时，来自 llama.cpp 计时；拿不到为 0
+  final double evalMs; // 生成阶段耗时
   const LocalGeneration({
     required this.text,
     required this.promptTokens,
     required this.completionTokens,
     required this.latency,
+    this.promptMs = 0,
+    this.evalMs = 0,
   });
+
+  double get promptTokPerSec =>
+      promptMs > 0 ? promptTokens / (promptMs / 1000) : 0;
+  double get evalTokPerSec =>
+      evalMs > 0 ? completionTokens / (evalMs / 1000) : 0;
+}
+
+/// 引擎参数：线程数 / 是否走 GPU（Vulkan）/ 上下文长度 / KV 量化。改了要重新加载。
+class LocalLlmOptions {
+  final int threads; // 0 = llama.cpp 自选
+  final bool gpu; // Vulkan；机器不支持会自动回落 CPU
+  final int contextSize;
+  final bool kvQ8; // KV cache 用 q8_0，省一半内存
+  const LocalLlmOptions({
+    this.threads = 0,
+    this.gpu = false,
+    this.contextSize = 4096,
+    this.kvQ8 = false,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is LocalLlmOptions &&
+      other.threads == threads &&
+      other.gpu == gpu &&
+      other.contextSize == contextSize &&
+      other.kvQ8 == kvQ8;
+
+  @override
+  int get hashCode => Object.hash(threads, gpu, contextSize, kvQ8);
+
+  @override
+  String toString() =>
+      'threads=${threads == 0 ? 'auto' : threads} ${gpu ? 'vulkan' : 'cpu'} ctx=$contextSize${kvQ8 ? ' kv=q8' : ''}';
 }
 
 class LocalLlmException implements Exception {
@@ -33,20 +71,22 @@ class LocalLlmException implements Exception {
 class LocalLlmEngine {
   final ModelDownloader store;
   final Duration idleUnload;
-  final int threads;
-  final int contextSize;
   final LlamaEngine Function() _newEngine;
+  LocalLlmOptions options;
 
   LocalLlmEngine(
     this.store, {
     this.idleUnload = const Duration(minutes: 5),
-    this.threads = 0,
-    this.contextSize = 4096,
+    this.options = const LocalLlmOptions(),
     LlamaEngine Function()? engineFactory,
   }) : _newEngine = engineFactory ?? (() => LlamaEngine(LlamaBackend()));
 
   LlamaEngine? _engine;
   LocalModelTier? _loadedTier;
+  LocalLlmOptions? _loadedOptions;
+
+  /// 实际用上的后端名（CPU / Vulkan…），加载后才有。
+  String? backendName;
   Future<void> _queue = Future.value();
   Timer? _idle;
   bool _visionReady = false;
@@ -78,27 +118,39 @@ class LocalLlmEngine {
     if (!store.installed(tier)) {
       throw LocalLlmException('本地模型「${tier.name}」还没下载');
     }
-    if (_engine != null && _loadedTier?.id != tier.id) await _unload();
+    if (_engine != null &&
+        (_loadedTier?.id != tier.id || _loadedOptions != options)) {
+      await _unload();
+    }
     if (_engine == null) {
       final e = _newEngine();
+      final o = options;
       try {
         await e.setLogLevel(LlamaLogLevel.warn);
         await e.loadModel(
           store.modelFile(tier).path,
           modelParams: ModelParams(
-            contextSize: contextSize,
-            gpuLayers: 0,
-            preferredBackend: GpuBackend.cpu,
-            numberOfThreads: threads,
-            numberOfThreadsBatch: threads,
+            contextSize: o.contextSize,
+            gpuLayers: o.gpu ? ModelParams.maxGpuLayers : 0,
+            preferredBackend: o.gpu ? GpuBackend.vulkan : GpuBackend.cpu,
+            numberOfThreads: o.threads,
+            numberOfThreadsBatch: o.threads,
+            cacheTypeK: o.kvQ8 ? KvCacheType.q8_0 : KvCacheType.f16,
+            cacheTypeV: o.kvQ8 ? KvCacheType.q8_0 : KvCacheType.f16,
           ),
         );
+        try {
+          backendName = await e.getBackendName();
+        } catch (_) {
+          backendName = null;
+        }
       } catch (err) {
         await e.dispose();
         throw LocalLlmException('加载本地模型失败：$err');
       }
       _engine = e;
       _loadedTier = tier;
+      _loadedOptions = o;
       _visionReady = false;
     }
     if (vision && !_visionReady) {
@@ -172,10 +224,14 @@ class LocalLlmEngine {
       sw.stop();
       var promptTokens = 0;
       var completionTokens = 0;
+      var promptMs = 0.0;
+      var evalMs = 0.0;
       try {
         final perf = await engine.getPerformanceContext();
         promptTokens = perf?.promptEvalTokens ?? 0;
         completionTokens = perf?.evalTokens ?? 0;
+        promptMs = perf?.promptEvalMs ?? 0;
+        evalMs = perf?.evalMs ?? 0;
       } catch (_) {
         // 拿不到账单不影响结果
       }
@@ -185,6 +241,8 @@ class LocalLlmEngine {
         promptTokens: promptTokens,
         completionTokens: completionTokens,
         latency: sw.elapsed,
+        promptMs: promptMs,
+        evalMs: evalMs,
       );
     } on TimeoutException catch (e) {
       // 超时后引擎里可能还挂着半截会话：整个卸掉，下次重加载最稳
@@ -211,6 +269,8 @@ class LocalLlmEngine {
     final e = _engine;
     _engine = null;
     _loadedTier = null;
+    _loadedOptions = null;
+    backendName = null;
     _visionReady = false;
     if (e != null) {
       try {

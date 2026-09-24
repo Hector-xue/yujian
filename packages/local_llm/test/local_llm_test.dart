@@ -13,6 +13,7 @@ class _FakeRepo {
   bool noRange = false;
   bool fail = false;
   int? cutAfter; // 发这么多字节后断开
+  bool cutOnce = false; // 只断第一次
   _FakeRepo(this.files);
 
   Future<void> start() async {
@@ -43,8 +44,10 @@ class _FakeRepo {
       req.response.contentLength = slice.length;
       if (cutAfter != null && slice.length > cutAfter!) {
         // 真·断线：头里说有这么多，发一半把 socket 掐了
+        final cut = cutAfter!;
+        if (cutOnce) cutAfter = null;
         final socket = await req.response.detachSocket(writeHeaders: true);
-        socket.add(slice.sublist(0, cutAfter!));
+        socket.add(slice.sublist(0, cut));
         await socket.flush();
         socket.destroy();
         return;
@@ -54,7 +57,8 @@ class _FakeRepo {
     });
   }
 
-  Uri url(String name) => Uri.parse('http://${server.address.address}:${server.port}/$name');
+  Uri url(String name) =>
+      Uri.parse('http://${server.address.address}:${server.port}/$name');
   Future<void> stop() => server.close(force: true);
 }
 
@@ -84,85 +88,136 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
-  ModelDownloader dl({List<Uri> Function(LocalModelTier, LocalModelFile)? urls}) => ModelDownloader(root, urls: urls ?? (t, f) => [repo.url(f.name)]);
+  ModelDownloader dl({
+    List<Uri> Function(LocalModelTier, LocalModelFile)? urls,
+  }) => ModelDownloader(root, urls: urls ?? (t, f) => [repo.url(f.name)]);
 
   group('catalog', () {
-    test('two tiers, sizes and urls', () {
-      expect(LocalModelCatalog.tiers.map((t) => t.id), ['small', 'standard']);
+    test('three tiers, sizes and urls', () {
+      expect(LocalModelCatalog.tiers.map((t) => t.id), [
+        'small',
+        'standard',
+        'qwen3vl2b',
+      ]);
       expect(LocalModelCatalog.small.totalGb, closeTo(0.74, 0.01));
       expect(LocalModelCatalog.standard.totalGb, closeTo(1.95, 0.01));
-      expect(LocalModelCatalog.byId('standard'), same(LocalModelCatalog.standard));
+      expect(
+        LocalModelCatalog.byId('standard'),
+        same(LocalModelCatalog.standard),
+      );
       expect(LocalModelCatalog.byId('nope'), isNull);
       expect(LocalModelCatalog.recommend(totalRamMb: 4000).id, 'small');
       expect(LocalModelCatalog.recommend(totalRamMb: 8000).id, 'standard');
-      final u = LocalModelCatalog.urls(LocalModelCatalog.small, LocalModelCatalog.small.model);
+      final u = LocalModelCatalog.urls(
+        LocalModelCatalog.small,
+        LocalModelCatalog.small.model,
+      );
       expect(u.first.host, 'modelscope.cn');
-      expect(u.first.path, contains('unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_K_M.gguf'));
+      expect(
+        u.first.path,
+        contains(
+          'unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_K_M.gguf',
+        ),
+      );
       expect(u.last.host, 'hf-mirror.com');
     });
   });
 
   group('downloader', () {
-    test('full download → installed, progress reaches 1, files byte-exact', () async {
-      final d = dl();
-      expect(d.installed(tier), isFalse);
-      final ps = <DownloadProgress>[];
-      await d.download(tier, onProgress: ps.add);
-      expect(d.installed(tier), isTrue);
-      expect(ps.last.ratio, 1.0);
-      expect(ps.last.received, tier.totalBytes);
-      expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
-      expect(d.mmprojFile(tier).readAsBytesSync(), mmBytes);
-      expect(d.bytesOnDisk(tier), tier.totalBytes);
-      // 再下一次：什么都不请求
-      repo.rangeHeaders.clear();
-      await d.download(tier);
-      expect(repo.rangeHeaders, isEmpty);
-      await d.uninstall(tier);
-      expect(d.installed(tier), isFalse);
-      expect(d.dirOf(tier).existsSync(), isFalse);
-    });
+    test(
+      'full download → installed, progress reaches 1, files byte-exact',
+      () async {
+        final d = dl();
+        expect(d.installed(tier), isFalse);
+        final ps = <DownloadProgress>[];
+        await d.download(tier, onProgress: ps.add);
+        expect(d.installed(tier), isTrue);
+        expect(ps.last.ratio, 1.0);
+        expect(ps.last.received, tier.totalBytes);
+        expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
+        expect(d.mmprojFile(tier).readAsBytesSync(), mmBytes);
+        expect(d.bytesOnDisk(tier), tier.totalBytes);
+        // 再下一次：什么都不请求
+        repo.rangeHeaders.clear();
+        await d.download(tier);
+        expect(repo.rangeHeaders, isEmpty);
+        await d.uninstall(tier);
+        expect(d.installed(tier), isFalse);
+        expect(d.dirOf(tier).existsSync(), isFalse);
+      },
+    );
 
-    test('resumes a .part with Range; a too-big .part is thrown away', () async {
-      final d = dl();
-      d.dirOf(tier).createSync(recursive: true);
-      File('${d.modelFile(tier).path}.part').writeAsBytesSync(modelBytes.sublist(0, 12345));
-      expect(d.bytesOnDisk(tier), 12345);
-      await d.download(tier);
-      expect(repo.rangeHeaders.first, 'bytes=12345-');
-      expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
-      expect(d.installed(tier), isTrue);
+    test(
+      'resumes a .part with Range; a too-big .part is thrown away',
+      () async {
+        final d = dl();
+        d.dirOf(tier).createSync(recursive: true);
+        File(
+          '${d.modelFile(tier).path}.part',
+        ).writeAsBytesSync(modelBytes.sublist(0, 12345));
+        expect(d.bytesOnDisk(tier), 12345);
+        await d.download(tier);
+        expect(repo.rangeHeaders.first, 'bytes=12345-');
+        expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
+        expect(d.installed(tier), isTrue);
 
-      await d.uninstall(tier);
-      d.dirOf(tier).createSync(recursive: true);
-      File('${d.modelFile(tier).path}.part').writeAsBytesSync(List.filled(modelBytes.length + 5, 1));
-      repo.rangeHeaders.clear();
-      await d.download(tier);
-      expect(repo.rangeHeaders.first, isNull); // 从头下
-      expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
-    });
+        await d.uninstall(tier);
+        d.dirOf(tier).createSync(recursive: true);
+        File(
+          '${d.modelFile(tier).path}.part',
+        ).writeAsBytesSync(List.filled(modelBytes.length + 5, 1));
+        repo.rangeHeaders.clear();
+        await d.download(tier);
+        expect(repo.rangeHeaders.first, isNull); // 从头下
+        expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
+      },
+    );
 
-    test('source without Range support restarts from zero and still verifies', () async {
-      final d = dl();
-      d.dirOf(tier).createSync(recursive: true);
-      File('${d.modelFile(tier).path}.part').writeAsBytesSync(modelBytes.sublist(0, 100));
-      repo.noRange = true;
-      await d.download(tier);
-      expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
-    });
+    test(
+      'source without Range support restarts from zero and still verifies',
+      () async {
+        final d = dl();
+        d.dirOf(tier).createSync(recursive: true);
+        File(
+          '${d.modelFile(tier).path}.part',
+        ).writeAsBytesSync(modelBytes.sublist(0, 100));
+        repo.noRange = true;
+        await d.download(tier);
+        expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
+      },
+    );
 
-    test('cut connection → DownloadException, .part kept; next attempt resumes', () async {
+    test('cut connection → 同一个源自己续着重试', () async {
       final d = dl();
       repo.cutAfter = 30000;
-      await expectLater(d.download(tier), throwsA(isA<DownloadException>()));
+      repo.cutOnce = true; // 第一次断，第二次正常：手机上最常见的断流
+      await d.download(tier, retryDelay: Duration.zero);
+      expect(repo.rangeHeaders.length, greaterThanOrEqualTo(2));
+      expect(repo.rangeHeaders[1], 'bytes=30000-'); // 接着断点续，不是从头来
+      expect(d.modelFile(tier).readAsBytesSync(), modelBytes);
+      expect(d.installed(tier), isTrue);
+    });
+
+    test('一直断 → 试满次数才报错，错误带上每次的原因，.part 留着', () async {
+      final d = dl();
+      repo.cutAfter = 10000;
+      await expectLater(
+        d.download(tier, attemptsPerSource: 2, retryDelay: Duration.zero),
+        throwsA(
+          predicate(
+            (e) =>
+                e is DownloadException &&
+                e.message.contains('model.gguf') &&
+                e.message.contains('第 2 次'),
+          ),
+        ),
+      );
       final part = File('${d.modelFile(tier).path}.part');
       expect(part.existsSync(), isTrue);
-      expect(part.lengthSync(), 30000);
+      expect(part.lengthSync(), 20000); // 两次各拿 10000，断点没丢
       expect(d.installed(tier), isFalse);
       repo.cutAfter = null;
-      repo.rangeHeaders.clear();
-      await d.download(tier);
-      expect(repo.rangeHeaders.first, 'bytes=30000-');
+      await d.download(tier, retryDelay: Duration.zero);
       expect(d.installed(tier), isTrue);
     });
 
@@ -170,10 +225,14 @@ void main() {
       final d = dl();
       final cancel = Completer<void>();
       var seen = 0;
-      final fut = d.download(tier, onProgress: (p) {
-        seen++;
-        if (!cancel.isCompleted && p.received > 0) cancel.complete();
-      }, cancel: cancel.future);
+      final fut = d.download(
+        tier,
+        onProgress: (p) {
+          seen++;
+          if (!cancel.isCompleted && p.received > 0) cancel.complete();
+        },
+        cancel: cancel.future,
+      );
       await expectLater(fut, throwsA(isA<DownloadCancelled>()));
       expect(seen, greaterThan(0));
       expect(d.installed(tier), isFalse);
@@ -181,7 +240,8 @@ void main() {
     });
 
     test('first source dead → second source used', () async {
-      final dead = _FakeRepo({'model.gguf': modelBytes, 'mmproj.gguf': mmBytes})..fail = true;
+      final dead = _FakeRepo({'model.gguf': modelBytes, 'mmproj.gguf': mmBytes})
+        ..fail = true;
       await dead.start();
       try {
         final d = dl(urls: (t, f) => [dead.url(f.name), repo.url(f.name)]);
@@ -194,27 +254,56 @@ void main() {
 
     test('all sources dead → DownloadException naming the file', () async {
       repo.fail = true;
-      await expectLater(dl().download(tier), throwsA(predicate((e) => e is DownloadException && e.message.contains('model.gguf'))));
+      await expectLater(
+        dl().download(tier),
+        throwsA(
+          predicate(
+            (e) => e is DownloadException && e.message.contains('model.gguf'),
+          ),
+        ),
+      );
     });
 
-    test('installed() is false when a file was deleted behind our back', () async {
-      final d = dl();
-      await d.download(tier);
-      d.mmprojFile(tier).deleteSync();
-      expect(d.installed(tier), isFalse);
-    });
+    test(
+      'installed() is false when a file was deleted behind our back',
+      () async {
+        final d = dl();
+        await d.download(tier);
+        d.mmprojFile(tier).deleteSync();
+        expect(d.installed(tier), isFalse);
+      },
+    );
   });
 
   group('provider', () {
-    test('not installed → ProviderException with a readable message; name/model fixed', () async {
-      final engine = LocalLlmEngine(dl(), idleUnload: Duration.zero);
-      final p = LocalLlamaProvider(engine, tier);
-      expect(p.name, 'local');
-      expect(p.model, 'tiny');
-      expect(engine.isLoaded, isFalse);
-      await expectLater(p.complete(system: 's', user: 'u'), throwsA(predicate((e) => e is ProviderException && e.message.contains('还没下载'))));
-      await expectLater(p.completeWithImages(system: 's', user: 'u', images: const [ImageInput([1, 2, 3], 'image/png')]), throwsA(isA<ProviderException>()));
-      await engine.unload();
-    });
+    test(
+      'not installed → ProviderException with a readable message; name/model fixed',
+      () async {
+        final engine = LocalLlmEngine(dl(), idleUnload: Duration.zero);
+        final p = LocalLlamaProvider(engine, tier);
+        expect(p.name, 'local');
+        expect(p.model, 'tiny');
+        expect(engine.isLoaded, isFalse);
+        await expectLater(
+          p.complete(system: 's', user: 'u'),
+          throwsA(
+            predicate(
+              (e) => e is ProviderException && e.message.contains('还没下载'),
+            ),
+          ),
+        );
+        await expectLater(
+          p.completeWithImages(
+            system: 's',
+            user: 'u',
+            images: const [
+              ImageInput([1, 2, 3], 'image/png'),
+            ],
+          ),
+          throwsA(isA<ProviderException>()),
+        );
+        await engine.unload();
+      },
+    );
   });
 }

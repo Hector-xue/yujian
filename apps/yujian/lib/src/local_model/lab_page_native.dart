@@ -24,13 +24,24 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
   ModelDownloader? _store;
   LocalLlmEngine? _engine;
   LocalModelTier _tier = LocalModelCatalog.small;
+  var _options = const LocalLlmOptions();
+  Uint8List? _lastImage; // 上一次选的图：换参数重测不用再选一遍
   DownloadProgress? _progress;
   Completer<void>? _cancel;
   bool _busy = false;
   String _log = '';
   int _totalRamMb = 0;
 
-  static const _system = '你是记账助手。看用户给的手机截图或 OCR 文字，判断是不是一笔支付/收款，抽出实付金额（数字）、商户、时间、支付方式。只输出 JSON。';
+  // 真机第一轮：0.8B 把一张真支付截图判成 is_payment=false，2B 给出 -15.70 和一整段英文塞进 account_hint。
+  // 根因是模型根本看不到 schema（它只当语法约束用），规则必须写在提示词里。
+  static const _system = '你是记账助手。看用户给的手机截图或 OCR 文字，只输出一个 JSON 对象，不要解释。\n'
+      '规则：\n'
+      '1) is_payment：画面是支付成功页、账单详情、转账记录、收款通知中的任意一种就填 true。\n'
+      '2) amount：实付金额，永远是正数，不带符号和货币单位；有「实付」就用实付。\n'
+      '3) direction：花出去 expense，收进来 income，看不出 unknown。\n'
+      '4) merchant：商户或对方名字，照抄，不要加字。\n'
+      '5) time：照抄画面上的时间；没有就空字符串。\n'
+      '6) account_hint：付款方式几个字（零钱 / 余额 / 招商银行储蓄卡…），没有就空字符串，不要写句子。';
   static const _schema = <String, Object?>{
     'type': 'object',
     'properties': {
@@ -46,6 +57,7 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
     },
     'required': ['is_payment', 'amount', 'direction', 'merchant'],
   };
+  static const _userText = '按规则输出 JSON。';
   static const _sampleOcr = 'OCR 文字：\n支付成功\n¥13.80\n杨国福麻辣烫(中关村店)\n付款方式 零钱\n优惠 -¥2.00\n实付 ¥13.80\n支付时间 2026-09-21 12:31:05\n完成';
 
   @override
@@ -60,7 +72,7 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
     try {
       final dir = Directory('${(await getApplicationSupportDirectory()).path}/llm');
       _store = ModelDownloader(dir);
-      _engine = LocalLlmEngine(_store!, idleUnload: const Duration(minutes: 10));
+      _engine = LocalLlmEngine(_store!, idleUnload: const Duration(minutes: 10), options: _options);
     } catch (e) {
       _append('初始化失败：$e');
     }
@@ -91,6 +103,27 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
       return ProcessInfo.currentRss ~/ (1024 * 1024);
     } catch (_) {
       return -1;
+    }
+  }
+
+  /// 图片长边：图 token 数按面积走，640 约 250 tok，512 约 160 tok。
+  int _maxEdge = 640;
+
+  Future<void> _setOptions(LocalLlmOptions o) async {
+    if (o == _options || _busy) return;
+    setState(() {
+      _options = o;
+      _busy = true;
+    });
+    try {
+      final e = _engine;
+      if (e != null) {
+        e.options = o; // 下一次 generate 自动按新参数重新加载
+        await e.unload();
+      }
+      _append('参数改成 $o（下次跑会重新加载模型）');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -153,15 +186,19 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
     }
   }
 
-  Future<void> _runText() => _run('文字', _sampleOcr, const []);
+  Future<void> _runText() => _run('文字', '$_sampleOcr\n\n$_userText', const []);
 
-  Future<void> _runImage() async {
-    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 90);
-    if (x == null) return;
-    final raw = await x.readAsBytes();
-    final small = await downscaleToPng(raw, maxEdge: 640);
-    _append('图片 ${(raw.length / 1024).toStringAsFixed(0)} KB → 缩到长边 640：${(small.length / 1024).toStringAsFixed(0)} KB');
-    await _run('图片', '这张截图是什么？按要求输出 JSON。', [small]);
+  Future<void> _runImage({bool reuse = false}) async {
+    var small = reuse ? _lastImage : null;
+    if (small == null) {
+      final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 90);
+      if (x == null) return;
+      final raw = await x.readAsBytes();
+      small = await downscaleToPng(raw, maxEdge: _maxEdge);
+      _lastImage = small;
+      _append('图片 ${(raw.length / 1024).toStringAsFixed(0)} KB → 缩到长边 $_maxEdge：${(small.length / 1024).toStringAsFixed(0)} KB');
+    }
+    await _run('图片', _userText, [small]);
   }
 
   Future<void> _run(String label, String user, List<Uint8List> images) async {
@@ -172,13 +209,34 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
     final sw = Stopwatch()..start();
     try {
       final g = await engine.generate(tier: _tier, system: _system, user: user, images: images, jsonSchema: _schema, temperature: 0.1, maxTokens: 200, timeout: const Duration(minutes: 5));
-      final tps = g.latency.inMilliseconds > 0 && g.completionTokens > 0 ? (g.completionTokens / (g.latency.inMilliseconds / 1000)).toStringAsFixed(1) : '?';
-      _append('[$label] 总 ${g.latency.inMilliseconds} ms（含加载 ${sw.elapsedMilliseconds} ms）· 提示 ${g.promptTokens} tok · 生成 ${g.completionTokens} tok（≈$tps tok/s 含提示阶段）· 内存 $before → ${_rssMb()} MB\n${g.text}');
+      // 提示阶段（读图）和生成阶段分开看：慢在哪一头，决定是缩图还是换参数
+      final prompt = g.promptMs > 0 ? '读入 ${g.promptTokens} tok / ${g.promptMs.round()} ms（${g.promptTokPerSec.toStringAsFixed(1)} tok/s）' : '读入 ${g.promptTokens} tok';
+      final gen = g.evalMs > 0 ? '生成 ${g.completionTokens} tok / ${g.evalMs.round()} ms（${g.evalTokPerSec.toStringAsFixed(1)} tok/s）' : '生成 ${g.completionTokens} tok';
+      _append('[$label] ${_tier.name} · ${engine.backendName ?? '?'} · $_options\n  总 ${g.latency.inMilliseconds} ms（含本次加载 ${sw.elapsedMilliseconds - g.latency.inMilliseconds} ms）· $prompt · $gen · 内存 $before → ${_rssMb()} MB\n${g.text}');
     } catch (e) {
       _append('[$label] 失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 一行选择器：标题 + 一排 chip。[value] 是当前值，点了调 [onPick]。
+  Widget _chips<T>(String label, List<(String, T)> items, T value, void Function(T) onPick) {
+    final theme = Theme.of(context);
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      SizedBox(width: 62, child: Text(label, style: theme.textTheme.bodySmall)),
+      Expanded(
+        child: Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final it in items)
+            ChoiceChip(
+              label: Text(it.$1),
+              selected: value == it.$2,
+              visualDensity: VisualDensity.compact,
+              onSelected: _busy ? null : (_) => onPick(it.$2),
+            ),
+        ]),
+      ),
+    ]);
   }
 
   @override
@@ -222,6 +280,35 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
             ),
           ),
           const SizedBox(height: 12),
+          // 参数：线程数 / GPU / KV 量化 / 图片长边。改哪个都重新加载，好一项项比。
+          GlassCard(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('参数（改完重新跑一次比）', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 8),
+                _chips('线程', [
+                  ('自动', 0),
+                  ('2', 2),
+                  ('4', 4),
+                  ('6', 6),
+                  ('8', 8),
+                ], _options.threads, (v) => _setOptions(LocalLlmOptions(threads: v, gpu: _options.gpu, contextSize: _options.contextSize, kvQ8: _options.kvQ8))),
+                const SizedBox(height: 6),
+                _chips('后端', const [('CPU', false), ('GPU(Vulkan)', true)], _options.gpu, (v) => _setOptions(LocalLlmOptions(threads: _options.threads, gpu: v, contextSize: _options.contextSize, kvQ8: _options.kvQ8))),
+                const SizedBox(height: 6),
+                _chips('KV', const [('f16', false), ('q8（省内存）', true)], _options.kvQ8, (v) => _setOptions(LocalLlmOptions(threads: _options.threads, gpu: _options.gpu, contextSize: _options.contextSize, kvQ8: v))),
+                const SizedBox(height: 6),
+                _chips('图片长边', const [('384', 384), ('512', 512), ('640', 640), ('896', 896)], _maxEdge, (v) {
+                  setState(() {
+                    _maxEdge = v;
+                    _lastImage = null; // 换尺寸要重新缩
+                  });
+                }),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 12),
           if (p != null) ...[
             ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: p.ratio, minHeight: 6, backgroundColor: y.hairline)),
             const SizedBox(height: 4),
@@ -233,7 +320,8 @@ class _LocalModelLabPageState extends State<LocalModelLabPage> {
               FilledButton.tonal(onPressed: _busy || store == null || installed ? null : _download, child: Text(installed ? '已下载' : (onDisk > 0 ? '继续下载（已有 ${(onDisk / 1e6).toStringAsFixed(0)} MB）' : '下载'))),
               FilledButton.tonal(onPressed: _busy || !installed ? null : _load, child: const Text('加载')),
               FilledButton(onPressed: _busy || !installed ? null : _runText, child: const Text('测文字')),
-              FilledButton(onPressed: _busy || !installed ? null : _runImage, child: const Text('选图测')),
+              FilledButton(onPressed: _busy || !installed ? null : () => _runImage(), child: const Text('选图测')),
+              if (_lastImage != null) FilledButton.tonal(onPressed: _busy || !installed ? null : () => _runImage(reuse: true), child: const Text('再测同一张')),
               OutlinedButton(onPressed: _busy || (!installed && onDisk == 0) ? null : _delete, child: const Text('删除')),
             ]),
           const SizedBox(height: 12),
