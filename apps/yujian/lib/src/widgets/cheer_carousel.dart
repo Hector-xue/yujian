@@ -35,7 +35,7 @@ class _CheerCarouselState extends State<CheerCarousel> {
 
   void _next({bool auto = false}) {
     if (!mounted) return;
-    if (auto && !TickerMode.getNotifier(context).value) return; // 不在屏幕上：不换（getNotifier 不注册依赖，定时器回调里可以用）
+    if (auto && !TickerMode.getValuesNotifier(context).value.enabled) return; // 不在屏幕上：不换（getValuesNotifier 不注册依赖，定时器回调里可以用）
     setState(() => _step++);
   }
 
