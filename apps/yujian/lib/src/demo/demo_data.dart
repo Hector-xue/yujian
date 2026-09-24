@@ -46,7 +46,7 @@ Future<void> seedDemoData(AppState app) async {
   }
 
   // 负债：车贷（每月 15 号）；过去几个月已经按期还的记成转账，余额才像真的
-  final loan = app.addDebt(name: '车贷', kind: DebtKind.car, owedMinor: 4800000, monthlyMinor: 260000, day: 15, fromAccountId: bank.id);
+  final loan = app.addDebt(name: '车贷', kind: DebtKind.car, owedMinor: 2600000, monthlyMinor: 260000, day: 15, fromAccountId: bank.id);
   for (var m = 3; m >= 0; m--) {
     final base = DateTime(today.year, today.month - m, 1);
     final when = DateTime(base.year, base.month, 15);
