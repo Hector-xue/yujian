@@ -12,6 +12,7 @@ import 'models/transaction.dart';
 import 'achievements.dart';
 import 'budget.dart';
 import 'changes.dart';
+import 'cards.dart';
 import 'debts.dart';
 import 'goals.dart';
 import 'memory.dart';
@@ -37,6 +38,7 @@ class Ledger implements ValidationContext {
   late final AchievementStore achievements = AchievementStore(this, _db, _nowMs, changes);
   late final ProfileStore profile = ProfileStore(_db, _nowMs, changes);
   late final Debts debts = Debts(this);
+  late final CreditCards cards = CreditCards(this);
 
   Ledger(this._db, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -132,6 +134,7 @@ class Ledger implements ValidationContext {
     _db.transaction(() {
       _db.execute('UPDATE memory_map SET account_id = NULL WHERE account_id = ?', [id]);
       if (profile.salaryAccountId == id) profile.salaryAccountId = null;
+      if (profile.getString('${CreditCards.keyPrefix}$id') != null) profile.set('${CreditCards.keyPrefix}$id', null); // 信用卡条款跟着账户走
       _db.execute('DELETE FROM accounts WHERE id = ?', [id]);
       _audit(Actor.user, 'account.delete', 'account', id, before: a.toJson(), confirmed: true);
       changes.record('account', id, null, deleted: true);

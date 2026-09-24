@@ -361,7 +361,7 @@ class AppState extends ChangeNotifier {
       int cny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
-      final balance = ledger.balances(includeVault: true).values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+      final balance = Wealth.cashOnHand(ledger); // 和首页「余额」同一口径：手头的钱，不含信用卡 / 贷款 / 投资
       final today = _today();
       final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
@@ -892,6 +892,10 @@ class AppState extends ChangeNotifier {
         if (ledger.listTransactions(limit: 1).isEmpty) '账本还是空的，一笔都没记过',
         // 目标（游戏层）：名字和进度，让陪聊能接得上「日本游攒得怎么样了」
         for (final p in game.goals.take(3)) '目标：${game.describe(p)}',
+        // 信用卡：没还清的账单（陪聊能提醒「招行 25 号到期还剩 3000」，逾期的把违约金 / 利息说清）
+        for (final c in cardStatuses())
+          if (c.state == CardBillState.due || c.state == CardBillState.overdue)
+            '信用卡「${c.account.name}」${c.statementDate.substring(5)} 账单还剩 ${fmtMoney(c.remainingMinor, 'CNY')}，${c.state == CardBillState.overdue ? '已逾期 ${-c.daysToDue} 天，违约金 ${fmtMoney(c.lateFeeMinor, 'CNY')}、利息约 ${fmtMoney(c.interestMinor, 'CNY')}' : '${c.dueDate.substring(5)} 到期，最低还款 ${fmtMoney(c.minPaymentMinor, 'CNY')}'}，可用额度 ${fmtMoney(c.availableMinor, 'CNY')}',
         if (game.enabled && game.metrics?.title != null) '称号「${game.metrics!.title}」${game.metrics!.inDebt ? '（净资产 ${fmtMoney(game.metrics!.netWorthMinor, 'CNY')}，负翁档按欠款分）' : '（等级「${game.metrics!.level!.name}」）'}，可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
       ];
       return lines.join('\n');
@@ -1069,6 +1073,24 @@ class AppState extends ChangeNotifier {
     final r = ledger.debts.setRepayment(accountId, monthlyMinor: monthlyMinor, day: day, fromAccountId: fromAccountId, today: _today());
     notifyListeners();
     return r;
+  }
+
+  /// 设了条款的信用卡此刻的状态（额度 / 本期账单 / 最低还款 / 逾期费用）；负债页和首页「近期到期」用。
+  List<CardStatus> cardStatuses() => ledger.cards.list(today: _today(), currency: 'CNY');
+
+  CardStatus? cardStatus(String accountId) => ledger.cards.status(accountId, today: _today());
+
+  /// 新建一张信用卡（账户 + 条款）。
+  Account addCreditCard({required String name, required CardTerms terms, int owedMinor = 0}) {
+    final a = ledger.cards.add(name: name, terms: terms, owedMinor: owedMinor);
+    notifyListeners();
+    return a;
+  }
+
+  /// 设 / 改一张信用卡的额度、账单日、还款日、利率这些条款。
+  void setCardTerms(String accountId, CardTerms terms) {
+    ledger.cards.setTerms(accountId, terms);
+    notifyListeners();
   }
 
   /// 删一笔负债：还款提醒 + 还清目标一起删；账户没还款记录就真删，有就归档（见 Debts.remove）。

@@ -4,7 +4,9 @@
 library;
 
 export 'src/achievements.dart';
+export 'src/benchmark.dart';
 export 'src/budget.dart';
+export 'src/cards.dart';
 export 'src/changes.dart';
 export 'src/debts.dart';
 export 'src/goals.dart';

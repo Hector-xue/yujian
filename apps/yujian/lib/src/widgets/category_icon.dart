@@ -35,7 +35,8 @@ class CategoryIcon extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(color: tint(c?.id).withValues(alpha: 0.55), shape: BoxShape.circle),
+      // 深色主题：粉彩圆片在黑底上太亮、像一个个灯泡，压暗一些
+      decoration: BoxDecoration(color: tint(c?.id).withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.55), shape: BoxShape.circle),
       child: Text(glyph, style: TextStyle(fontSize: size * 0.5, height: 1.0)),
     );
   }
