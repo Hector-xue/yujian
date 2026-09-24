@@ -1,16 +1,32 @@
 name: flutter
+# 免费额度有限（每月 2000 计费分钟 / 500MB 产物存储），所以默认只跑「快检」：analyze + test，约 3 分钟。
+# web 和 APK 要另外 10 分钟，只在真要装机时才打：手动跑这个工作流（Run workflow，打勾 build），
+# 或者给 PR 贴 `build-apk` 标签。push 到 main 也不打包——发版有 release.yml。
 on:
   push:
     branches: [main]
     paths: ['apps/yujian/**', 'packages/**', '.github/workflows/flutter.yml']
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths: ['apps/yujian/**', 'packages/**', '.github/workflows/flutter.yml']
   workflow_dispatch:
+    inputs:
+      build:
+        description: '顺便打 web + debug APK（多花约 10 分钟）'
+        type: boolean
+        default: true
+# 同一分支连着推几次，只留最后一次：以前两次推挤在一起，白烧掉一整轮的分钟
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   app:
     runs-on: ubuntu-latest
     permissions:
       contents: write # 打样分支把 debug APK 挂到预发布上（Actions 产物配额常年是满的）
+    env:
+      # 要不要打包：手动触发时看勾选，PR 上看有没有 `build-apk` 标签
+      BUILD: ${{ (github.event_name == 'workflow_dispatch' && inputs.build) || contains(github.event.pull_request.labels.*.name, 'build-apk') }}
     defaults:
       run:
         working-directory: apps/yujian
@@ -27,6 +43,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
       # runner 盘只有 ~14G 空余：llamadart 的原生包（每个 ABI 解压 + 拷进 APK）加上 web / apk 两个产物会撞满。先把用不到的预装件清掉（.NET / Haskell / CodeQL / boost，约 20G）
       - name: free disk
+        if: env.BUILD == 'true'
         run: |
           df -h / | tail -1
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY/CodeQL" /usr/local/lib/node_modules || true
@@ -35,30 +52,30 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
-      - run: df -h / | tail -1
       - name: sqlite3.wasm for web
+        if: env.BUILD == 'true'
         run: |
           ver=$(awk '/^  sqlite3:$/{f=1} f&&/^    version:/{gsub(/[" ]/,"",$2); print $2; exit}' pubspec.lock)
           echo "sqlite3 $ver"
           curl -sSfL -o web/sqlite3.wasm "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-${ver}/sqlite3.wasm"
-      - run: flutter build web --release --base-href /
-      # 产物只是走查用的，留 3 天；仓库 Actions 存储配额有限（曾因 200 多份 130MB 的 debug apk 撞满配额把 CI 判失败），上传失败不算 CI 失败
+      - name: build web
+        if: env.BUILD == 'true'
+        run: flutter build web --release --base-href /
+      # 存储配额只有 500MB，130MB 的 debug APK 传两次就满（满了连 CI 都判失败）。产物一律留 1 天，
+      # 要装机的包走下面的预发布资产（不占产物配额）。
       - uses: actions/upload-artifact@v4
+        if: env.BUILD == 'true'
         continue-on-error: true
         with:
           name: web
           path: apps/yujian/build/web
-          retention-days: 3
-      - run: rm -rf build/web && flutter build apk --debug && df -h / | tail -1
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: apk-debug
-          path: apps/yujian/build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 3
+          retention-days: 1
+      - name: build debug apk
+        if: env.BUILD == 'true'
+        run: rm -rf build/web && flutter build apk --debug && df -h / | tail -1
       # 打样分支：Actions 产物配额撞满时拿不到 APK，改挂到一个预发布上（每次覆盖），真机装这个测
       - name: spike prerelease
-        if: github.head_ref == 'spike/local-model'
+        if: env.BUILD == 'true' && github.head_ref == 'spike/local-model'
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }} # PR 事件里 GITHUB_SHA 是临时合并提交，tag 不能指它
