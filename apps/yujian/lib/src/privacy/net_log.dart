@@ -95,6 +95,7 @@ class NetEvent {
         'sync' => '同步',
         'update' => '版本检查',
         'download' => '下载',
+        'feedback' => '反馈',
         _ => kind,
       };
 
@@ -152,6 +153,8 @@ class NetEvent {
         }
       case 'update':
         return '向 $where 询问最新版本号。只发了这个请求（服务器能看到你的 IP 和 App 版本），不带任何账本数据。纯本地模式下只有你手动点「检查更新」才会发。';
+      case 'feedback':
+        return '你在「反馈 BUG / 建议」里点了发送：你写的文字（$chars 字）、截图 $count 张（$kb）和你勾选的附带信息（版本 / 系统 / 屏幕尺寸 / 主题），发到余见作者的服务器 $where，再转到作者的飞书。只在你点「发送」时发生，不带任何账本数据。';
       case 'download':
         switch (purpose) {
           case 'apk':

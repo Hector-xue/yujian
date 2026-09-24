@@ -156,13 +156,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('可花的'), findsOneWidget);
       expect(find.textContaining('今天还能花'), findsOneWidget);
-      expect(find.text('余额'), findsOneWidget);
+      expect(find.text('现金余额'), findsOneWidget);
       expect(find.text('本月支出'), findsOneWidget);
       expect(find.text('给钱一个用途'), findsOneWidget);
       await state.game.setEnabled(false);
       await tester.pumpAndSettle();
       expect(find.text('可花的'), findsNothing);
-      expect(find.text('余额'), findsOneWidget);
+      expect(find.text('现金余额'), findsOneWidget);
       expect(find.text('给钱一个用途'), findsNothing);
     });
 
