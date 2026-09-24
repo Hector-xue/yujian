@@ -69,7 +69,8 @@ class DebtsPage extends StatelessWidget {
                       Row(children: [
                         Expanded(child: _Stat(label: '每月还款', value: totals.monthlyMinor > 0 ? fmtMoney(totals.monthlyMinor, 'CNY') : '—')),
                         Expanded(child: _Stat(label: '占本月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
-                        Expanded(child: _Stat(label: '预计还清', value: left == null ? '没设还款' : (left <= 0 ? '已还清' : _monthsLabel(left)))),
+                        // 预计还清只按贷款的每月还款推；只有信用卡欠款时贷款是 0，不能写成「已还清」
+                        Expanded(child: _Stat(label: '预计还清', value: totals.loanMinor <= 0 ? (totals.cardMinor > 0 ? '按账单还' : '已还清') : (left == null ? '没设还款' : _monthsLabel(left)))),
                       ]),
                     ]),
                   ),
