@@ -142,7 +142,8 @@ class _Buckets extends StatelessWidget {
     final theme = Theme.of(context);
     final y = YujianColors.of(context);
     final total = b.emergencyMinor + b.nearTermMinor + b.longTermMinor;
-    final parts = [('应急金', b.emergencyMinor, theme.colorScheme.primary), ('一年内要用', b.nearTermMinor, y.warning), ('长期闲钱', b.longTermMinor, y.income)];
+    // 金额是 0 的那份不列（比如没有一年内的目标、应急金刚好用满）
+    final parts = [for (final p in [('应急金', b.emergencyMinor, theme.colorScheme.primary), ('一年内要用', b.nearTermMinor, y.warning), ('长期闲钱', b.longTermMinor, y.income)]) if (p.$2 > 0) p];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       ClipRRect(
         borderRadius: BorderRadius.circular(4),

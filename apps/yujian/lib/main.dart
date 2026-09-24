@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
@@ -15,6 +16,7 @@ import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
 import 'src/platform/avatar_files_native.dart' if (dart.library.js_interop) 'src/platform/avatar_files_web.dart';
 import 'src/platform/home_widget_bridge.dart';
+import 'src/demo/demo_data.dart';
 import 'src/notifications/notification_source.dart';
 import 'src/notifications/screenshot_source.dart';
 import 'src/settings_store.dart';
@@ -26,6 +28,13 @@ Future<void> main() async {
   final db = await openAppDatabase();
   final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
   await state.loadSettings();
+  // 只在 Web：网址带 ?demo=1 且账本是空的 → 写一套演示数据（门户截图 / 在线试玩）；?theme=night 这类参数直接切主题。手机上不走这段
+  if (kIsWeb) {
+    final q = Uri.base.queryParameters;
+    final theme = q['theme'];
+    if (theme != null && appThemes.any((t) => t.id == theme)) await state.saveSettings(state.settings.copyWith(themeId: theme));
+    if (q['demo'] == '1') await seedDemoData(state);
+  }
   await GlassShaders.load(); // 玻璃着色器：一次编译，全 App 共用
   state.generateRecurring();
   await state.startNotifications();
