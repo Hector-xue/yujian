@@ -1,5 +1,9 @@
 # 余见 Yujian
 
+[![下载量](https://img.shields.io/github/downloads/Hector-xue/yujian/total?label=GitHub%20下载量)](https://github.com/Hector-xue/yujian/releases)
+[![最新版本](https://img.shields.io/github/v/release/Hector-xue/yujian?label=最新版本)](https://github.com/Hector-xue/yujian/releases/latest)
+[![许可证](https://img.shields.io/github/license/Hector-xue/yujian?label=许可证)](LICENSE)
+
 开源、本地优先、自选模型、人格可定制的个人财务 Agent。
 
 > 账本事实在你的设备上，AI 只负责理解和解释，写入永远经你确认。
