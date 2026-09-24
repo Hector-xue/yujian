@@ -16,7 +16,7 @@ Future<void> seedDemoData(AppState app) async {
   String at(DateTime t, [int hour = 12]) => '${d(t)}T${hour.toString().padLeft(2, '0')}:${(t.day * 7 % 60).toString().padLeft(2, '0')}:00+08:00';
   final today = DateTime(now.year, now.month, now.day);
 
-  final bank = app.addAccount(name: '招商银行', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 1260000);
+  final bank = app.addAccount(name: '招商银行', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 300000);
   ledger.updateAccount('wechat', initialBalanceMinor: 180000);
   ledger.updateAccount('alipay', initialBalanceMinor: 96000);
   ledger.updateAccount('cash', initialBalanceMinor: 30000);
@@ -45,12 +45,19 @@ Future<void> seedDemoData(AppState app) async {
     }
   }
 
+  // 负债：车贷（每月 15 号）；过去几个月已经按期还的记成转账，余额才像真的
+  final loan = app.addDebt(name: '车贷', kind: DebtKind.car, owedMinor: 4800000, monthlyMinor: 260000, day: 15, fromAccountId: bank.id);
+  for (var m = 3; m >= 0; m--) {
+    final base = DateTime(today.year, today.month - m, 1);
+    final when = DateTime(base.year, base.month, 15);
+    if (!when.isAfter(today)) app.addManual({'type': 'transfer', 'amount_minor': 260000, 'currency': 'CNY', 'account_id': bank.id, 'to_account_id': loan.account.id, 'description': '车贷还款', 'occurred_at': at(when, 9)});
+    tx('expense', 200000, DateTime(base.year, base.month, 12), 'social', bank.id, '给爸妈', hour: 20);
+  }
+
   // 周期账单：房租每月 1 号
   final nextMonth1 = DateTime(today.year, today.month + 1, 1);
   ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 280000, 'currency': 'CNY', 'account_id': 'alipay', 'category_id': 'housing', 'description': '房租'}, frequency: Frequency.monthly, firstDue: d(nextMonth1));
 
-  // 负债：车贷（每月 15 号）
-  app.addDebt(name: '车贷', kind: DebtKind.car, owedMinor: 4800000, monthlyMinor: 260000, day: 15, fromAccountId: bank.id);
 
   // 信用卡 / 花呗：账单日挑「6 天前」，还款日在账单日后 20 天——截图里正好是已出账、还没到期
   final stmt = today.subtract(const Duration(days: 6));
