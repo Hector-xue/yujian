@@ -3,7 +3,9 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:query_dsl/query_dsl.dart';
 
 import '../app_state.dart';
+import '../game/cheer.dart';
 import '../theme.dart';
+import '../widgets/credit_card_sheet.dart';
 import '../widgets/fmt.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
@@ -30,13 +32,16 @@ class HomePage extends StatelessWidget {
     final to = '${now.year}-${now.month.toString().padLeft(2, '0')}-${last.toString().padLeft(2, '0')}';
     final expense = app.engine.run(QueryDsl(timeRange: DateRange(from, to)));
     final income = app.engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to)));
-    final balances = app.ledger.balances(includeVault: true); // 余额是真实余额：锁进目标的钱也在手机里，「可花的」才扣它
     final recent = app.ledger.listTransactions(limit: 5);
     final alerts = app.budgetAlerts();
     final anomalies = app.homeAnomalies().take(3).toList();
     final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
+    // 信用卡：7 天内到期还没还清的、已经逾期的，和周期账单放一起提醒
+    final cardsDue = [for (final c in app.cardStatuses()) if (c.state == CardBillState.overdue || (c.state == CardBillState.due && c.daysToDue <= 7)) c];
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
-    final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+    // 余额 = 手头的钱（现金 / 银行卡 / 钱包 / 锁仓，负的也减）：锁进目标的钱也在手机里，「可花的」才扣它。
+    // 信用卡 / 贷款 / 投资不在这里（它们在净资产里，财富页看）——以前全加在一起，「可花的」就可能比「余额」还多
+    final totalBalance = Wealth.cashOnHand(app.ledger);
 
     return Scaffold(
       appBar: AppBar(title: Text('${now.month} 月')),
@@ -47,7 +52,7 @@ class HomePage extends StatelessWidget {
           ListenableBuilder(
             listenable: app.game,
             builder: (context, _) => app.game.enabled && app.game.metrics != null
-                ? _GameHeader(totalBalance: totalBalance, expense: sumCny(expense.rows), income: sumCny(income.rows))
+                ? _GameHeader(expense: sumCny(expense.rows), income: sumCny(income.rows))
                 : _BalanceCard(totalBalance: totalBalance, expense: sumCny(expense.rows), income: sumCny(income.rows)),
           ),
           ListenableBuilder(listenable: app.game, builder: (context, _) => app.game.enabled ? const _GoalsStrip() : const SizedBox.shrink()),
@@ -117,11 +122,20 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          if (upcoming.isNotEmpty) ...[
+          if (upcoming.isNotEmpty || cardsDue.isNotEmpty) ...[
             Text('近期到期', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
             GlassCard(
               child: Column(children: [
+                for (final c in cardsDue)
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    onTap: () => showCreditCardSheet(context, c.account),
+                    title: Text('💳 ${c.account.name}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(cardBillLine(c), style: theme.textTheme.bodySmall?.copyWith(color: c.state == CardBillState.overdue ? y.danger : null), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: Text(fmtMoney(c.state == CardBillState.overdue ? c.overdueTotalMinor : c.remainingMinor, 'CNY'), style: theme.textTheme.titleMedium?.copyWith(color: c.state == CardBillState.overdue ? y.danger : null, fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
                 for (final r in upcoming)
                   ListTile(
                     dense: true,
@@ -190,10 +204,9 @@ class _BalanceCard extends StatelessWidget {
 
 /// 可花的 / 今天还能花 / 等级：游戏层的首页头卡。
 class _GameHeader extends StatelessWidget {
-  final int totalBalance;
   final int expense;
   final int income;
-  const _GameHeader({required this.totalBalance, required this.expense, required this.income});
+  const _GameHeader({required this.expense, required this.income});
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -225,10 +238,20 @@ class _GameHeader extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _StatRow(children: [
-              _Stat(label: '余额', value: fmtMoney(totalBalance, 'CNY')),
+              _Stat(label: '余额', value: fmtMoney(m.cashMinor, 'CNY')), // 和「可花的」同一次计算，保证可花的 ≤ 余额
               _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
               _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),
+            // 寄语：收入排位（低于三成的不在首页亮出来，财富页里有）+ 一句按处境挑的话
+            if (cheerFor(m) case final c?) ...[
+              const SizedBox(height: 10),
+              Text(
+                [if (m.incomeRank != null && m.incomeRank!.percentile >= 0.3) incomeRankLine(m)!, c.line].join(' · '),
+                style: theme.textTheme.bodySmall?.copyWith(color: c.tone == CheerTone.abundant ? y.income : y.muted),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ]),
         ),
       ),

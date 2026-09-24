@@ -31,6 +31,7 @@ class Settings {
   final bool redact; // 发送前脱敏
   final String? assistantName; // 对话页显示名，空 = 人格名
   final String themeId; // 外观主题
+  final String darkThemeId; // 系统切到深色时改用的主题；'' = 不跟随系统（默认，老用户不受影响）
   final String? transcribeModel; // 语音转写模型（/audio/transcriptions），空 = 不用云转写
   final String? speechModel; // 语音合成模型（/audio/speech），空 = 用系统 TTS
   final String? speechVoice; // 音色名，各服务不同（alloy / anna / …）
@@ -47,7 +48,7 @@ class Settings {
   final String omniVoice; // 多模态模型自带语音的音色（Qwen-Omni：Cherry / Serena / Ethan / Chelsie）
   final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
   final double backgroundOpacity; // 背景图可见度 0–1
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.darkThemeId = '', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -86,7 +87,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? darkThemeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -109,6 +110,7 @@ class Settings {
         redact: redact ?? this.redact,
         assistantName: assistantName ?? this.assistantName,
         themeId: themeId ?? this.themeId,
+        darkThemeId: darkThemeId ?? this.darkThemeId,
         transcribeModel: transcribeModel ?? this.transcribeModel,
         speechModel: speechModel ?? this.speechModel,
         speechVoice: speechVoice ?? this.speechVoice,
@@ -181,6 +183,7 @@ class PlatformSettingsStore implements SettingsStore {
       redact: p.getBool('redact') ?? true,
       assistantName: _emptyToNull(p.getString('assistant_name')),
       themeId: p.getString('theme_id') ?? 'glass',
+      darkThemeId: p.getString('dark_theme_id') ?? '',
       transcribeModel: _emptyToNull(p.getString('transcribe_model')),
       speechModel: _emptyToNull(p.getString('speech_model')),
       speechVoice: _emptyToNull(p.getString('speech_voice')),
@@ -224,6 +227,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setBool('redact', s.redact);
     await p.setString('assistant_name', s.assistantName ?? '');
     await p.setString('theme_id', s.themeId);
+    await p.setString('dark_theme_id', s.darkThemeId);
     await p.setString('transcribe_model', s.transcribeModel ?? '');
     await p.setString('speech_model', s.speechModel ?? '');
     await p.setString('speech_voice', s.speechVoice ?? '');

@@ -218,6 +218,33 @@ void main() {
       expect(fm.spendBasis, SpendBasis.none);
     });
 
+    test('可花的永远 ≤ 余额：透支成负数的钱包要减，贷款 / 投资 / 信用卡不进「余额」', () {
+      // 真机：支付宝没填期初、自动记账记了一笔支出 → 支付宝 −189；还有一笔网贷 −1392、一个投资账户。
+      // 旧口径：首页余额 = 所有账户相加（含贷款负数 / 投资），可花的只从「正余额的现金类账户」算起 → 可花的比余额还多
+      ledger.createAccount(id: 'alipay', name: '支付宝', type: AccountType.eWallet, currency: 'CNY');
+      add(expense(18911, '2026-09-19', account: 'alipay'));
+      ledger.createAccount(id: 'loan', name: '网贷', type: AccountType.payable, currency: 'CNY', initialBalanceMinor: -139246);
+      ledger.createAccount(id: 'fund', name: '基金', type: AccountType.investment, currency: 'CNY', initialBalanceMinor: 50000);
+      final m = Wealth(ledger).compute(today: '2026-09-20');
+      final cash = ledger.balance('wechat').minor + ledger.balance('bank').minor - 18911;
+      expect(m.cashMinor, cash);
+      expect(Wealth.cashOnHand(ledger), cash);
+      expect(m.liquidMinor, cash);
+      expect(m.disposableMinor, lessThanOrEqualTo(m.cashMinor));
+      expect(m.disposableMinor, cash);
+      expect(m.netWorthMinor, cash - 139246 + 50000);
+
+      // 手头的钱整体透支：流动资产按 0 算（生存月数 / 应急金不出现负数），可花的照实是负的
+      final poor = Ledger(openLedgerDatabaseInMemory(), clock: () => DateTime.utc(2026, 9, 20, 4))..seedDefaultCategories();
+      poor.createAccount(id: 'w', name: '微信', type: AccountType.eWallet, currency: 'CNY', initialBalanceMinor: -5000);
+      poor.createAccount(id: 'b', name: '银行卡', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 2000);
+      final pm = Wealth(poor).compute(today: '2026-09-20');
+      expect(pm.cashMinor, -3000);
+      expect(pm.liquidMinor, 0);
+      expect(pm.disposableMinor, -3000);
+      expect(pm.dailyAllowanceMinor, 0);
+    });
+
     test('称号不用等一个月：近 31 天收入（月光）→ 本月按天外推 → 周期账单 → 手填，依次兜底', () {
       // 只有本月两笔支出、没收入：9/5、9/12 各花 300；今天 9/20 → 外推 600 × 30 / 20 = 900/月
       add(expense(30000, '2026-09-05'));

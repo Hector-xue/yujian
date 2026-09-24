@@ -3,6 +3,8 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/action_sheet.dart';
+import '../widgets/credit_card_sheet.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'accounts_page.dart';
@@ -28,7 +30,7 @@ class DebtsPage extends StatelessWidget {
         final ratio = income > 0 ? totals.monthlyMinor / income : null;
         final left = totals.monthsLeft;
         return Scaffold(
-          appBar: AppBar(title: const Text('负债'), actions: [IconButton(tooltip: '添加负债', onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add))]),
+          appBar: AppBar(title: const Text('负债'), actions: [IconButton(tooltip: '添加负债', onPressed: () => _add(context), icon: const Icon(Icons.add))]),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
             children: [
@@ -39,9 +41,12 @@ class DebtsPage extends StatelessWidget {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('还没有负债', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 6),
-                      Text('房贷、车贷、网贷、借的钱——填「还剩多少、每月还多少、几号还」，余见替你建好账户、每月的还款提醒和还清目标。', style: theme.textTheme.bodySmall),
+                      Text('房贷、车贷、网贷、借的钱——填「还剩多少、每月还多少、几号还」，余见替你建好账户、每月的还款提醒和还清目标。\n信用卡填额度、账单日、还款日，余见按流水算本期账单、最低还款，没还清的利息和违约金。', style: theme.textTheme.bodySmall),
                       const SizedBox(height: 12),
-                      FilledButton.tonalIcon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('添加负债')),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        FilledButton.tonalIcon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('添加负债')),
+                        OutlinedButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡')),
+                      ]),
                     ]),
                   ),
                 ),
@@ -80,9 +85,12 @@ class DebtsPage extends StatelessWidget {
                     ],
                   ]),
                 ),
-                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点一笔设每月还款，长按一笔删除。', style: theme.textTheme.bodySmall)),
+                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点贷款设每月还款、点信用卡看账单和额度，长按一笔删除。', style: theme.textTheme.bodySmall)),
                 const SizedBox(height: 2),
-                Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔'))),
+                Wrap(spacing: 4, children: [
+                  TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔')),
+                  TextButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡')),
+                ]),
               ],
               const SizedBox(height: 18),
               Text('怎么算的', style: theme.textTheme.titleMedium),
@@ -90,6 +98,7 @@ class DebtsPage extends StatelessWidget {
               Text(
                 '负债账户的余额 = 还剩多少要还（本息合计，不拆）。每月还款是一笔转账到这个账户，到期进收件箱，你确认了余额就少一期。\n'
                 '首页「可花的」会扣掉发薪日前要还的那期；等级按「生活支出 + 每月还贷」算生存月数；信用卡刷了就从可花的里扣，还卡时不再扣。\n'
+                '信用卡：额度按此刻欠款算（还进去额度马上回来，再刷再占）；账单按账单日那天的欠款算，账单日之后刷的进下一期。到期没还清按日计息，没还够最低还款另收违约金。\n'
                 '净资产 = 资产 − 负债，有房贷时通常是负的，这很正常——看「还清进度」比看净资产更有用。',
                 style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
               ),
@@ -103,6 +112,17 @@ class DebtsPage extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// 右上「＋」：贷款 / 借款 还是 信用卡。
+  static Future<void> _add(BuildContext context) async {
+    final v = await showActionSheet<String>(context, title: '添加', actions: const [
+      SheetAction('debt', '房贷 / 车贷 / 网贷 / 借款', icon: Icons.account_balance_outlined),
+      SheetAction('card', '信用卡', icon: Icons.credit_card),
+    ]);
+    if (!context.mounted) return;
+    if (v == 'debt') await showAddDebtSheet(context);
+    if (v == 'card') await showCardTermsSheet(context);
   }
 
   static String _monthsLabel(int months) {
@@ -142,15 +162,16 @@ class _DebtRow extends StatelessWidget {
     final theme = Theme.of(context);
     final y = YujianColors.of(context);
     final app = AppScope.of(context);
+    final card = d.isCard ? app.cardStatus(d.account.id) : null;
     final sub = d.isCard
-        ? (d.owedMinor > 0 ? '信用卡待还 · 还款记成转到这张卡' : '信用卡 · 没有待还')
+        ? (card == null ? '信用卡 · 点这里设额度和账单日' : cardBillLine(card))
         : d.owedMinor <= 0
             ? '还清了'
             : d.repayment == null
                 ? '没设每月还款 · 点这里设'
                 : '每月 ${fmtMoney(d.monthlyMinor, 'CNY')} · ${int.parse(d.repayment!.nextDue.substring(8, 10))} 号';
     return InkWell(
-      onTap: d.isCard ? null : () => _showRepaymentSheet(context, app, d),
+      onTap: d.isCard ? () => showCreditCardSheet(context, d.account) : () => _showRepaymentSheet(context, app, d),
       onLongPress: () => _confirmRemove(context, app, d),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -161,12 +182,22 @@ class _DebtRow extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(d.account.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(sub, style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(sub, style: theme.textTheme.bodySmall?.copyWith(color: card?.state == CardBillState.overdue ? y.danger : null), maxLines: 1, overflow: TextOverflow.ellipsis),
               ]),
             ),
             const SizedBox(width: 8),
             Text(d.owedMinor > 0 ? fmtMoney(d.owedMinor, d.account.currency) : '已还清', style: theme.textTheme.titleMedium?.copyWith(color: d.owedMinor > 0 ? y.danger : y.income, fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
+          // 信用卡：额度用了几成（还进去马上回来，再刷再占）
+          if (card != null && card.usedRatio != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(value: card.usedRatio!.clamp(0.0, 1.0), minHeight: 5, backgroundColor: y.hairline, color: card.usedRatio! >= 0.9 ? y.danger : (card.usedRatio! >= 0.7 ? y.warning : theme.colorScheme.primary)),
+            ),
+            const SizedBox(height: 3),
+            Text('额度 ${fmtMoney(card.terms.limitMinor, 'CNY')} · 可用 ${fmtMoney(card.availableMinor, 'CNY')}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
           if (!d.isCard && d.originalMinor > 0) ...[
             const SizedBox(height: 8),
             ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(value: d.paidRatio, minHeight: 5, backgroundColor: y.hairline, color: d.owedMinor <= 0 ? y.income : theme.colorScheme.primary)),

@@ -90,10 +90,13 @@ class RecurringPage extends StatelessWidget {
                   const SizedBox(height: 12),
                   TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '金额（CNY）')),
                   const SizedBox(height: 12),
-                  SegmentedButton<String>(
-                    segments: const [ButtonSegment(value: 'expense', label: Text('支出')), ButtonSegment(value: 'income', label: Text('收入'))],
-                    selected: {type},
-                    onSelectionChanged: (s) => setState(() => type = s.first),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<String>(
+                      segments: const [ButtonSegment(value: 'expense', label: Text('支出')), ButtonSegment(value: 'income', label: Text('收入'))],
+                      selected: {type},
+                      onSelectionChanged: (s) => setState(() => type = s.first),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   PickerField<String>(

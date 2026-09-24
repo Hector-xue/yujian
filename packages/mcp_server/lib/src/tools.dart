@@ -172,9 +172,11 @@ class LedgerTools {
             }(),
         ];
       case 'get_wealth':
-        final m = Wealth(ledger).compute(today: (args['today'] as String?) ?? today());
+        final day = (args['today'] as String?) ?? today();
+        final m = Wealth(ledger).compute(today: day);
         String y(int minor) => Money(minor, m.currency).toDecimalString();
         return {
+          'cash_on_hand': y(m.cashMinor), // 首页「余额」：现金 / 银行卡 / 钱包 / 锁仓相加
           'disposable': y(m.disposableMinor),
           'daily_allowance': y(m.dailyAllowanceMinor),
           'liquid': y(m.liquidMinor),
@@ -196,6 +198,26 @@ class LedgerTools {
           'assets': y(m.assetsMinor),
           'debt': {'loan': y(m.debt.loanMinor), 'card': y(m.debt.cardMinor), 'monthly_repayment': y(m.debt.monthlyMinor), 'months_left': m.debt.monthsLeft},
           'income_by_line': m.incomeByLine.map((k, v) => MapEntry(k.name, y(v))),
+          // 设了额度 / 账单日的信用卡：本期账单、还剩、最低还款、到期日、逾期的违约金和利息估算
+          'credit_cards': [
+            for (final c in ledger.cards.list(today: day, currency: m.currency))
+              {
+                'account_id': c.account.id,
+                'name': c.account.name,
+                'limit': y(c.terms.limitMinor),
+                'owed': y(c.owedMinor),
+                'available': y(c.availableMinor),
+                'statement_date': c.statementDate,
+                'due_date': c.dueDate,
+                'statement': y(c.statementMinor),
+                'repaid': y(c.repaidMinor),
+                'remaining': y(c.remainingMinor),
+                'min_payment': y(c.minPaymentMinor),
+                'state': c.state.name,
+                'late_fee': y(c.lateFeeMinor),
+                'interest_estimate': y(c.interestMinor),
+              },
+          ],
         };
       case 'list_tasks':
         final week = (args['week'] as String?) ?? TaskStore.weekOf(today());

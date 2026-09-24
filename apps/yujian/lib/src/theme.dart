@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'dock_host.dart';
 import 'glass.dart';
@@ -53,7 +54,8 @@ class YujianColors extends ThemeExtension<YujianColors> {
   YujianColors copyWith({Color? balance}) => YujianColors(balance: balance ?? this.balance, income: income, expense: expense, danger: danger, warning: warning, muted: muted, hairline: hairline, cardFill: cardFill, cardBorder: cardBorder, chromeFill: chromeFill, radius: radius, glass: glass, blur: blur, glassTint: glassTint, borderWidth: borderWidth, shadows: shadows);
 
   /// 卡片 / 底栏的投影：主题给了就用主题的，没给就是一条长距离的淡影（质感来自留白和发丝线，不靠重阴影）。
-  List<BoxShadow> cardShadows(Color ink) => shadows ?? [BoxShadow(color: ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))];
+  /// 默认投影用墨色的淡影；深色主题的墨色是浅的，拿它做影子就成了一圈白光——深色换成黑影。
+  List<BoxShadow> cardShadows(Color ink) => shadows ?? [BoxShadow(color: ink.computeLuminance() > 0.5 ? const Color(0x59000000) : ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))];
 
   /// 玻璃面的材质：着色取卡片底色的色相、强度按主题；折射 / 亮边各主题一致。
   GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint));
@@ -90,7 +92,8 @@ class AppThemeSpec {
   final ThemeData Function(Color accent) build;
   /// 全局背景（放在所有页面下面）；null = 纯色。
   final Widget Function(BuildContext context, Color accent)? background;
-  const AppThemeSpec({required this.id, required this.name, required this.tagline, required this.build, this.background});
+  final bool dark; // 深色主题（外观页分组、「跟随系统深色」只在这些里选）
+  const AppThemeSpec({required this.id, required this.name, required this.tagline, required this.build, this.background, this.dark = false});
 }
 
 const _ink = Color(0xFF1F2A24);
@@ -122,8 +125,10 @@ ThemeData _base({
   Color? navIndicator,
   TextStyle? appBarTitle,
   double buttonRadius = 12,
+  Brightness brightness = Brightness.light,
 }) {
-  final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.light).copyWith(
+  final dark = brightness == Brightness.dark;
+  final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness).copyWith(
     surface: surface,
     onSurface: ink,
     primary: accent,
@@ -132,6 +137,7 @@ ThemeData _base({
   final r = BorderRadius.circular(y.radius);
   return ThemeData(
     useMaterial3: true,
+    brightness: brightness,
     colorScheme: scheme,
     // 透明用「底色的 0 透明度」而不是 Colors.transparent（那是透明黑）：切主题时 ThemeData 会插值，透明黑 → 实色的中途是半透明的深灰，整页灰一下
     scaffoldBackgroundColor: transparentScaffold ? surface.withValues(alpha: 0) : surface,
@@ -147,6 +153,8 @@ ThemeData _base({
       scrolledUnderElevation: 0,
       centerTitle: false,
       titleTextStyle: appBarTitle ?? TextStyle(fontSize: 20, fontWeight: FontWeight.values[(titleWeight / 100).round() - 1], color: ink),
+      // 深色主题：状态栏图标换白的（顶栏透明时系统猜不出底色）；浅色主题保持原样
+      systemOverlayStyle: dark ? SystemUiOverlayStyle.light.copyWith(statusBarColor: const Color(0x00000000)) : null,
     ),
     cardTheme: CardThemeData(
       color: y.cardFill,
@@ -170,6 +178,7 @@ ThemeData _base({
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(y.radius + 6)))),
     dialogTheme: DialogThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: r)),
     snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius))),
+    chipTheme: dark ? ChipThemeData(backgroundColor: y.cardFill, side: BorderSide(color: y.hairline), labelStyle: TextStyle(color: ink)) : null,
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: y.chromeFill,
       surfaceTintColor: Colors.transparent,
@@ -505,7 +514,125 @@ Widget _warmBg(BuildContext context, Color accent) => const DecoratedBox(
       child: SizedBox.expand(),
     );
 
-final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura, _blank, _bold, _soft, _warm];
+// ------------------------------------------------------------------ 深色主题
+
+/// 深色主题里强调色提亮一点：人格的强调色是按浅底挑的，深绿 / 深蓝放在黑底上看不清。
+Color _nightAccent(Color accent) => Color.lerp(accent, const Color(0xFFFFFFFF), 0.28)!;
+
+/// 夜玻璃：深蓝黑的底、强调色的暗光斑，卡片仍是玻璃——玻璃主题的夜间版。
+final _night = AppThemeSpec(
+  id: 'night',
+  name: '夜玻璃',
+  tagline: '深色、通透，夜里不刺眼',
+  dark: true,
+  build: (accent) {
+    const ink = Color(0xFFE8ECF4);
+    const soft = Color(0xFF98A2B3);
+    const y = YujianColors(
+      balance: Color(0xFF7DB2FF),
+      income: Color(0xFF4FCB8D),
+      expense: ink,
+      danger: Color(0xFFFF7A7A),
+      warning: Color(0xFFF5B84A),
+      muted: soft,
+      hairline: Color(0x26FFFFFF),
+      cardFill: Color(0xB3222838),
+      cardBorder: Color(0x33FFFFFF),
+      chromeFill: Color(0x000E121C),
+      radius: 20,
+      glass: true,
+      blur: 26,
+      glassTint: 0.55,
+    );
+    final a = _nightAccent(accent);
+    return _base(accent: a, surface: const Color(0xFF0E121C), ink: ink, soft: soft, y: y, transparentScaffold: true, background: (ctx, _) => _NightBackdrop(accent: a), buttonRadius: 14, titleWeight: 700, brightness: Brightness.dark);
+  },
+  background: (context, accent) => _NightBackdrop(accent: _nightAccent(accent)),
+);
+
+/// 墨夜：近黑的底、深灰实色卡、只有发丝线——留白的深色版，OLED 屏上最省电。
+final _midnight = AppThemeSpec(
+  id: 'midnight',
+  name: '墨夜',
+  tagline: '近黑、实色，最安静的深色',
+  dark: true,
+  build: (accent) {
+    const ink = Color(0xFFEDEDEF);
+    const soft = Color(0xFF9A9AA2);
+    const surface = Color(0xFF0B0B0D);
+    const y = YujianColors(
+      balance: Color(0xFF7AA7FF),
+      income: Color(0xFF52C48A),
+      expense: ink,
+      danger: Color(0xFFFF6B6B),
+      warning: Color(0xFFF2B040),
+      muted: soft,
+      hairline: Color(0xFF232327),
+      cardFill: Color(0xFF17171A),
+      cardBorder: Color(0xFF29292E),
+      chromeFill: Color(0xFF121214),
+      radius: 12,
+      glass: false,
+      borderWidth: 0.8,
+      shadows: [],
+    );
+    return _base(accent: _nightAccent(accent), surface: surface, ink: ink, soft: soft, y: y, buttonRadius: 10, titleWeight: 600, brightness: Brightness.dark);
+  },
+);
+
+/// 夜木：炭褐的底、暖色数字，暖木的夜间版——灯下看账不冷。
+final _ember = AppThemeSpec(
+  id: 'ember',
+  name: '夜木',
+  tagline: '炭褐、暖光，夜里不冷',
+  dark: true,
+  build: (accent) {
+    const ink = Color(0xFFF1E7DC);
+    const soft = Color(0xFFB3A393);
+    const surface = Color(0xFF17120F);
+    const y = YujianColors(
+      balance: Color(0xFFE3AC6C),
+      income: Color(0xFF93C58A),
+      expense: ink,
+      danger: Color(0xFFE8826A),
+      warning: Color(0xFFE6B25A),
+      muted: soft,
+      hairline: Color(0xFF30271F),
+      cardFill: Color(0xFF221B16),
+      cardBorder: Color(0xFF362B22),
+      chromeFill: Color(0xFF1B1511),
+      radius: 14,
+      glass: false,
+      borderWidth: 0.8,
+      shadows: [BoxShadow(color: Color(0x66000000), offset: Offset(0, 6), blurRadius: 18)],
+    );
+    return _base(accent: _nightAccent(accent), surface: surface, ink: ink, soft: soft, y: y, buttonRadius: 12, titleWeight: 500, brightness: Brightness.dark);
+  },
+);
+
+/// 夜玻璃的底：深蓝黑渐变 + 三块很暗的光斑（强调色 / 靛 / 紫），玻璃卡片取样时才有层次。
+class _NightBackdrop extends StatelessWidget {
+  final Color accent;
+  const _NightBackdrop({required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF111726), Color(0xFF0B0E16)])),
+      child: ClipRect(
+        child: Stack(
+          children: [
+            Positioned(top: -260, left: -220, child: _Blob(color: accent.withValues(alpha: 0.22), size: 640)),
+            Positioned(top: 140, right: -300, child: _Blob(color: const Color(0xFF3B5BDB).withValues(alpha: 0.24), size: 680)),
+            Positioned(bottom: -320, left: -120, child: _Blob(color: const Color(0xFF9C36B5).withValues(alpha: 0.18), size: 620)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura, _blank, _bold, _soft, _warm, _night, _midnight, _ember];
 
 AppThemeSpec themeById(String id) => appThemes.firstWhere((t) => t.id == id, orElse: () => _glass);
 
@@ -589,15 +716,15 @@ class Dock extends StatelessWidget {
         ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: y.glassTint * 0.7), thickness: 22, refract: 14, light: 0.6), radius: 999, blur: 22, fallback: y.cardFill, child: inner)
         // 实色主题：胶囊就是一块实色卡（描边 / 投影跟卡片同一套），页面从它下面滑过时不透
         : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: y.borderWidth > 0 ? Border.all(color: y.cardBorder, width: y.borderWidth) : null), child: inner);
+    final dark = theme.brightness == Brightness.dark;
+    final shadows = y.shadows ?? [BoxShadow(color: dark ? const Color(0x80000000) : theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))];
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, dockBottomMargin(context)), // 胶囊宽一点、贴底一点；边距按 viewPadding，键盘动的时候不跳
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: r,
-          boxShadow: y.shadows ?? [BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))],
-        ),
-        child: ClipRRect(borderRadius: r, child: pill),
-      ),
+      // 玻璃胶囊是半透明的，而且 BackdropFilter 会把它底下已经画好的东西一起模糊——BoxShadow 连形状内部也铺，
+      // 影子就透进胶囊、和滚过去的字糊成一片灰。玻璃只画形状外面的影子（OuterShadow），实色胶囊照旧
+      child: y.glass
+          ? OuterShadow(radius: 999, shadows: shadows, child: ClipRRect(borderRadius: r, child: pill))
+          : DecoratedBox(decoration: BoxDecoration(borderRadius: r, boxShadow: shadows), child: ClipRRect(borderRadius: r, child: pill)),
     );
   }
 }
@@ -639,14 +766,62 @@ class GlassCard extends StatelessWidget {
     );
     // 卡通主题的粗描边是它的辨识度，留着；其他主题的边由着色器画亮边，不再叠一圈白线
     if (side.width >= 1.5) body = DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body);
+    // 投影只画在卡片外面：玻璃面（尤其着色器没加载 / 背景还没截好时退回的半透明填充）底下不能有一层灰
     return Padding(
       padding: margin ?? EdgeInsets.zero,
-      child: DecoratedBox(
-        decoration: BoxDecoration(borderRadius: r, boxShadow: y.cardShadows(theme.colorScheme.onSurface)),
+      child: OuterShadow(
+        radius: y.radius,
+        shadows: y.cardShadows(theme.colorScheme.onSurface),
         child: ClipRRect(borderRadius: r, clipBehavior: clipBehavior == Clip.none ? Clip.antiAlias : clipBehavior, child: body),
       ),
     );
   }
+}
+
+/// 只画在圆角矩形**外面**的投影。BoxShadow 会把整块形状（含内部）都铺上影子，实色卡看不出来，
+/// 半透明的玻璃面下面就透出一层灰；这里画完影子再把形状内部挖掉。
+class OuterShadow extends StatelessWidget {
+  final double radius;
+  final List<BoxShadow> shadows;
+  final Widget child;
+  const OuterShadow({super.key, required this.radius, required this.shadows, required this.child});
+
+  @override
+  Widget build(BuildContext context) => shadows.isEmpty ? child : CustomPaint(painter: _OuterShadowPainter(radius: radius, shadows: shadows), child: child);
+}
+
+class _OuterShadowPainter extends CustomPainter {
+  final double radius;
+  final List<BoxShadow> shadows;
+  const _OuterShadowPainter({required this.radius, required this.shadows});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    final shape = RRect.fromRectAndRadius(rect, Radius.circular(radius.clamp(0.0, size.shortestSide / 2)));
+    // 挖掉形状：外框取得足够大（影子的偏移 + 模糊都在里面），evenOdd 让形状内部不被画到
+    var reach = 0.0;
+    for (final s in shadows) {
+      reach = [reach, s.offset.dx.abs() + s.blurRadius * 2 + s.spreadRadius.abs(), s.offset.dy.abs() + s.blurRadius * 2 + s.spreadRadius.abs()].reduce((a, b) => a > b ? a : b);
+    }
+    final clip = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(rect.inflate(reach + 8))
+      ..addRRect(shape);
+    canvas.save();
+    canvas.clipPath(clip);
+    for (final s in shadows) {
+      final paint = Paint()
+        ..color = s.color
+        ..maskFilter = s.blurRadius > 0 ? MaskFilter.blur(BlurStyle.normal, s.blurSigma) : null;
+      canvas.drawRRect(shape.shift(s.offset).inflate(s.spreadRadius), paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OuterShadowPainter old) => old.radius != radius || !listEquals(old.shadows, shadows);
 }
 
 /// 金额展示：支出深色，收入绿色，转账灰。

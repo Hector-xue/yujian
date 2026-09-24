@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../game/cheer.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
@@ -100,8 +101,30 @@ class WealthPage extends StatelessWidget {
                     ]),
                   ),
                 ),
+                // 你在哪儿：收入在全国的位置（统计局五等份分组估算）+ 寄语
+                if (cheerFor(m) case final c?) ...[
+                  const SizedBox(height: 12),
+                  GlassCard(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('你在哪儿', style: theme.textTheme.bodySmall),
+                        const SizedBox(height: 4),
+                        Text(c.line, style: theme.textTheme.titleMedium?.copyWith(color: c.tone == CheerTone.abundant ? y.income : null)),
+                        if (m.incomeRank != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '${incomeRankLine(m)!}：年收入按${m.incomeRank!.basis == IncomeRankBasis.history ? '近几个整月的收入均值' : '近 31 天的收入'} × 12 ≈ ${fmtMoney(m.incomeRank!.annualMinor, 'CNY')}，'
+                            '对照${IncomeBenchmark.source}（中位数 ${IncomeBenchmark.medianYuan} 元 / 年）估算。统计局不公布分年龄的收入分布，所以只和全国比，不编「同龄人」。',
+                            style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+                          ),
+                        ],
+                      ]),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
-                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
+                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 手头余额 ${fmtMoney(m.cashMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
                 stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${m.payday}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
                 stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}（目标锁仓算在资产里）${m.inDebt ? '。是负的很正常：有房贷车贷都这样，看下面的还清进度更有用' : ''}${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
                 if (m.debt.totalMinor > 0)

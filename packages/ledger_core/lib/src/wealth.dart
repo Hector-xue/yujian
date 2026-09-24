@@ -1,3 +1,4 @@
+import 'benchmark.dart';
 import 'debts.dart';
 import 'ledger.dart';
 import 'models/account.dart';
@@ -74,11 +75,12 @@ enum SpendBasis { manual, history, thisMonth, recurring, income, none }
 class WealthMetrics {
   final String today;
   final String currency;
-  final int liquidMinor; // 流动资产：cash + bank + e_wallet + vault（正数部分）
+  final int cashMinor; // 手头余额：现金 / 银行卡 / 钱包 / 锁仓账户的余额直接相加（透支成负的钱包也照减）。首页「余额」就是它
+  final int liquidMinor; // 流动资产 = max(手头余额, 0)：生存月数 / 应急金目标按它算，不会是负数
   final int lockedMinor; // 各目标锁仓里的钱
   final int fixedDueMinor; // 到发薪日前还要付的固定支出 + 还贷（周期账单里 next_due 在此之前的支出模板、转到贷款账户的转账模板）
   final int cardOwedMinor; // 信用卡待还（刷了就扣，还卡时不再扣）
-  final int disposableMinor; // 可花的 = liquid − locked − fixedDue − cardOwed
+  final int disposableMinor; // 可花的 = 手头余额 − locked − fixedDue − cardOwed，永远 ≤ 手头余额
   final String payday; // 下个发薪日 yyyy-MM-dd
   final String paydaySource; // profile | inferred | month_end
   final int daysToPayday; // ≥ 1
@@ -99,10 +101,12 @@ class WealthMetrics {
   final int repaymentMonthlyMinor; // 每月要还的贷款（周期转账月度化），等级口径里算进月支出
   final Map<IncomeLine, int> incomeByLine; // 本月
   final List<Account> excludedForeign; // 币种不同没算进去的账户
+  final IncomeRank? incomeRank; // 收入在全国的位置（按统计局五等份分组估算）；没有收入记录 = null
 
   const WealthMetrics({
     required this.today,
     required this.currency,
+    required this.cashMinor,
     required this.liquidMinor,
     required this.lockedMinor,
     required this.fixedDueMinor,
@@ -128,6 +132,7 @@ class WealthMetrics {
     required this.repaymentMonthlyMinor,
     required this.incomeByLine,
     required this.excludedForeign,
+    this.incomeRank,
   });
 
   /// 净资产是负的（负债比资产多）。
@@ -155,6 +160,19 @@ class Wealth {
 
   static const _liquidTypes = {AccountType.cash, AccountType.bank, AccountType.eWallet, AccountType.vault};
 
+  /// 算不算「手头的钱」：现金 / 银行卡 / 钱包 / 目标锁仓。信用卡、贷款、借出去的、投资都不算。
+  static bool isCash(AccountType t) => _liquidTypes.contains(t);
+
+  /// 手头余额：现金类账户（含归档外的锁仓）余额直接相加，负的也减。首页「余额」和「可花的」同一个起点，
+  /// 以前首页把信用卡 / 贷款 / 投资也加进「余额」、可花的却只从正余额的现金类账户算起，于是出现「可花的比余额还多」。
+  static int cashOnHand(Ledger ledger, {String currency = 'CNY'}) {
+    var sum = 0;
+    for (final a in ledger.listAccounts(includeVault: true)) {
+      if (a.currency == currency && _liquidTypes.contains(a.type)) sum += ledger.balance(a.id).minor;
+    }
+    return sum;
+  }
+
   /// 收入分类 → 收入线。画像里可覆盖；默认按内置分类。
   static IncomeLine lineOf(String? categoryId, Map<String, String> overrides) {
     if (categoryId == null) return IncomeLine.other;
@@ -173,7 +191,7 @@ class Wealth {
     final profile = ledger.profile;
     final accounts = ledger.listAccounts(includeVault: true);
     final foreign = <Account>[];
-    var liquid = 0;
+    var cash = 0;
     var netWorth = 0;
     var assets = 0;
     var cardOwed = 0;
@@ -185,7 +203,8 @@ class Wealth {
       final b = ledger.balance(a.id).minor;
       netWorth += b;
       if (b > 0) assets += b;
-      if (_liquidTypes.contains(a.type) && b > 0) liquid += b;
+      // 透支成负数的钱包（常见于自动记账记上了支出、却没填期初余额）也要减：只加正数会把手头的钱算多
+      if (_liquidTypes.contains(a.type)) cash += b;
       if (a.type == AccountType.creditCard && b < 0) cardOwed += -b;
     }
     var locked = 0;
@@ -213,7 +232,8 @@ class Wealth {
       if (r.nextDue.compareTo(today) < 0 || r.nextDue.compareTo(payday) > 0) continue;
       fixedDue += ((r.template['amount_minor'] as num?)?.toInt() ?? 0);
     }
-    final disposable = liquid - locked - fixedDue - cardOwed;
+    final liquid = cash > 0 ? cash : 0;
+    final disposable = cash - locked - fixedDue - cardOwed;
 
     // 今天已花（只是展示）；今天还能花 = 可花的 ÷ 到发薪日的天数——可花的来自余额，已经扣过今天的支出，不再减一次
     final spentToday = _expense(from: today, to: today, currency: currency);
@@ -222,6 +242,8 @@ class Wealth {
     // 月支出基线：历史整月（近 3 个月，当月不算）
     var months = 0;
     var spendSum = 0;
+    var incomeMonths = 0;
+    var incomeSum = 0;
     for (var i = 1; i <= 3; i++) {
       final m = DateTime.utc(t.year, t.month - i, 1);
       final last = DateTime.utc(m.year, m.month + 1, 0);
@@ -230,7 +252,17 @@ class Wealth {
         months++;
         spendSum += s;
       }
+      final inc = _income(from: _fmt(m), to: _fmt(last), currency: currency);
+      if (inc > 0) {
+        incomeMonths++;
+        incomeSum += inc;
+      }
     }
+    final recentIncome = _income(from: _fmt(t.subtract(const Duration(days: 30))), to: today, currency: currency);
+    // 收入排位：有整月收入按近 3 个整月均值年化，否则按近 31 天年化
+    final incomeRank = incomeMonths > 0
+        ? IncomeRank.of(incomeSum ~/ incomeMonths * 12, IncomeRankBasis.history)
+        : IncomeRank.of(recentIncome * 12, IncomeRankBasis.recent);
     final m0 = DateTime.utc(t.year, t.month, 1);
     final mEnd = DateTime.utc(t.year, t.month + 1, 0);
     var basis = SpendBasis.none;
@@ -245,10 +277,6 @@ class Wealth {
     } else {
       // 近 31 天有收入：先按收入当月支出（月光算法）。第一个月只记了几笔支出就按天外推会得出「一个月花 96 块、够花 103 个月、人上人」
       // 这种笑话；按收入估至少是个保守的整数。记满一个整月就换成真实均值，嫌不准可以手填
-      var recentIncome = 0;
-      for (final tx in _range(from: _fmt(t.subtract(const Duration(days: 30))), to: today, currency: currency)) {
-        if (tx.type == TransactionType.income) recentIncome += tx.amountMinor;
-      }
       // 没收入记录：本月按天外推（至少 3 天才外推，1–2 天的数据太抖），周期账单合计当下限
       final thisMonth = _outflow(from: _fmt(m0), to: today, currency: currency);
       final elapsed = t.day;
@@ -286,6 +314,7 @@ class Wealth {
     return WealthMetrics(
       today: today,
       currency: currency,
+      cashMinor: cash,
       liquidMinor: liquid,
       lockedMinor: locked,
       fixedDueMinor: fixedDue,
@@ -311,6 +340,7 @@ class Wealth {
       repaymentMonthlyMinor: debtTotals.monthlyMinor,
       incomeByLine: byLine,
       excludedForeign: foreign,
+      incomeRank: incomeRank,
     );
   }
 
@@ -373,6 +403,15 @@ class Wealth {
     for (final tx in _range(from: from, to: to, currency: currency)) {
       if (tx.type == TransactionType.expense) sum += tx.amountMinor;
       if (tx.type == TransactionType.refund) sum -= tx.amountMinor;
+    }
+    return sum;
+  }
+
+  /// 一段日期内的收入合计。
+  int _income({required String from, required String to, required String currency}) {
+    var sum = 0;
+    for (final tx in _range(from: from, to: to, currency: currency)) {
+      if (tx.type == TransactionType.income) sum += tx.amountMinor;
     }
     return sum;
   }
