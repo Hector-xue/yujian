@@ -151,7 +151,12 @@ class _GlassBackdropState extends State<GlassBackdrop> with WidgetsBindingObserv
       final shot = await ro.toImage(pixelRatio: scale);
       final rec = ui.PictureRecorder();
       Canvas(rec).drawImage(shot, Offset.zero, Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: widget.sigma * scale, sigmaY: widget.sigma * scale, tileMode: TileMode.clamp));
-      final blurred = await rec.endRecording().toImage(shot.width, shot.height);
+      final raw = await rec.endRecording().toImage(shot.width, shot.height);
+      // 拉伸成 2 的幂尺寸再交给着色器取样。有的机型（GLES 后端）会把非 2 的幂的纹理补齐到 2 的幂（206×457 → 256×512），
+      // 着色器按 0–1 取样就读到补齐出来的空白——卡片右侧约 80%、屏幕下方约 89% 以外整片发灰（0.9.13 前的「灰影」）。
+      // 自己先铺满 2 的幂，就没有可补的边；模糊过的图拉伸看不出来
+      final blurred = await _toPowerOfTwo(raw);
+      if (!identical(blurred, raw)) raw.dispose();
       final luma = await _meanLuma(shot);
       shot.dispose();
       if (!mounted || gen != _gen) {
@@ -166,6 +171,29 @@ class _GlassBackdropState extends State<GlassBackdrop> with WidgetsBindingObserv
     } catch (e) {
       debugPrint('glass backdrop capture failed: $e');
     }
+  }
+
+  /// 不小于 n 的 2 的幂。
+  static int _pow2(int n) {
+    var p = 1;
+    while (p < n) {
+      p <<= 1;
+    }
+    return p;
+  }
+
+  /// 把图拉伸铺满「宽高各自向上取 2 的幂」的新图；本来就是 2 的幂的原样返回。
+  static Future<ui.Image> _toPowerOfTwo(ui.Image img) async {
+    final w = _pow2(img.width), h = _pow2(img.height);
+    if (w == img.width && h == img.height) return img;
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+    return rec.endRecording().toImage(w, h);
   }
 
   static Future<double> _meanLuma(ui.Image img) async {
