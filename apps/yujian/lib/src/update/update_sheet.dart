@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../privacy/net_log.dart';
+import 'update_io_native.dart' if (dart.library.js_interop) 'update_io_web.dart' show DownloadSkipped;
 import 'updater.dart';
 
 /// 新版本提示：Android 直接下载安装；其他平台给下载页。
@@ -27,19 +28,41 @@ class _UpdateSheet extends StatefulWidget {
 class _UpdateSheetState extends State<_UpdateSheet> {
   double? progress;
   String? error;
+  String? line; // 正在走的线路（显示用）
+  bool onMirror = false;
+  bool _skip = false;
+
+  String _lineName(String url) => hostOf(url).contains('github') ? 'GitHub' : '备用线路';
 
   Future<void> _install() async {
+    final sources = widget.release.androidSources;
     setState(() {
       progress = 0;
       error = null;
+      onMirror = false;
+      _skip = false;
+      line = sources.isEmpty ? null : _lineName(sources.first);
     });
     final log = AppScope.maybeOf(context)?.netLog;
     try {
-      Future<void> go() => Updater.downloadAndInstall(widget.release, (p) {
-            if (mounted) setState(() => progress = p);
-          });
-      // 下载安装包也是一次出网（只下载不上传），照记
-      await (log == null ? go() : log.track(go, kind: 'download', purpose: 'apk', host: hostOf(widget.release.androidArm64)));
+      await Updater.downloadAndInstall(
+        widget.release,
+        (p) {
+          if (mounted) setState(() => progress = p);
+        },
+        // 下载安装包也是一次出网（只下载不上传），按实际走的线路逐条记
+        attempt: (url, go) => log == null ? go() : log.track(go, kind: 'download', purpose: 'apk', host: hostOf(url)),
+        onSwitch: (url, e) {
+          _skip = false;
+          if (mounted) {
+            setState(() {
+              onMirror = true;
+              line = e is DownloadSkipped ? '已换${_lineName(url)}' : '${line ?? '主线路'}下不动，已换${_lineName(url)}';
+            });
+          }
+        },
+        skip: () => _skip,
+      );
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -83,7 +106,16 @@ class _UpdateSheetState extends State<_UpdateSheet> {
             if (progress != null) ...[
               LinearProgressIndicator(value: progress == 0 ? null : progress),
               const SizedBox(height: 6),
-              Text(progress == 0 ? '连接中…' : '下载中 ${(progress! * 100).toStringAsFixed(0)}%', style: theme.textTheme.bodySmall),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('${line == null ? '' : '$line · '}${progress == 0 ? '连接中…' : '下载中 ${(progress! * 100).toStringAsFixed(0)}%'}',
+                        style: theme.textTheme.bodySmall),
+                  ),
+                  if (!onMirror && r.androidSources.length > 1)
+                    TextButton(onPressed: _skip ? null : () => setState(() => _skip = true), child: const Text('太慢？换备用线路')),
+                ],
+              ),
               const SizedBox(height: 12),
             ],
             if (error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(error!, style: theme.textTheme.bodySmall)),
@@ -103,8 +135,13 @@ class _UpdateSheetState extends State<_UpdateSheet> {
                 const SizedBox(width: 8),
                 if (Updater.canInstallInApp && r.androidArm64 != null)
                   FilledButton.icon(onPressed: progress != null ? null : _install, icon: const Icon(Icons.system_update_alt, size: 18), label: const Text('下载并安装'))
-                else if (direct != null)
-                  FilledButton.icon(onPressed: () => _open(direct), icon: const Icon(Icons.download, size: 18), label: const Text('下载'))
+                else if (direct != null) ...[
+                  if (r.mirrorForThisPlatform != null) ...[
+                    TextButton(onPressed: () => _open(r.mirrorForThisPlatform!), child: const Text('备用线路')),
+                    const SizedBox(width: 8),
+                  ],
+                  FilledButton.icon(onPressed: () => _open(direct), icon: const Icon(Icons.download, size: 18), label: const Text('下载')),
+                ]
                 else
                   FilledButton(onPressed: () => _open(r.page), child: const Text('打开下载页')),
               ],
