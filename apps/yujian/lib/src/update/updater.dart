@@ -7,6 +7,7 @@ import '../version.dart';
 import 'update_io_native.dart' if (dart.library.js_interop) 'update_io_web.dart' as io;
 
 /// 门户上的最新版信息（yujian.ivyea.com/download/version.json，由发版同步脚本生成）。
+/// 顶层 *_url 是主线路（GitHub Release）；[mirror] 是同名键的备用线路，主线路下不动时用。
 class ReleaseInfo {
   final String version;
   final String notes;
@@ -16,7 +17,8 @@ class ReleaseInfo {
   final String? linux;
   final String? web;
   final String page;
-  const ReleaseInfo({required this.version, required this.notes, this.androidArm64, this.androidArm32, this.windows, this.linux, this.web, required this.page});
+  final Map<String, String> mirror;
+  const ReleaseInfo({required this.version, required this.notes, this.androidArm64, this.androidArm32, this.windows, this.linux, this.web, required this.page, this.mirror = const {}});
 
   factory ReleaseInfo.fromJson(Map<String, Object?> j) => ReleaseInfo(
         version: j['version'] as String,
@@ -27,6 +29,10 @@ class ReleaseInfo {
         linux: j['linux_url'] as String?,
         web: j['web_url'] as String?,
         page: (j['page'] as String?) ?? 'https://yujian.ivyea.com/',
+        mirror: {
+          for (final e in ((j['mirror'] as Map?) ?? const {}).entries)
+            if (e.value is String && (e.value as String).isNotEmpty) e.key as String: e.value as String,
+        },
       );
 
   bool get isNewer => compareVersions(version, appVersion) > 0;
@@ -41,6 +47,22 @@ class ReleaseInfo {
       _ => null,
     };
   }
+
+  /// 当前平台直装包的备用线路；null = 没有备用。
+  String? get mirrorForThisPlatform {
+    if (kIsWeb) return null;
+    final key = switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android_arm64_url',
+      TargetPlatform.windows => 'windows_url',
+      TargetPlatform.linux => 'linux_url',
+      _ => null,
+    };
+    final m = key == null ? null : mirror[key];
+    return m == downloadForThisPlatform ? null : m;
+  }
+
+  /// App 内安装包的下载顺序：主线路在前，备用在后（去重去空）。
+  List<String> get androidSources => {?androidArm64, ?mirror['android_arm64_url']}.toList();
 }
 
 /// "0.4.1" vs "0.10.0" 按段比较；带后缀（-beta）的段按数字前缀算。
@@ -72,11 +94,33 @@ class Updater {
 
   static bool get canInstallInApp => io.canInstallInApp && io.isAndroid;
 
-  /// Android：下载 apk 到缓存并拉起系统安装器。
-  static Future<void> downloadAndInstall(ReleaseInfo r, void Function(double) onProgress) async {
-    final url = r.androidArm64;
-    if (url == null) throw Exception('这个版本没有 Android 包');
-    final path = await io.downloadTo(url, 'yujian-${r.version}.apk', onProgress);
+  /// Android：按 [ReleaseInfo.androidSources] 顺序下载 apk 到缓存，一条线路失败、卡住或被用户喊换，就换下一条；下完拉起系统安装器。
+  /// [attempt] 包住每一次下载（出网记录按实际线路记）；[onSwitch] 在换线路前告诉界面；[skip] 返回 true = 用户嫌慢，放弃当前线路。
+  static Future<void> downloadAndInstall(
+    ReleaseInfo r,
+    void Function(double) onProgress, {
+    Future<String> Function(String url, Future<String> Function() go)? attempt,
+    void Function(String url, Object error)? onSwitch,
+    bool Function()? skip,
+  }) async {
+    final sources = r.androidSources;
+    if (sources.isEmpty) throw Exception('这个版本没有 Android 包');
+    String? path;
+    Object? last;
+    for (var i = 0; i < sources.length && path == null; i++) {
+      final url = sources[i];
+      Future<String> go() => io.downloadTo(url, 'yujian-${r.version}.apk', onProgress, cancelled: skip);
+      try {
+        path = await (attempt == null ? go() : attempt(url, go));
+      } catch (e) {
+        last = e;
+        if (i + 1 < sources.length) {
+          onProgress(0);
+          onSwitch?.call(sources[i + 1], e);
+        }
+      }
+    }
+    if (path == null) throw last!;
     await io.installApk(path);
   }
 }

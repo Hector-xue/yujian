@@ -4,7 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../widgets/draft_card.dart';
 
-/// 收件箱：所有待确认的草稿，按组展示。
+/// 收件箱：所有待确认的草稿，按组展示，新进来的在前；每组顶上写明从哪来、什么时候进来的。
 class InboxPage extends StatelessWidget {
   const InboxPage({super.key});
 
@@ -23,7 +23,8 @@ class InboxPage extends StatelessWidget {
           : ListView(
               padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
               children: [
-                for (final g in groups.values) Padding(padding: const EdgeInsets.only(bottom: 12), child: DraftGroupCard(drafts: g, onChanged: app.touch)),
+                for (final g in groups.values.toList()..sort((a, b) => b.first.createdAt.compareTo(a.first.createdAt)))
+                  Padding(padding: const EdgeInsets.only(bottom: 12), child: DraftGroupCard(drafts: g, onChanged: app.touch, showOrigin: true)),
               ],
             ),
     );

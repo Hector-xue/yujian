@@ -19,7 +19,7 @@
 
 - **Android**：[最新版 APK](https://github.com/Hector-xue/yujian/releases/latest)（arm64 适合绝大多数手机，老机型选 arm32）
 - **Windows / Linux / Web**：同一个 [Release 页](https://github.com/Hector-xue/yujian/releases/latest)
-- 官网：[yujian.ivyea.com](https://yujian.ivyea.com/)（国内下载更快，含教程和更新日志）
+- 官网：[yujian.ivyea.com](https://yujian.ivyea.com/)（下载、教程和更新日志）
 
 ## 能做什么
 

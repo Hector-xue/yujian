@@ -6,15 +6,18 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
 import '../app_state.dart';
+import '../feedback/feedback_store.dart';
 import '../platform/platform_info.dart';
 import '../theme.dart';
 import '../version.dart';
+import 'feedback_history_page.dart';
 
 /// 反馈的接收端（yujian.ivyea.com 上的 yujian-feedback 服务：落盘 + 转作者的飞书）。
 const feedbackEndpoint = 'https://yujian.ivyea.com/api/feedback';
 
 /// 反馈 BUG / 建议：文字 + 最多 4 张截图 + 可选联系方式；附带信息（版本 / 系统 / 屏幕 / 主题）明着列出来、可以不带。
 /// 只在点「发送」时出网，记进出网记录；纯本地模式下不能发。
+/// 写到一半返回 / App 被杀，草稿都在（[FeedbackStore]）；发出去的记进本机历史，右上角能翻。
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage({super.key});
   @override
@@ -30,9 +33,56 @@ class _FeedbackPageState extends State<FeedbackPage> {
   var _kind = 'bug';
   var _withInfo = true;
   var _sending = false;
+  var _touched = false; // 草稿从磁盘读回来之前用户已经动过了，就别拿旧草稿盖掉
+  var _historyCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final cached = FeedbackStore.cached;
+    if (cached != null) {
+      _apply(cached);
+    } else {
+      FeedbackStore.loadDraft().then((d) {
+        if (mounted && !_touched) setState(() => _apply(d));
+      });
+    }
+    _text.addListener(_onEdit);
+    _contact.addListener(_onEdit);
+    _loadHistoryCount();
+  }
+
+  Future<void> _loadHistoryCount() async {
+    final n = (await FeedbackStore.history()).length;
+    if (mounted) setState(() => _historyCount = n);
+  }
+
+  void _apply(FeedbackDraft d) {
+    _kind = d.kind;
+    _withInfo = d.withInfo;
+    _images
+      ..clear()
+      ..addAll(d.images);
+    _text.text = d.text;
+    _contact.text = d.contact;
+  }
+
+  void _onEdit() {
+    _touched = true;
+    _save();
+  }
+
+  void _save({bool imagesChanged = false}) {
+    _touched = true;
+    FeedbackStore.saveDraft(
+      FeedbackDraft(kind: _kind, text: _text.text, contact: _contact.text, withInfo: _withInfo, images: List.unmodifiable(_images)),
+      imagesChanged: imagesChanged,
+    );
+  }
 
   @override
   void dispose() {
+    FeedbackStore.flushDraft();
     _text.dispose();
     _contact.dispose();
     super.dispose();
@@ -67,6 +117,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
       }
       if (!mounted) return;
       setState(() {});
+      _save(imagesChanged: true);
       if (tooBig > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$tooBig 张图压缩后还超过 2MB，没加上')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('选图失败：$e')));
@@ -109,11 +160,19 @@ class _FeedbackPageState extends State<FeedbackPage> {
         if (r.statusCode != 200 || j['ok'] != true) throw Exception('${j['error'] ?? 'HTTP ${r.statusCode}'}');
         return '${j['id']}';
       }, kind: 'feedback', purpose: 'send', host: Uri.parse(feedbackEndpoint).host, chars: text.length, bytes: total, count: _images.length);
+      final sent = List<Uint8List>.of(_images);
+      await FeedbackStore.addHistory(
+        FeedbackRecord(id: id, atMs: DateTime.now().millisecondsSinceEpoch, kind: _kind, text: text, contact: _contact.text.trim(), imageCount: sent.length),
+        sent,
+      );
       if (!mounted) return;
       setState(() {
         _text.clear();
         _images.clear();
+        _historyCount++;
       });
+      await FeedbackStore.clearDraft();
+      if (!mounted) return;
       await showDialog<void>(
         context: context,
         builder: (d) => AlertDialog(
@@ -136,7 +195,19 @@ class _FeedbackPageState extends State<FeedbackPage> {
     final y = YujianColors.of(context);
     final info = _info(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('反馈 BUG / 建议')),
+      appBar: AppBar(
+        title: const Text('反馈 BUG / 建议'),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const FeedbackHistoryPage()));
+              _loadHistoryCount();
+            },
+            icon: const Icon(Icons.history, size: 20),
+            label: Text(_historyCount > 0 ? '我发过的 $_historyCount' : '我发过的'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
         children: [
@@ -145,7 +216,10 @@ class _FeedbackPageState extends State<FeedbackPage> {
             child: SegmentedButton<String>(
               segments: const [ButtonSegment(value: 'bug', label: Text('BUG')), ButtonSegment(value: 'idea', label: Text('建议')), ButtonSegment(value: 'other', label: Text('其他'))],
               selected: {_kind},
-              onSelectionChanged: (v) => setState(() => _kind = v.first),
+              onSelectionChanged: (v) {
+                setState(() => _kind = v.first);
+                _save();
+              },
             ),
           ),
           const SizedBox(height: 12),
@@ -171,7 +245,10 @@ class _FeedbackPageState extends State<FeedbackPage> {
                   top: 2,
                   right: 2,
                   child: InkWell(
-                    onTap: () => setState(() => _images.removeAt(i)),
+                    onTap: () {
+                      setState(() => _images.removeAt(i));
+                      _save(imagesChanged: true);
+                    },
                     child: Container(decoration: const BoxDecoration(color: Color(0x99000000), shape: BoxShape.circle), padding: const EdgeInsets.all(3), child: const Icon(Icons.close, size: 14, color: Color(0xFFFFFFFF))),
                   ),
                 ),
@@ -194,7 +271,10 @@ class _FeedbackPageState extends State<FeedbackPage> {
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             value: _withInfo,
-            onChanged: (v) => setState(() => _withInfo = v ?? true),
+            onChanged: (v) {
+              setState(() => _withInfo = v ?? true);
+              _save();
+            },
             title: const Text('附带版本和机型信息'),
             subtitle: Text(info.entries.map((e) => '${e.key}：${e.value}').join('\n'), style: theme.textTheme.bodySmall),
             controlAffinity: ListTileControlAffinity.leading,
@@ -209,7 +289,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
           Text(
             app.settings.offlineMode
                 ? '纯本地模式开着：发不了反馈（更多 → 隐私 可以关掉）。'
-                : '发到余见作者的服务器，存下后转到作者的飞书；截图不会放到任何公开链接。不带任何账本数据。这一次会记进「出网记录」。',
+                : '发到余见作者的服务器，存下后转到作者的飞书；截图不会放到任何公开链接。不带任何账本数据。这一次会记进「出网记录」。没发出去的内容自动存在本机，返回再进来还在。',
             style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
           ),
           if (kDebugMode) Text(feedbackEndpoint, style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),

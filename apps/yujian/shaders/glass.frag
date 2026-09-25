@@ -30,7 +30,10 @@ float sdRoundRect(vec2 p, vec2 hs, float r) {
 
 vec3 sampleBg(vec2 q) {
   vec2 uv = clamp((uOrigin + q) / uSize, vec2(0.0), vec2(1.0));
-  return texture(uBackdrop, uv).rgb;
+  // 纹理是预乘 alpha 的。背景按 0.5 倍截图时屏幕宽高常是半像素（393 → 196.5），最后一行 / 一列半透明，
+  // 模糊后往里晕开一圈；直接拿 rgb 就是一圈发暗的边（屏幕最下面那道灰）。除回 alpha 取真实颜色
+  vec4 t = texture(uBackdrop, uv);
+  return t.a > 0.004 ? t.rgb / t.a : t.rgb;
 }
 
 void main() {

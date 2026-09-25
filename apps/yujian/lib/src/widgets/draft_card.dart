@@ -5,14 +5,17 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'category_icon.dart';
 import 'draft_edit_sheet.dart';
+import 'draft_source.dart';
 import 'fmt.dart';
 
 /// 一组草稿（同 group_id）的确认卡：逐条可改，可整组确认/忽略。对话页和收件箱共用。
+/// [showOrigin]：顶上加一行「从哪来的 · 什么时候进来的」，点开看原文和确切时间（收件箱用；对话页里来源一目了然）。
 class DraftGroupCard extends StatelessWidget {
   final List<Draft> drafts;
   final VoidCallback? onChanged;
   final void Function(int committed)? onCommitted;
-  const DraftGroupCard({super.key, required this.drafts, this.onChanged, this.onCommitted});
+  final bool showOrigin;
+  const DraftGroupCard({super.key, required this.drafts, this.onChanged, this.onCommitted, this.showOrigin = false});
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +29,7 @@ class DraftGroupCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (showOrigin && drafts.isNotEmpty) DraftOriginLine(draft: drafts.first),
             for (final d in drafts) _DraftRow(draft: d, onChanged: onChanged, onCommitted: onCommitted),
             if (pending.isNotEmpty) ...[
               const SizedBox(height: 6),
