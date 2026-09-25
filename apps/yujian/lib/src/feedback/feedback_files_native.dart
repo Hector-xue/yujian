@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// 反馈草稿 / 历史里的截图落在应用私有目录（<support>/feedback/<dir>/0.img…），不进相册、不进偏好文件。
+/// 反馈草稿 / 历史里的截图落在应用私有目录（`<support>/feedback/<dir>/0.img`…），不进相册、不进偏好文件。
 /// 所有操作失败都只记日志不抛：丢了截图不该让整页反馈用不了。
 Future<Directory> _dir(String name) async => Directory('${(await getApplicationSupportDirectory()).path}/feedback/$name');
 
