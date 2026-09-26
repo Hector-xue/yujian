@@ -92,7 +92,7 @@ class Checkups {
       if (!d.isCard && d.kind == DebtKind.online) highInterest += d.owedMinor;
     }
     final cardUsage = cardLimit > 0 ? cardOwed / cardLimit : null;
-    final repayRatio = monthlyIncome > 0 && m.debt.monthlyMinor > 0 ? m.debt.monthlyMinor / monthlyIncome : null;
+    final repayRatio = monthlyIncome > 0 && m.debt.loanMonthlyMinor > 0 ? m.debt.loanMonthlyMinor / monthlyIncome : null; // 月供只算贷款：信用卡账单是已经记过的支出，另看额度那条
     final hasDebt = m.debt.totalMinor > 0;
     final targetMonths = hasDebt ? 3 : 6;
     final emergencyTarget = baseline > 0 ? baseline * targetMonths : 0;
@@ -120,7 +120,7 @@ class Checkups {
     // 4. 还款压力
     if (repayRatio != null) {
       final tone = repayRatio > 0.5 ? CheckTone.bad : (repayRatio > 0.3 ? CheckTone.warn : CheckTone.ok);
-      f.add(CheckFinding(tone, '月供占收入 ${(repayRatio * 100).toStringAsFixed(0)}%', '每月还贷 ${_y(m.debt.monthlyMinor)} / 月收入 ${_y(monthlyIncome)}。超过一半很吃紧，三成以内比较稳。'));
+      f.add(CheckFinding(tone, '月供占收入 ${(repayRatio * 100).toStringAsFixed(0)}%', '每月还贷 ${_y(m.debt.loanMonthlyMinor)} / 月收入 ${_y(monthlyIncome)}。超过一半很吃紧，三成以内比较稳。'));
     }
     // 5. 信用卡额度
     if (cardUsage != null) {

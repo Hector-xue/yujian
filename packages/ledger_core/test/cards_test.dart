@@ -220,4 +220,59 @@ void main() {
       expect(CardTerms.fromJson({'limit': 1, 'statement_day': 40, 'due_day': 0})!.statementDay, 28);
     });
   });
+
+  group('负债合计里的信用卡', () {
+    test('每月还款 = 贷款月供 + 每张卡最近一期要还的；贷款还清取最晚那笔，不拿总余额 ÷ 总月供', () {
+      // 招行：8/10 刷 3000 → 9/5 出账 3000，9/25 到期；9/8 又刷 500（进下期，不算这期）
+      spend(300000, '2026-08-10');
+      spend(50000, '2026-09-08');
+      // 没设账单日的卡：算不出账单，按全部欠款算
+      ledger.createAccount(id: 'bare', name: '旧卡', type: AccountType.creditCard, currency: 'CNY', initialBalanceMinor: -80000);
+      // 本期已还清的卡：最近一期 = 出账后新刷的
+      final paid = ledger.cards.add(name: '中行', terms: terms);
+      add({'type': 'expense', 'amount_minor': 100000, 'currency': 'CNY', 'account_id': paid.id, 'category_id': 'shopping', 'occurred_at': '2026-08-11T12:00:00+08:00'});
+      repay(100000, '2026-09-06', to: paid.id);
+      add({'type': 'expense', 'amount_minor': 20000, 'currency': 'CNY', 'account_id': paid.id, 'category_id': 'shopping', 'occurred_at': '2026-09-07T12:00:00+08:00'});
+      // 两笔安逸花（截图里的数）：1701.99 每月 189.11（9 个月），999.72 每月 499.86（2 个月）
+      ledger.debts.add(name: '安逸花', kind: DebtKind.online, owedMinor: 170199, monthlyMinor: 18911, day: 26, fromAccountId: 'bank', today: '2026-09-10');
+      ledger.debts.add(name: '安逸花', kind: DebtKind.online, owedMinor: 99972, monthlyMinor: 49986, day: 26, fromAccountId: 'bank', today: '2026-09-10');
+
+      expect(ledger.cards.status(paid.id, today: '2026-09-10')!.state, CardBillState.paid);
+      var t = ledger.debts.totals(today: '2026-09-10');
+      expect(t.loanMinor, 270171);
+      expect(t.loanMonthlyMinor, 68897);
+      // 招行本期还剩 3000（9/8 刷的 500 进下期）；旧卡按全部欠款 800；中行本期还清、下期已刷 200
+      expect(ledger.cards.status(card.id, today: '2026-09-10')!.remainingMinor, 300000);
+      expect(t.cardDueMinor, 300000 + 80000 + 20000);
+      expect(t.cardsWithoutTerms, 1);
+      expect(t.monthlyMinor, 68897 + 400000);
+      expect(t.cardMinor, 350000 + 80000 + 20000);
+      expect(t.monthsLeft, 9); // 旧算法 270171 ÷ 68897 = 4 个月，错
+      // 等级 / 可花的只扣贷款月供：信用卡刷的时候已经记成支出了
+      expect(Wealth(ledger).compute(today: '2026-09-10').repaymentMonthlyMinor, 68897);
+
+      // 过了还款日没还：连违约金和利息
+      final over = ledger.cards.status(card.id, today: '2026-09-28')!;
+      expect(over.state, CardBillState.overdue);
+      t = ledger.debts.totals(today: '2026-09-28');
+      expect(t.cardDueMinor, over.overdueTotalMinor + 80000 + 20000);
+      expect(over.overdueTotalMinor, greaterThan(300000));
+
+      // 有一笔欠着却没设每月还款：永远还不清，说不出月数
+      ledger.debts.add(name: '借朋友', kind: DebtKind.loan, owedMinor: 100000, fromAccountId: 'bank', today: '2026-09-10');
+      t = ledger.debts.totals(today: '2026-09-10');
+      expect(t.loansWithoutRepayment, 1);
+      expect(t.monthsLeft, isNull);
+      expect(t.loanMonthlyMinor, 68897);
+    });
+
+    test('只有信用卡：没有贷款时还清月数是 0，每月还款只含卡账单', () {
+      spend(300000, '2026-08-10');
+      final t = ledger.debts.totals(today: '2026-09-10');
+      expect(t.loanMinor, 0);
+      expect(t.monthsLeft, 0);
+      expect(t.loanMonthlyMinor, 0);
+      expect(t.monthlyMinor, 300000);
+    });
+  });
 }

@@ -95,7 +95,7 @@ CheerTone? cheerToneFor(WealthMetrics m) {
   final rank = m.incomeRank;
   if (rank == null && m.level == null && !m.inDebt) return null;
   final annualIncome = rank?.annualMinor ?? 0;
-  final heavyRepay = m.debt.monthlyMinor > 0 && m.monthIncomeMinor > 0 && m.debt.monthlyMinor * 2 > m.monthIncomeMinor; // 月供超过收入一半
+  final heavyRepay = m.debt.loanMonthlyMinor > 0 && m.monthIncomeMinor > 0 && m.debt.loanMonthlyMinor * 2 > m.monthIncomeMinor; // 月供超过收入一半
   final heavyDebt = m.debt.totalMinor > 0 && (annualIncome <= 0 || m.debt.totalMinor > annualIncome); // 欠的比一年收入还多
   if (m.inDebt || m.disposableMinor < 0 || heavyRepay || heavyDebt || (rank != null && rank.percentile < 0.3)) return CheerTone.rebuild;
   if (rank != null && rank.percentile >= 0.8 && (m.runwayMonths ?? 0) >= 6) return CheerTone.abundant;

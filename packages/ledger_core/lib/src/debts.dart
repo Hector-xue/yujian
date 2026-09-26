@@ -1,3 +1,4 @@
+import 'cards.dart';
 import 'errors.dart';
 import 'goals.dart';
 import 'ledger.dart';
@@ -42,17 +43,40 @@ class DebtSummary {
 }
 
 /// 全部负债合计。
+///
+/// 两种「每月还」要分清：
+/// - [loanMonthlyMinor] 贷款月供（周期转账月度化）：每月固定流出，等级 / 可花的 / 月供占收入按这个扣；
+/// - [cardDueMinor] 各张信用卡**最近一期**要还的：信用卡刷的时候已经记成支出了，只在「这个月要还多少」里出现，
+///   不能再算进月支出（否则同一笔消费扣两次）。
+/// [monthlyMinor] = 两者相加，是负债页「每月还款」给人看的数。
 class DebtTotals {
   final int loanMinor; // 贷款 / 借款（应付类账户）还剩多少
-  final int cardMinor; // 信用卡待还
-  final int monthlyMinor; // 每月要还的贷款合计（月度化）
+  final int cardMinor; // 信用卡此刻欠多少
+  final int loanMonthlyMinor; // 每月要还的贷款合计（月度化）
+  final int cardDueMinor; // 各张卡最近一期要还的合计（见 [Debts.cardDue]）
+  final int cardsWithoutTerms; // 没设账单日的卡：算不出账单，按全部欠款算进了 [cardDueMinor]
+  final int loansWithoutRepayment; // 还欠着、却没设每月还款的贷款笔数
+  final int loanMaxMonthsLeft; // 设了还款的贷款里，最晚还清的那笔还要几个月（没有 = 0）
   final int count;
-  const DebtTotals({required this.loanMinor, required this.cardMinor, required this.monthlyMinor, required this.count});
+  const DebtTotals({
+    required this.loanMinor,
+    required this.cardMinor,
+    required this.loanMonthlyMinor,
+    this.cardDueMinor = 0,
+    this.cardsWithoutTerms = 0,
+    this.loansWithoutRepayment = 0,
+    this.loanMaxMonthsLeft = 0,
+    required this.count,
+  });
 
   int get totalMinor => loanMinor + cardMinor;
 
-  /// 按现在的还款额，贷款还要几个月还清；没设还款 = null。
-  int? get monthsLeft => monthlyMinor <= 0 || loanMinor <= 0 ? (loanMinor <= 0 ? 0 : null) : (loanMinor / monthlyMinor).ceil();
+  /// 这个月要还的：贷款月供 + 各张卡最近一期账单。
+  int get monthlyMinor => loanMonthlyMinor + cardDueMinor;
+
+  /// 贷款全部还清还要几个月：每笔各还各的，取最晚的那笔（不能拿总余额 ÷ 总月供——小额的先还完，
+  /// 剩下那笔的月供不会挪过去）。没有贷款 = 0；有一笔欠着却没设还款 = null（永远还不清，说不出月数）。
+  int? get monthsLeft => loanMinor <= 0 ? 0 : (loansWithoutRepayment > 0 ? null : loanMaxMonthsLeft);
 }
 
 /// 删一笔负债的结果：账户是真删了（没有还款记录）还是退成归档（有记录，历史不能丢）。
@@ -211,22 +235,51 @@ class Debts {
     return out;
   }
 
-  DebtTotals totals({String currency = 'CNY'}) {
-    var loan = 0;
-    var card = 0;
-    var monthly = 0;
-    var n = 0;
+  /// 全部负债合计。[today] 用来算信用卡的本期 / 下期账单。
+  DebtTotals totals({required String today, String currency = 'CNY'}) {
+    var loan = 0, card = 0, monthly = 0, due = 0, bare = 0, noRepay = 0, maxLeft = 0, n = 0;
     for (final d in list(currency: currency)) {
       if (d.owedMinor <= 0) continue;
       n++;
       if (d.isCard) {
         card += d.owedMinor;
+        final s = ledger.cards.status(d.account.id, today: today);
+        if (s == null) bare++;
+        due += cardDue(d.owedMinor, s);
       } else {
         loan += d.owedMinor;
         monthly += d.monthlyMinor;
+        final left = d.monthsLeft;
+        if (left == null) {
+          noRepay++;
+        } else if (left > maxLeft) {
+          maxLeft = left;
+        }
       }
     }
-    return DebtTotals(loanMinor: loan, cardMinor: card, monthlyMinor: monthly, count: n);
+    return DebtTotals(
+      loanMinor: loan,
+      cardMinor: card,
+      loanMonthlyMinor: monthly,
+      cardDueMinor: due,
+      cardsWithoutTerms: bare,
+      loansWithoutRepayment: noRepay,
+      loanMaxMonthsLeft: maxLeft,
+      count: n,
+    );
+  }
+
+  /// 一张卡最近一期要还多少：
+  /// - 本期出账了、还没还清 → 本期还剩的（逾期了连违约金和利息）；
+  /// - 本期还清了 / 没出账 → 下一期：出账后到现在新刷的（之后再刷还会涨），不超过此刻欠款；
+  /// - 没设账单日（[s] = null）→ 算不出账单，按此刻全部欠款算（宁多勿少，页面上写明）。
+  static int cardDue(int owedMinor, CardStatus? s) {
+    if (s == null) return owedMinor;
+    return switch (s.state) {
+      CardBillState.overdue => s.overdueTotalMinor,
+      CardBillState.due => s.remainingMinor,
+      CardBillState.paid || CardBillState.none => s.newChargesMinor < owedMinor ? s.newChargesMinor : owedMinor,
+    };
   }
 
   /// 从 [today] 起（含今天）下一个「每月 day 号」。

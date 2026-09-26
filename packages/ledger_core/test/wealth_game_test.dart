@@ -311,10 +311,12 @@ void main() {
       expect(list.first.kind, DebtKind.mortgage);
       expect(list.first.monthlyMinor, 400000);
       expect(list.first.monthsLeft, 125);
-      var t = ledger.debts.totals();
+      var t = ledger.debts.totals(today: '2026-09-20');
       expect(t.loanMinor, 50000000);
       expect(t.cardMinor, 30000);
-      expect(t.monthlyMinor, 400000);
+      expect(t.loanMonthlyMinor, 400000);
+      expect(t.cardDueMinor, 30000); // 没设账单日的卡按全部欠款算
+      expect(t.monthlyMinor, 430000);
       expect(t.count, 2);
       // 还一期：转账 4000 到房贷账户
       add({'type': 'transfer', 'amount_minor': 400000, 'currency': 'CNY', 'account_id': 'bank', 'to_account_id': setup.account.id, 'occurred_at': '2026-08-10T09:00:00+08:00'});
@@ -329,8 +331,8 @@ void main() {
       expect(m.monthlySpendAvgMinor, 500000);
       // 换还款额：旧的停掉，新的一条
       ledger.debts.setRepayment(setup.account.id, monthlyMinor: 450000, day: 12, fromAccountId: 'bank', today: '2026-09-20');
-      t = ledger.debts.totals();
-      expect(t.monthlyMinor, 450000);
+      t = ledger.debts.totals(today: '2026-09-20');
+      expect(t.loanMonthlyMinor, 450000);
       expect(ledger.recurring.list().where((r) => r.template['to_account_id'] == setup.account.id).length, 1);
       // 每月几号从今天起算：今天 20 号、要 12 号 → 下个月
       expect(ledger.recurring.list().firstWhere((r) => r.template['to_account_id'] == setup.account.id).nextDue, '2026-10-12');
