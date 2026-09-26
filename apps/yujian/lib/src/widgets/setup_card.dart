@@ -165,7 +165,7 @@ class SetupCard extends StatelessWidget {
   }
 
   static String _emoji(SetupItem it) => switch (it.kind) {
-        SetupKind.loan => it.product != CreditProduct.bank ? it.product.emoji : it.debtKind.emoji,
+        SetupKind.loan => it.debtKind.emoji, // 和建出来的负债账户图标一致（白条分期存的是「网贷」📱）
         SetupKind.credit => it.product.emoji,
         SetupKind.asset => it.deposit ? '🏦' : switch (it.assetType) { AccountType.cash => '💵', AccountType.eWallet => '👛', AccountType.investment => '📈', _ => '💳' },
         SetupKind.receivable => '🤝',
