@@ -33,7 +33,7 @@ class RepaymentPlanPage extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('发薪前（${_md(p.payday)} 之前）要还', style: theme.textTheme.bodySmall),
+                    Text('到 ${_md(p.payday)} 发薪为止要还（含当天到期的）', style: theme.textTheme.bodySmall),
                     const SizedBox(height: 4),
                     Text(fmtMoney(p.dueBeforePaydayFullMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 32, color: p.shortfallMinor > 0 ? y.danger : null, fontFeatures: const [FontFeature.tabularFigures()])),
                     Text(
@@ -86,7 +86,7 @@ class RepaymentPlanPage extends StatelessWidget {
               Text('怎么排的', style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
               Text(
-                '发薪日按你填的（没填按收入记录推），每次按近几个月的平均收入到账估。月供和固定支出按周期账单，信用卡按账单日那天的欠款、下期账单按出账后已经刷的算（之后再刷还会涨）。\n'
+                '发薪日按你填的（没填按收入记录推），每次按近几个月的平均收入到账估。月供和固定支出按周期账单（收件箱里还没确认的也算，过了日子的挂今天），信用卡按账单日那天的欠款、下期账单按出账后已经刷的算（之后再刷还会涨）。\n'
                 '同一天先到账、再付月供、最后还卡；钱够就全额还卡，不够就在保住到下次发薪前所有月供和最低还款的前提下，能还多少还多少。',
                 style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
               ),

@@ -282,6 +282,9 @@ class _GoalFormState extends State<_GoalForm> {
     final muted = YujianColors.of(context).muted;
     final accounts = app.accounts;
     final debtAccounts = accounts.where((a) => a.type == AccountType.creditCard || a.type == AccountType.payable).toList();
+    // 真锁仓只能放在存钱的账户里（和账本核心同一个判定）
+    final vaultCandidates = accounts.where((a) => a.currency == 'CNY' && GoalStore.canBeVault(a.type)).toList();
+    final vaultPicked = vaultAccountId == null ? null : app.ledger.account(vaultAccountId!);
     final avg = app.game.metrics?.monthlySpendAvgMinor ?? 0;
     final eta = _eta();
     return SingleChildScrollView(
@@ -378,11 +381,18 @@ class _GoalFormState extends State<_GoalForm> {
               decoration: const InputDecoration(labelText: '钱放哪'),
               items: [
                 const DropdownMenuItem<String?>(value: null, child: Text('虚拟锁仓（钱不动，只从「可花的」里划走）')),
-                for (final a in accounts) DropdownMenuItem<String?>(value: a.id, child: Text('真的转到「${a.name}」')),
+                for (final a in vaultCandidates) DropdownMenuItem<String?>(value: a.id, child: Text('真的转到「${a.name}」')),
               ],
               onChanged: (v) => setState(() => vaultAccountId = v),
             ),
-            Text(vaultAccountId == null ? '默认。存入只是标记，不用真的转账；首页「可花的」立刻变少。' : '每次存入会进收件箱，你去银行 / 余额宝真转了再点确认（余见不会替你转钱）。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+            Text(
+              vaultPicked == null
+                  ? '默认。存入只是标记，不用真的转账；首页「可花的」立刻变少。'
+                  : '每次存入会进收件箱，你去银行 / 余额宝真转了再点确认（余见不会替你转钱）。'
+                      '「${vaultPicked.name}」里现有的 ${fmtMoney(app.ledger.balance(vaultPicked.id).minor, 'CNY')} 会直接算作已攒，最好用一个专门存这笔钱的账户。'
+                      '${vaultPicked.type == AccountType.investment ? '投资账户本来就不算在手头余额里，所以不会再从「可花的」里扣。' : ''}',
+              style: theme.textTheme.bodySmall?.copyWith(color: muted),
+            ),
           ],
         ],
         if (note != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(note!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary))),

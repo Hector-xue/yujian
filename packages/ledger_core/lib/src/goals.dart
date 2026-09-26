@@ -212,6 +212,7 @@ class GoalStore {
     if (vaultAccountId != null) {
       final a = ledger.getAccount(vaultAccountId);
       if (a.currency != currency) throw ValidationException('vault_account_id', 'currency mismatch');
+      if (!canBeVault(a.type)) throw ValidationException('vault_account_id', 'vault must be a cash / bank / e-wallet / investment account');
     }
     final gid = id ?? Ulid.next();
     final ts = _nowMs();
@@ -330,6 +331,7 @@ class GoalStore {
     } else {
       final a = ledger.getAccount(vault);
       if (a.currency != g.currency) throw ValidationException('vault_account_id', 'currency mismatch');
+      if (!canBeVault(a.type)) throw ValidationException('vault_account_id', 'vault must be a cash / bank / e-wallet / investment account');
     }
     _db.execute('UPDATE goals SET vault_account_id = ?, updated_at = ? WHERE id = ?', [vault, _nowMs(), id]);
     final after = get(id);
@@ -360,6 +362,9 @@ class GoalStore {
   // -------------------------------------------------------------- progress
 
   /// 锁仓里的钱（心愿 / 里程碑 / 应急金的锁仓）。
+  /// 真锁仓能放在哪类账户：存钱的账户（现金 / 银行卡 / 钱包 / 投资）。信用卡 / 贷款 / 借出去的当锁仓，「已攒」就成了欠款或别人的钱。
+  static bool canBeVault(AccountType t) => t == AccountType.cash || t == AccountType.bank || t == AccountType.eWallet || t == AccountType.investment || t == AccountType.vault;
+
   int savedMinor(Goal g) => g.vaultAccountId == null ? 0 : ledger.balance(g.vaultAccountId!).minor.clamp(0, maxMinor);
 
   /// 存入记录：转进锁仓账户的 transfer（最新在前）。
@@ -392,9 +397,11 @@ class GoalStore {
         // 应急金：锁仓有钱按锁仓，没锁仓按整体流动资产（目标额创建时冻结）
         saved = g.vaultAccountId != null ? savedMinor(g) : (liquidMinor ?? 0);
       case GoalKind.payoff:
-        target = g.targetMinor;
+        // 「还欠」必须等于这个账户此刻欠多少：信用卡边还边刷，欠款可能涨过建目标时的数——这时按现在的欠款算，
+        // 已还记 0，不能还停在建目标时的数（负债页写欠 8618，目标条还写欠 8118）
         final owed = g.linkedAccountId == null ? 0 : _payoffTarget(g.linkedAccountId!);
-        saved = (target - owed).clamp(0, target);
+        target = owed > g.targetMinor ? owed : g.targetMinor;
+        saved = target - owed;
       case GoalKind.milestone:
         saved = (netWorthMinor ?? 0).clamp(0, maxMinor);
     }

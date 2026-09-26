@@ -73,13 +73,45 @@ class DebtTier {
 /// 目的：用户录完第一批账就能有等级 / 称号，不用等记满一个月；财富页把依据写出来。
 enum SpendBasis { manual, history, thisMonth, recurring, income, none }
 
+/// 收件箱里还没确认的一笔周期账单（支出 / 还贷）：已经到期生成了草稿，钱还没从余额里扣，周期的 next_due 却已经往后推了。
+/// 「可花的」和还款计划都要把它算作「还要付的」，两边共用 [pendingRecurring]，口径才一致。
+class PendingRecurringDue {
+  final String date; // 草稿上的日期（到期那天）
+  final int amountMinor;
+  final bool isRepayment; // 转到贷款账户的还款；否则是固定支出
+  final String? toAccountId; // 还款转入的贷款账户
+  final String name;
+  const PendingRecurringDue({required this.date, required this.amountMinor, required this.isRepayment, this.toAccountId, required this.name});
+}
+
+/// 收件箱里没确认的周期账单（支出 / 还贷），日期 ≤ [until]（不给 = 不限）。
+List<PendingRecurringDue> pendingRecurring(Ledger ledger, {required String currency, String? until}) {
+  final out = <PendingRecurringDue>[];
+  for (final dr in ledger.listDrafts(status: DraftStatus.pending, limit: 1000)) {
+    if (dr.source != Source.recurring || dr.kind != DraftKind.create) continue;
+    final p = dr.payload;
+    if ((p['currency'] ?? currency) != currency) continue;
+    final at = p['occurred_at'];
+    final date = at is String && at.length >= 10 ? at.substring(0, 10) : null;
+    if (date == null || (until != null && date.compareTo(until) > 0)) continue;
+    final isExpense = p['type'] == 'expense';
+    final to = p['to_account_id'];
+    final isRepay = p['type'] == 'transfer' && to is String && ledger.account(to)?.type == AccountType.payable;
+    if (!isExpense && !isRepay) continue;
+    final amount = (p['amount_minor'] as num?)?.toInt() ?? 0;
+    if (amount <= 0) continue;
+    out.add(PendingRecurringDue(date: date, amountMinor: amount, isRepayment: isRepay, toAccountId: isRepay ? to : null, name: (p['description'] as String?) ?? '周期账单'));
+  }
+  return out;
+}
+
 /// 财富指标：全部从账本推导，不落库。每个字段都能在财富页解释「怎么来的」。
 class WealthMetrics {
   final String today;
   final String currency;
   final int cashMinor; // 手头余额：现金 / 银行卡 / 钱包 / 锁仓账户的余额直接相加（透支成负的钱包也照减）。首页「余额」就是它
   final int liquidMinor; // 流动资产 = max(手头余额, 0)：生存月数 / 应急金目标按它算，不会是负数
-  final int lockedMinor; // 各目标锁仓里的钱
+  final int lockedMinor; // 各目标锁仓里、且算在手头余额里的钱（钱放在投资类账户的真锁仓本来就不在手头余额里，不再扣一次）
   final int fixedDueMinor; // 到发薪日前还要付的固定支出 + 还贷（周期账单里 next_due 在此之前的支出模板、转到贷款账户的转账模板）
   final int cardOwedMinor; // 信用卡待还（刷了就扣，还卡时不再扣）
   final int disposableMinor; // 可花的 = 手头余额 − locked − fixedDue − cardOwed，永远 ≤ 手头余额
@@ -98,7 +130,7 @@ class WealthMetrics {
   final int monthExpenseMinor;
   final double? savingsRate; // (收入 − 支出) / 收入；收入 0 = null
   final int netWorthMinor; // 全部账户余额之和（信用卡 / 应付为负）= assets − debt
-  final int assetsMinor; // 正余额账户之和（含锁仓、投资）
+  final int assetsMinor; // 资产 = 非负债账户余额相加（透支成负的钱包照减）+ 负债账户多还进去的（溢缴款）；恒有 净资产 = 资产 − 负债
   final DebtTotals debt; // 贷款 / 信用卡 / 每月还款 合计
   final int repaymentMonthlyMinor; // 每月要还的贷款（周期转账月度化），等级口径里算进月支出
   final Map<IncomeLine, int> incomeByLine; // 本月
@@ -226,16 +258,26 @@ class Wealth {
       }
       final b = bal[a.id] ?? 0;
       netWorth += b;
-      if (b > 0) assets += b;
+      // 资产 / 负债按账户类型分，保证 净资产 = 资产 − 负债 严格成立：负债账户欠的进负债（Debts.totals），多还进去的算资产；
+      // 其余账户余额直接相加，透支成负的钱包照减——只加正数的话，页面上「净资产 = 资产 − 负债」就对不上
+      if (Debts.isLiability(a.type)) {
+        if (b > 0) assets += b;
+      } else {
+        assets += b;
+      }
       // 透支成负数的钱包（常见于自动记账记上了支出、却没填期初余额）也要减：只加正数会把手头的钱算多
       if (_liquidTypes.contains(a.type)) cash += b;
       if (a.type == AccountType.creditCard && b < 0) cardOwed += -b;
     }
     // 锁仓：虚拟锁仓里还有钱就算锁着（不管目标是进行中还是已达成 / 已完成没释放干净）；真锁仓是用户自己的账户，只在目标进行中才锁
+    // 只扣算在手头余额里的：钱放在余额宝这类投资账户的真锁仓，手头余额本来就没算它，再扣就是扣两次
     var locked = 0;
     for (final g in ledger.goals.list(activeOnly: false)) {
       if (g.currency != currency || g.status == GoalStatus.archived) continue;
-      if (g.isVirtualVault || g.status == GoalStatus.active) locked += ledger.goals.savedMinor(g);
+      if (!(g.isVirtualVault || g.status == GoalStatus.active)) continue;
+      final vault = g.vaultAccountId == null ? null : ledger.account(g.vaultAccountId!);
+      if (vault == null || !_liquidTypes.contains(vault.type)) continue;
+      locked += ledger.goals.savedMinor(g);
     }
     final debts = ledger.debts;
     final debtTotals = debts.totals(today: today, currency: currency);
@@ -266,17 +308,8 @@ class Wealth {
       }
     }
     // 已经到期生成了草稿、但还躺在收件箱没确认的周期账单：钱还没从余额里扣，next_due 却已经往后推了，两边都算不到它
-    for (final dr in ledger.listDrafts(status: DraftStatus.pending, limit: 1000)) {
-      if (dr.source != Source.recurring || dr.kind != DraftKind.create) continue;
-      final p = dr.payload;
-      if ((p['currency'] ?? currency) != currency) continue;
-      final at = p['occurred_at'];
-      if (at is String && at.length >= 10 && at.substring(0, 10).compareTo(payday) > 0) continue;
-      final isExpense = p['type'] == 'expense';
-      final to = p['to_account_id'];
-      final isRepay = p['type'] == 'transfer' && to is String && ledger.account(to)?.type == AccountType.payable;
-      if (!isExpense && !isRepay) continue;
-      fixedDue += (p['amount_minor'] as num?)?.toInt() ?? 0;
+    for (final d in pendingRecurring(ledger, currency: currency, until: payday)) {
+      fixedDue += d.amountMinor;
     }
     final liquid = cash > 0 ? cash : 0;
     final disposable = cash - locked - fixedDue - cardOwed;

@@ -44,14 +44,18 @@ class RepaymentPlan {
   final List<PlanItem> items;
   const RepaymentPlan({required this.today, required this.payday, required this.until, required this.startCashMinor, required this.monthlyIncomeMinor, required this.items});
 
-  /// 发薪前（不含发薪日）要付的：全额 / 最少。
+  /// 到发薪日（含当天）为止要付的：全额 / 最少。和「可花的」扣的「发薪前要付的」同一个窗口（发薪当天到期的也算），
+  /// 两个页面的数才对得上。
   int get dueBeforePaydayFullMinor => _sumBefore((i) => i.fullMinor);
   int get dueBeforePaydayMinMinor => _sumBefore((i) => i.minMinor);
+
+  /// 其中的固定支出 + 月供（不含信用卡）：等于「可花的」里扣的 [WealthMetrics.fixedDueMinor]。
+  int get fixedDueBeforePaydayMinor => _sumBefore((i) => i.kind == PlanItemKind.card ? 0 : i.fullMinor);
 
   int _sumBefore(int Function(PlanItem) f) {
     var s = 0;
     for (final i in items) {
-      if (!i.isIncome && i.date.compareTo(payday) < 0) s += f(i);
+      if (!i.isIncome && i.date.compareTo(payday) <= 0) s += f(i);
     }
     return s;
   }
@@ -109,6 +113,12 @@ class RepaymentPlanner {
         if (n.compareTo(d) <= 0) break;
         d = n;
       }
+    }
+    // 收件箱里没确认的周期账单：已经到期、钱还没扣，next_due 却推到下一期了——不补上计划里就漏掉这一笔（「可花的」同样扣它）。
+    // 到期日已过的挂今天（今天就该付）
+    for (final d in pendingRecurring(ledger, currency: currency, until: until)) {
+      final date = d.date.compareTo(today) < 0 ? today : d.date;
+      raw.add(_Event(date, d.isRepayment ? PlanItemKind.loan : PlanItemKind.fixed, d.name, d.toAccountId, d.amountMinor, d.amountMinor));
     }
     // 信用卡：本期账单（没还清的；逾期的挂今天）+ 下期账单（账单日后已经刷的，到期日在区间里才算）
     for (final c in ledger.cards.list(today: today, currency: currency)) {
