@@ -1151,6 +1151,9 @@ class AppState extends ChangeNotifier {
 
   CardStatus? cardStatus(String accountId) => ledger.cards.status(accountId, today: _today());
 
+  /// 负债合计（贷款月供 + 各张卡最近一期账单 / 最晚还清那笔）；负债页总览用。
+  DebtTotals debtTotals() => ledger.debts.totals(today: _today(), currency: 'CNY');
+
   /// 新建一张信用卡（账户 + 条款）。
   Account addCreditCard({required String name, required CardTerms terms, int owedMinor = 0}) {
     final a = ledger.cards.add(name: name, terms: terms, owedMinor: owedMinor);

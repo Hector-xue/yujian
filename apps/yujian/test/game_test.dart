@@ -303,6 +303,14 @@ void main() {
       expect(find.text('¥500000.00'), findsWidgets);
       expect(find.textContaining('每月 ¥8000.00'), findsOneWidget);
       expect(find.text('每月还款'), findsOneWidget);
+      expect(find.text('预计还清'), findsOneWidget);
+      // 加一张没设账单日的信用卡（欠 300）：每月还款 = 月供 8000 + 卡 300，拆开写；还清月数标明只是贷款
+      state.ledger.createAccount(id: 'cc', name: '信用卡', type: AccountType.creditCard, currency: 'CNY', initialBalanceMinor: -30000);
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage(key: ValueKey('with-card')))));
+      await tester.pumpAndSettle();
+      expect(find.text('¥8300.00'), findsOneWidget);
+      expect(find.textContaining('贷款月供 ¥8000.00 + 信用卡最近一期 ¥300.00（1 张没设账单日'), findsOneWidget);
+      expect(find.text('贷款还清'), findsOneWidget);
       // 还一期：转账到房贷账户 → 余额少一期、目标进度 1.6%
       state.addManual({'type': 'transfer', 'amount_minor': 800000, 'currency': 'CNY', 'account_id': 'wechat', 'to_account_id': setup.account.id, 'occurred_at': '${day(0)}T09:00:00+08:00'});
       expect(state.ledger.debts.list().first.owedMinor, 49200000);

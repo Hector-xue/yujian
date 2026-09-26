@@ -238,7 +238,7 @@ class Wealth {
       if (g.isVirtualVault || g.status == GoalStatus.active) locked += ledger.goals.savedMinor(g);
     }
     final debts = ledger.debts;
-    final debtTotals = debts.totals(currency: currency);
+    final debtTotals = debts.totals(today: today, currency: currency);
 
     // 发薪日
     final (payday, source) = nextPayday(today: today);
@@ -383,7 +383,7 @@ class Wealth {
       netWorthMinor: netWorth,
       assetsMinor: assets,
       debt: debtTotals,
-      repaymentMonthlyMinor: debtTotals.monthlyMinor,
+      repaymentMonthlyMinor: debtTotals.loanMonthlyMinor, // 只算贷款：信用卡刷的时候已经记成支出了
       incomeByLine: byLine,
       excludedForeign: foreign,
       incomeRank: incomeRank,

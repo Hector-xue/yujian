@@ -196,7 +196,7 @@ class LedgerTools {
           'savings_rate': m.savingsRate == null ? null : double.parse(m.savingsRate!.toStringAsFixed(3)),
           'net_worth': y(m.netWorthMinor),
           'assets': y(m.assetsMinor),
-          'debt': {'loan': y(m.debt.loanMinor), 'card': y(m.debt.cardMinor), 'monthly_repayment': y(m.debt.monthlyMinor), 'months_left': m.debt.monthsLeft},
+          'debt': {'loan': y(m.debt.loanMinor), 'card': y(m.debt.cardMinor), 'loan_monthly': y(m.debt.loanMonthlyMinor), 'card_due': y(m.debt.cardDueMinor), 'monthly_repayment': y(m.debt.monthlyMinor), 'months_left': m.debt.monthsLeft},
           'income_by_line': m.incomeByLine.map((k, v) => MapEntry(k.name, y(v))),
           // 设了额度 / 账单日的信用卡：本期账单、还剩、最低还款、到期日、逾期的违约金和利息估算
           'credit_cards': [

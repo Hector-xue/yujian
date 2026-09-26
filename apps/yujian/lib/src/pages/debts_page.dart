@@ -25,9 +25,10 @@ class DebtsPage extends StatelessWidget {
       listenable: app,
       builder: (context, _) {
         final debts = app.ledger.debts.list(currency: 'CNY');
-        final totals = app.ledger.debts.totals();
+        final totals = app.debtTotals();
         final m = app.game.metrics;
-        final income = m?.monthIncomeMinor ?? 0;
+        // 分母用稳定的月收入（近 3 个整月均值 / 近 31 天，和体检同一个口径）：本自然月的收入月初工资没到时是 0 或零头，比例会乱跳
+        final income = m?.incomeRank == null ? 0 : m!.incomeRank!.annualMinor ~/ 12;
         final ratio = income > 0 ? totals.monthlyMinor / income : null;
         final left = totals.monthsLeft;
         return Scaffold(
@@ -68,11 +69,23 @@ class DebtsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       Row(children: [
+                        // 每月还款 = 贷款月供 + 各张卡最近一期要还的（不是只算贷款）
                         Expanded(child: _Stat(label: '每月还款', value: totals.monthlyMinor > 0 ? fmtMoney(totals.monthlyMinor, 'CNY') : '—')),
-                        Expanded(child: _Stat(label: '占本月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
-                        // 预计还清只按贷款的每月还款推；只有信用卡欠款时贷款是 0，不能写成「已还清」
-                        Expanded(child: _Stat(label: '预计还清', value: totals.loanMinor <= 0 ? (totals.cardMinor > 0 ? '按账单还' : '已还清') : (left == null ? '没设还款' : _monthsLabel(left)))),
+                        Expanded(child: _Stat(label: '占月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
+                        // 预计还清只按贷款推（每笔各还各的，取最晚那笔）；同时有信用卡时标明是「贷款」还清，信用卡按账单还说不出月数
+                        Expanded(child: _Stat(label: totals.loanMinor > 0 && totals.cardMinor > 0 ? '贷款还清' : '预计还清', value: totals.loanMinor <= 0 ? (totals.cardMinor > 0 ? '按账单还' : '已还清') : (left == null ? '没设还款' : _monthsLabel(left)))),
                       ]),
+                      // 每月还款里有信用卡时拆开写：贷款月供和卡账单性质不同（卡账单每期不一样）
+                      if (totals.cardDueMinor > 0) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          [
+                            if (totals.loanMonthlyMinor > 0) '贷款月供 ${fmtMoney(totals.loanMonthlyMinor, 'CNY')}',
+                            '信用卡最近一期 ${fmtMoney(totals.cardDueMinor, 'CNY')}${totals.cardsWithoutTerms > 0 ? '（${totals.cardsWithoutTerms} 张没设账单日，按全部欠款算）' : ''}',
+                          ].join(' + '),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
                     ]),
                   ),
                 ),
@@ -99,7 +112,8 @@ class DebtsPage extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 '负债账户的余额 = 还剩多少要还（本息合计，不拆）。每月还款是一笔转账到这个账户，到期进收件箱，你确认了余额就少一期。\n'
-                '首页「可花的」会扣掉发薪日前要还的那期；等级按「生活支出 + 每月还贷」算生存月数；信用卡刷了就从可花的里扣，还卡时不再扣。\n'
+                '「每月还款」= 贷款月供 + 每张信用卡最近一期要还的（没设账单日的卡按全部欠款算）；贷款还清按每笔各自算，取最晚的那笔。\n'
+                '首页「可花的」会扣掉发薪日前要还的那期；等级按「生活支出 + 每月贷款月供」算生存月数（信用卡刷的时候已经算进支出，不重复扣）；信用卡刷了就从可花的里扣，还卡时不再扣。\n'
                 '信用卡：额度按此刻欠款算（还进去额度马上回来，再刷再占）；账单按账单日那天的欠款算，账单日之后刷的进下一期。到期没还清按日计息，没还够最低还款另收违约金。\n'
                 '净资产 = 资产 − 负债，有房贷时通常是负的，这很正常——看「还清进度」比看净资产更有用。',
                 style: theme.textTheme.bodySmall?.copyWith(color: y.muted),

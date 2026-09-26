@@ -154,7 +154,7 @@ class WealthPage extends StatelessWidget {
                                     if (m.debt.loanMinor > 0) '贷款 ${fmtMoney(m.debt.loanMinor, 'CNY')}',
                                     if (m.debt.cardMinor > 0) '信用卡 ${fmtMoney(m.debt.cardMinor, 'CNY')}',
                                     if (m.debt.monthlyMinor > 0) '每月还 ${fmtMoney(m.debt.monthlyMinor, 'CNY')}',
-                                    if (m.debt.monthsLeft != null && m.debt.monthsLeft! > 0) '约 ${m.debt.monthsLeft} 个月还清',
+                                    if (m.debt.monthsLeft != null && m.debt.monthsLeft! > 0) '${m.debt.cardMinor > 0 ? '贷款' : ''}约 ${m.debt.monthsLeft} 个月还清',
                                   ].join(' · '),
                                   style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
                                 ),
