@@ -175,4 +175,12 @@ void main() {
       expect(ledger.tasks.list(), isEmpty);
     });
   });
+
+  test('退款原单：商户对得上优先；否则只在剩余可退金额唯一相等时认', () {
+    final meituan = commitNew({...pay(3250, '2026-09-20T12:00:00+08:00'), 'merchant': '美团'});
+    commitNew({...pay(3250, '2026-09-21T12:00:00+08:00'), 'merchant': '饿了么'});
+    expect(ledger.guessRefundOriginal(amountMinor: 1000, currency: 'CNY', merchant: '美团'), meituan.id);
+    expect(ledger.guessRefundOriginal(amountMinor: 3250, currency: 'CNY'), isNull); // 两笔都是 32.5，拿不准
+    expect(ledger.guessRefundOriginal(amountMinor: 999999, currency: 'CNY', merchant: '美团'), isNull); // 超过原单
+  });
 }

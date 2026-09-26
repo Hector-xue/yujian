@@ -4,7 +4,8 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import 'picker_field.dart';
 
-/// 收件箱里改一条 create 草稿：金额 / 分类 / 账户 / 说明。返回 edits（只含改动的字段），取消返回 null。
+/// 收件箱里改一条 create 草稿：类型 / 金额 / 分类 / 账户 / 退的是哪一笔 / 说明。返回 edits（只含改动的字段），取消返回 null。
+/// 类型能改：导入账单里「分不清收支」的、通知里认成退款却找不到原单的，都靠这里补。
 Future<Map<String, Object?>?> showDraftEditSheet(BuildContext context, Draft draft) {
   return showModalBottomSheet<Map<String, Object?>>(
     context: context,
@@ -30,6 +31,7 @@ class _EditFormState extends State<_EditForm> {
   String? categoryId;
   String? accountId;
   String? toAccountId;
+  String? refundOfId;
   late String currency;
   late String type;
 
@@ -44,6 +46,7 @@ class _EditFormState extends State<_EditForm> {
     categoryId = p['category_id'] as String?;
     accountId = p['account_id'] as String?;
     toAccountId = p['to_account_id'] as String?;
+    refundOfId = p['refund_of_id'] as String?;
   }
 
   static const _newCategory = '__new__';
@@ -79,14 +82,42 @@ class _EditFormState extends State<_EditForm> {
     final cats = app.ledger.listCategories(kind: kind);
     final accs = app.accounts;
     if (categoryId != null && !cats.any((c) => c.id == categoryId)) categoryId = null;
+    final amt = int.tryParse('${widget.payload['amount_minor'] ?? ''}') ?? 0;
+    // 退款的原单：同币种、金额不小于这笔的近期支出
+    final refundCands = type == 'refund'
+        ? app.ledger.listTransactions(type: TransactionType.expense, limit: 200).where((t) => t.currency == currency && t.amountMinor >= amt).take(60).toList()
+        : const <Transaction>[];
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          SegmentedButton<String>(
+            segments: [
+              const ButtonSegment(value: 'expense', label: Text('支出')),
+              const ButtonSegment(value: 'income', label: Text('收入')),
+              const ButtonSegment(value: 'transfer', label: Text('转账')),
+              if (widget.payload['type'] == 'refund') const ButtonSegment(value: 'refund', label: Text('退款')),
+            ],
+            selected: {type},
+            onSelectionChanged: (v) => setState(() => type = v.first),
+          ),
+          const SizedBox(height: 12),
           TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: '金额（$currency）')),
           const SizedBox(height: 12),
+          if (type == 'refund') ...[
+            PickerField<String>(
+              value: refundCands.any((t) => t.id == refundOfId) ? refundOfId : null,
+              decoration: const InputDecoration(labelText: '退的是哪一笔'),
+              items: [
+                for (final t in refundCands)
+                  DropdownMenuItem(value: t.id, child: Text('${t.occurredAt.localDate.substring(5)} ${t.merchant ?? t.description ?? app.categoryName(t.categoryId)} ${Money(t.amountMinor, t.currency).toDecimalString()}', overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => setState(() => refundOfId = v),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (type == 'expense' || type == 'income')
             PickerField<String>(
               key: ValueKey('cat-${cats.length}-$categoryId'),
@@ -134,9 +165,15 @@ class _EditFormState extends State<_EditForm> {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('金额格式不对')));
                 return;
               }
-              if (categoryId != widget.payload['category_id']) edits['category_id'] = categoryId;
+              if (type != widget.payload['type']) edits['type'] = type;
+              final hasCategory = type == 'expense' || type == 'income';
+              if (hasCategory && categoryId != widget.payload['category_id']) edits['category_id'] = categoryId;
+              if (!hasCategory && widget.payload['category_id'] != null) edits['category_id'] = null; // 转账 / 退款没有分类
               if (accountId != widget.payload['account_id']) edits['account_id'] = accountId;
               if (type == 'transfer' && toAccountId != widget.payload['to_account_id']) edits['to_account_id'] = toAccountId;
+              if (type != 'transfer' && widget.payload['to_account_id'] != null) edits['to_account_id'] = null;
+              if (type == 'refund' && refundOfId != widget.payload['refund_of_id']) edits['refund_of_id'] = refundOfId;
+              if (type != 'refund' && widget.payload['refund_of_id'] != null) edits['refund_of_id'] = null;
               if (desc.text.trim() != ((widget.payload['description'] as String?) ?? '')) edits['description'] = desc.text.trim();
               Navigator.of(context).pop(edits);
             },

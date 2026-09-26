@@ -610,6 +610,25 @@ class Ledger implements ValidationContext {
     return r['s'] as int;
   }
 
+  /// 猜一笔退款退的是哪一笔支出：近 [days] 天、同币种、还没退完的支出里，
+  /// 商户对得上的优先（取最近），其次「剩余可退金额正好等于这笔」且只有一笔的；都没把握返回 null（留给用户在收件箱里挑）。
+  String? guessRefundOriginal({required int amountMinor, required String currency, String? merchant, DateTime? at, int days = 90}) {
+    final when = at ?? now();
+    final cands = [
+      for (final t in listTransactions(type: TransactionType.expense, from: when.subtract(Duration(days: days)), to: when.add(const Duration(days: 1)), limit: 2000))
+        if (t.currency == currency && t.amountMinor - refundedMinor(t.id) >= amountMinor) t,
+    ];
+    final m = merchant?.trim();
+    if (m != null && m.isNotEmpty) {
+      for (final t in cands) {
+        final tm = '${t.merchant ?? ''} ${t.description ?? ''}';
+        if (tm.contains(m) || (t.merchant != null && t.merchant!.isNotEmpty && m.contains(t.merchant!))) return t.id;
+      }
+    }
+    final exact = cands.where((t) => t.amountMinor - refundedMinor(t.id) == amountMinor).toList();
+    return exact.length == 1 ? exact.single.id : null;
+  }
+
   List<Transaction> listTransactions({
     DateTime? from,
     DateTime? to,

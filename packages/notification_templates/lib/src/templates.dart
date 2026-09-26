@@ -164,7 +164,7 @@ final builtinTemplates = <NotificationTemplate>[
     id: 'shop_refund',
     packages: shoppingPackages.keys.toSet(),
     textRe: RegExp(r'(?:退款|退回|退还)[^\d¥￥]{0,14}[¥￥]?\s*(?<amount>\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*元?'),
-    direction: 'income',
+    direction: 'refund', // 退款不是收入：记成退款冲减原来那笔支出，否则收入 / 储蓄率会被虚增
     confidence: 0.7,
   ),
   // 银行 App：文案里通常有"支出/收入 + 金额 + 余额"
@@ -263,7 +263,10 @@ class TemplateMatcher {
   /// 按关键词判方向（学模板时也用它预选）。
   static String? directionOf(String text) => _directionOf(text);
 
+  static final _refundRe = RegExp('退款成功|已退款|退款到|退款已|退回|退还|退款');
+
   static String? _directionOf(String text) {
+    if (_refundRe.hasMatch(text)) return 'refund';
     if (_transferRe.hasMatch(text)) return 'transfer';
     if (_incomeRe.hasMatch(text) && !_expenseRe.hasMatch(text)) return 'income';
     if (_expenseRe.hasMatch(text)) return 'expense';

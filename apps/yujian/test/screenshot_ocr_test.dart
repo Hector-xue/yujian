@@ -18,11 +18,11 @@ void main() {
       expect(r.occurredAt, isNull); // 图上没日期
     });
 
-    test('alipay bill detail: labeled amount, merchant label, full date, refund → income', () {
+    test('alipay bill detail: labeled amount, merchant label, full date, refund → refund (not income)', () {
       final r = ScreenshotOcrParser.parse(lines(['账单详情', '退款成功', '收款方 盒马鲜生', '退款金额 ¥18.00', '创建时间 2026-09-18 20:15:33', '支付方式 余额宝']), fallbackTime: shotAt);
       expect(r.usable, isTrue);
       expect(r.amountMinor, 1800);
-      expect(r.direction, 'income');
+      expect(r.direction, 'refund'); // 退款冲减原支出，不算收入
       expect(r.merchant, '盒马鲜生');
       expect(r.accountHint, '支付宝');
       expect(r.occurredAt, DateTime(2026, 9, 18, 20, 15));
@@ -79,7 +79,7 @@ void main() {
 
     test('direction: headline decides before body words', () {
       final refund = ScreenshotOcrParser.parse(lines(['退款成功', '¥18.00', '收款方 盒马鲜生', '支付方式 余额宝'], heights: {1: 90}), fallbackTime: shotAt);
-      expect(refund.direction, 'income');
+      expect(refund.direction, 'refund');
       final recv = ScreenshotOcrParser.parse(lines(['收款成功', '¥66.00', '付款方 王五', '备注 饭钱'], heights: {1: 90}), fallbackTime: shotAt);
       expect(recv.direction, 'income');
       final xfer = ScreenshotOcrParser.parse(lines(['转账成功', '¥500.00', '转入 招商银行 尾号1234'], heights: {1: 90}), fallbackTime: shotAt);

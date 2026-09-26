@@ -249,7 +249,7 @@ class AppState extends ChangeNotifier {
       supportPayTappedAt = null;
       return;
     }
-    if (x.ignored || x.amountMinor != SupportConfig.amountMinor || x.direction == 'income') return;
+    if (x.ignored || x.amountMinor != SupportConfig.amountMinor || x.direction == 'income' || x.direction == 'refund') return;
     markSupporter(via: e.source == 'screen' ? 'screen' : 'notification');
   }
 
@@ -503,20 +503,24 @@ class AppState extends ChangeNotifier {
         continue;
       }
       final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      final type = x.direction == 'income' ? 'income' : (x.direction == 'transfer' ? 'transfer' : 'expense');
+      final type = switch (x.direction) { 'income' => 'income', 'transfer' => 'transfer', 'refund' => 'refund', _ => 'expense' };
+      final hasCategory = type == 'income' || type == 'expense';
       final kind = type == 'income' ? 'income' : 'expense';
-      final guessed = type == 'transfer' ? null : rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind);
+      final guessed = hasCategory ? rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind) : null;
       // 猜不出分类落到「其他」，照样能记；智能模式仍要求真猜中才自动入账
-      final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+      final categoryId = hasCategory ? (guessed ?? ctx.fallbackCategoryId(kind)) : null;
+      final postedAt = DateTime.fromMillisecondsSinceEpoch(e.postedAtMs);
       final payload = <String, Object?>{
         'type': type,
         'amount_minor': x.amountMinor,
         'currency': x.currency,
         'account_id': accountId,
-        if (type != 'transfer') 'category_id': categoryId,
+        if (hasCategory) 'category_id': categoryId,
+        // 退款冲减原来那笔支出：按商户 / 金额猜原单，猜不到留空，收件箱里让用户挑
+        if (type == 'refund') 'refund_of_id': ledger.guessRefundOriginal(amountMinor: x.amountMinor!, currency: x.currency, merchant: x.merchant, at: postedAt),
         'merchant': x.merchant,
         'description': x.merchant ?? (e.title ?? e.packageName),
-        'occurred_at': OccurredAt(DateTime.fromMillisecondsSinceEpoch(e.postedAtMs), DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
+        'occurred_at': OccurredAt(postedAt, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
         'metadata': {'notification': {'package': e.packageName, 'title': e.title, 'text': e.text, 'template': x.templateId, if (e.source != null) 'source': e.source}},
       };
       final drafts = ledger.propose(
@@ -534,7 +538,7 @@ class AppState extends ChangeNotifier {
       final d = drafts.single;
       final auto = switch (settings.automationMode) {
         AutomationMode.confirm => false,
-        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && guessed != null && x.accountHint != null,
+        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && (guessed != null || (type == 'refund' && payload['refund_of_id'] != null)) && x.accountHint != null,
         AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
       };
       if (auto) {
@@ -666,7 +670,7 @@ class AppState extends ChangeNotifier {
     // 本地够硬就直接起草；「发文字」档下证据弱的（没标签、没 ¥ 的裸数字）交给模型再看一眼
     if (shot.usable && (!thenText || shot.confident || interpreter.llm == null)) {
       final (payload, guessed) = _localShotPayload(shot, fallback: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
-      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed || payload['type'] == 'transfer');
+      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed || payload['type'] == 'transfer' || (payload['type'] == 'refund' && payload['refund_of_id'] != null));
     }
     if (!thenText) {
       _noteScreenshot(e, 'ignored', '像是交易但本机没认出金额（可在自动记账页切到「本机认不出时发文字」）');
@@ -698,9 +702,10 @@ class AppState extends ChangeNotifier {
     final rule = interpreter.rule;
     final accountId = (shot.accountHint == null ? null : rule.matchAccount(shot.accountHint!, ctx)) ?? ctx.defaultAccountId;
     final type = shot.direction!;
+    final hasCategory = type == 'income' || type == 'expense';
     final kind = type == 'income' ? 'income' : 'expense';
-    final guessed = type == 'transfer' ? null : rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind);
-    final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+    final guessed = hasCategory ? rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind) : null;
+    final categoryId = hasCategory ? (guessed ?? ctx.fallbackCategoryId(kind)) : null;
     final when = shot.occurredAt ?? fallback;
     return (
       <String, Object?>{
@@ -708,7 +713,8 @@ class AppState extends ChangeNotifier {
         'amount_minor': shot.amountMinor,
         'currency': 'CNY',
         'account_id': accountId,
-        if (type != 'transfer') 'category_id': categoryId,
+        if (hasCategory) 'category_id': categoryId,
+        if (type == 'refund') 'refund_of_id': ledger.guessRefundOriginal(amountMinor: shot.amountMinor!, currency: 'CNY', merchant: shot.merchant, at: when),
         'merchant': shot.merchant,
         'description': shot.merchant ?? '截图记账',
         'occurred_at': OccurredAt(when, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
@@ -862,7 +868,7 @@ class AppState extends ChangeNotifier {
       merchantMap: {for (final m in ledger.memory.all(limit: 300)) m.key: (categoryId: m.categoryId, accountId: m.accountId)},
       recentTransactions: [
         for (final t in ledger.listTransactions(limit: 20))
-          RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description),
+          RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description, type: t.type.db),
       ],
     );
   }
@@ -906,8 +912,11 @@ class AppState extends ChangeNotifier {
 
   /// 一句话 → 解析 → 草稿进收件箱（不落账）。返回解析结果与建立的草稿。
   Future<({InterpretResult result, List<Draft> drafts, QueryResult? query, String? error})> say(String text) async {
+    // 下面这些关键词直答（周期账单 / 异常 / 预算）只在句子里没有金额时才拦：「今天花多了，打车花了 80」是在记账，
+    // 以前被「花多了」拦下来回了一段异常分析，那 80 块就没记上
+    final hasAmount = extractAmounts(text).isNotEmpty;
     // 周期账单 / 预算 的问法不进 Query DSL（它们不是交易聚合），直接答
-    if (RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
+    if (!hasAmount && RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
       final items = ledger.recurring.list();
       final lines = items.map((r) => '${r.name} ${Money(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${r.nextDue}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: items.isEmpty ? '还没有设置周期账单（更多 → 周期账单）' : '固定账单 ${items.length} 项：$lines');
@@ -924,20 +933,20 @@ class AppState extends ChangeNotifier {
         return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: '每月存 ${Money((monthly * 100).round(), 'CNY').toDecimalString()}，攒到 ${Money((target * 100).round(), 'CNY').toDecimalString()} 需要 $months 个月（${(months / 12).toStringAsFixed(1)} 年）。');
       }
     }
-    if (RegExp('异常|不正常|反常|比平时|花得多|花多了|大额').hasMatch(text)) {
+    if (!hasAmount && RegExp('异常|不正常|反常|比平时|花得多|花多了|大额').hasMatch(text)) {
       final now = DateTime.now();
       final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
       final a = detectAnomalies(ledger, from: from, to: _today());
       final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${Money(x.tx.amountMinor, x.tx.currency)}（${x.tx.occurredAt.localDate.substring(5)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: a.isEmpty ? '这个月没有明显异常的支出。' : '这个月 ${a.length} 笔明显高于平时：$lines');
     }
-    if (RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
+    if (!hasAmount && RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
       final st = ledger.budgets.statuses(today: _today());
       final lines = st.map((s) => '${s.budget.name} 已用 ${Money(s.spentMinor, s.budget.currency)} / ${Money(s.budget.amountMinor, s.budget.currency)}${s.exceeded ? '（已超）' : ''}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: st.isEmpty ? '还没有设置预算（更多 → 预算）' : lines);
     }
     // 目标：「日本游攒了多少」直答；「攒 5000 换手机」→ 目标建议卡（都不出网）
-    final goalAnswer = game.answerGoalQuery(text);
+    final goalAnswer = hasAmount ? null : game.answerGoalQuery(text);
     if (goalAnswer != null) {
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: goalAnswer);
     }
@@ -1148,9 +1157,12 @@ class AppState extends ChangeNotifier {
       if (r.problems.isNotEmpty) problems++;
       final kind = r.type == 'income' ? 'income' : 'expense';
       final text = [r.categoryHint, r.merchant, r.description].whereType<String>().join(' ');
-      final categoryId = r.type == 'transfer' ? null : rule.guessCategory(text, ctx, kind);
+      final categoryId = r.type == 'expense' || r.type == 'income' ? rule.guessCategory(text, ctx, kind) : null;
       final accountId = (r.accountHint == null ? null : rule.matchAccount(r.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId));
+      final refundOf = r.type == 'refund' && r.amountMinor != null
+          ? ledger.guessRefundOriginal(amountMinor: r.amountMinor!, currency: r.currency, merchant: r.merchant, at: r.occurredAt?.utc.toLocal())
+          : null;
+      inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId, refundOfId: refundOf));
     }
     final drafts = ledger.propose(inputs, source: Source.import_, actor: Actor.automation, interpreter: 'import');
     notifyListeners();

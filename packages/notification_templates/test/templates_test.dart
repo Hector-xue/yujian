@@ -91,7 +91,7 @@ void main() {
     expect(mt.amountMinor, 2350);
     expect(mt.templateId, 'shop_pay');
     final rf = m.extract(ev('com.xunmeng.pinduoduo', '拼多多', '退款成功，¥45.00 已退回原支付账户'));
-    expect(rf.direction, 'income');
+    expect(rf.direction, 'refund'); // 退款冲减支出，不算收入
     expect(rf.amountMinor, 4500);
     expect(m.extract(ev('com.jingdong.app.mall', '京东', '您的包裹已签收，快递员：张三')).ignored, isTrue);
     expect(m.extract(ev('com.sankuai.meituan.takeoutnew', '美团外卖', '骑手已接单，预计送达 12:30')).ignored, isTrue);

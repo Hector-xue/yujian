@@ -41,7 +41,8 @@ class ScreenshotOcrParser {
   static final _amountLabelRe = RegExp('实付款?|实际支付|付款金额|支付金额|交易金额|合计|总计|应付|订单金额|退款金额|到账金额|收款金额');
   static final _amountLabelLooseRe = RegExp('金额');
   static final _notAmountLabelRe = RegExp('优惠|折扣|抵扣|立减|减免|余额|返现|积分');
-  static final _incomeLabelRe = RegExp('退款金额|到账金额|收款金额');
+  static final _incomeLabelRe = RegExp('到账金额|收款金额');
+  static final _refundRe = RegExp('退款成功|已退款|退款金额|退款到账|退款详情');
   static final _expenseLabelRe = RegExp('实付|实际支付|付款金额|支付金额');
   static final _merchantLabelRe = RegExp(r'^(收款方全称|收款方|收款商户|收款人|商户全称|商户名称|商户|商家|店铺|付款给|向|付款商户|商品说明|商品|交易对方|对方|转账给|收款账户)[:：]?\s*(.*)$');
   // 方向证据（按优先级）
@@ -98,9 +99,12 @@ class ScreenshotOcrParser {
       if (_signExpenseRe.hasMatch(amountLine)) return 'expense';
       if (_signIncomeRe.hasMatch(amountLine)) return 'income';
     }
+    // 退款页：记成退款（冲减原来那笔支出），不算收入
+    if (amountLabel != null && amountLabel.contains('退款')) return 'refund';
     final body = texts.where((t) => !_statusBarRe.hasMatch(t)).toList();
     final headIdx = body.indexWhere((t) => t.length <= 12 && (_headExpenseRe.hasMatch(t) || _headIncomeRe.hasMatch(t) || _headTransferRe.hasMatch(t)));
     final head = headIdx >= 0 ? body[headIdx] : (body.isEmpty ? '' : body.first);
+    if (_refundRe.hasMatch(head)) return 'refund';
     if (_headTransferRe.hasMatch(head)) return 'transfer';
     if (_headIncomeRe.hasMatch(head)) return 'income';
     if (_headExpenseRe.hasMatch(head)) return 'expense';
@@ -110,6 +114,7 @@ class ScreenshotOcrParser {
     }
     if (_partyExpenseRe.hasMatch(full)) return 'expense';
     if (_partyIncomeRe.hasMatch(full)) return 'income';
+    if (_refundRe.hasMatch(full) && !_wordExpenseRe.hasMatch(full)) return 'refund';
     if (TemplateMatcher.directionOf(full) == 'transfer') return 'transfer';
     if (_wordIncomeRe.hasMatch(full) && !_wordExpenseRe.hasMatch(full)) return 'income';
     if (_wordExpenseRe.hasMatch(full)) return 'expense';

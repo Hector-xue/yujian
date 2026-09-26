@@ -1,5 +1,7 @@
 import 'package:ledger_core/ledger_core.dart';
 
+import 'amount.dart';
+
 /// 日期/时段词抽取。返回墙上时间（用 UTC 实例承载）+ 是否显式。
 class DateHit {
   final DateTime wall; // 墙上时间
@@ -31,10 +33,18 @@ final _relDayRe = RegExp(r'大前天|前天|昨天|昨日|今天|今日|明天|�
 final _daysAgoRe = RegExp(r'([一二两三四五六七八九十\d]{1,3})\s*天前');
 final _weekRe = RegExp(r'(上上|上|这|本|下)?(周|星期|礼拜)([一二三四五六日天])');
 final _mdRe = RegExp(r'(?:(\d{4})\s*年\s*)?([一二三四五六七八九十\d]{1,3})\s*月\s*([一二三四五六七八九十\d]{1,3})\s*[日号]');
-final _dayOnlyRe = RegExp(r'(?<![\d月])([一二三四五六七八九十\d]{1,3})号');
+// 「3号线」「5号楼」「2号门」「8号床」是编号不是日期
+final _dayOnlyRe = RegExp(r'(?<![\d月])([一二三四五六七八九十\d]{1,3})号(?!线|楼|房间|门|车厢|厅|床|桌|座位|店|馆|机位|窗口|柜|台)');
 final _lastMonthDayRe = RegExp(r'(上个?月|这个?月|本月)\s*([一二三四五六七八九十\d]{1,3})\s*[日号]');
 final _periodRe = RegExp('今早|今晚|昨晚|前晚|凌晨|早上|早晨|清晨|上午|中午|午饭|午餐|下午|傍晚|晚上|晚饭|晚餐|夜里|深夜|半夜');
 final _clockRe = RegExp(r'([一二三四五六七八九十\d]{1,2})\s*[点:：]\s*(半|[0-5]?\d分?)?');
+
+/// 合法的日子才返回（「2月31号」不能被 DateTime 溢出成 3 月 3 日）。
+DateTime? _validDate(int y, int m, int d) {
+  if (m < 1 || m > 12 || d < 1) return null;
+  final dt = DateTime.utc(y, m, d);
+  return dt.month == ((m - 1) % 12) + 1 && dt.day == d ? dt : null;
+}
 
 /// 去掉时段词（多笔时全文的"晚上"只属于它所在的那句，不该传染给其他笔）。
 String stripPeriods(String text) => text.replaceAll(_periodRe, '');
@@ -61,19 +71,20 @@ DateHit extractDateTime(String text, DateTime wallNow) {
     final y = md.group(1) == null ? wallNow.year : int.parse(md.group(1)!);
     final mo = _num(md.group(2)!);
     final d = _num(md.group(3)!);
-    if (mo != null && d != null && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
-      var dt = DateTime.utc(y, mo, d);
-      if (md.group(1) == null && dt.isAfter(wallNow)) dt = DateTime.utc(y - 1, mo, d); // 未来的月日按去年
+    var dt = mo == null || d == null ? null : _validDate(y, mo, d);
+    if (dt != null && md.group(1) == null && dt.isAfter(wallNow)) dt = _validDate(y - 1, mo!, d!); // 未来的月日按去年
+    if (dt != null) {
       date = dt;
       explicitDate = true;
       mark(md);
     }
   } else if (lmd != null) {
     final d = _num(lmd.group(2)!);
-    if (d != null) {
-      final lastMonth = lmd.group(1)!.startsWith('上');
-      final base = lastMonth ? DateTime.utc(wallNow.year, wallNow.month - 1, 1) : DateTime.utc(wallNow.year, wallNow.month, 1);
-      date = DateTime.utc(base.year, base.month, d);
+    final lastMonth = lmd.group(1)!.startsWith('上');
+    final base = lastMonth ? DateTime.utc(wallNow.year, wallNow.month - 1, 1) : DateTime.utc(wallNow.year, wallNow.month, 1);
+    final dt = d == null ? null : _validDate(base.year, base.month, d); // 上个月没有 31 号就当没说日期
+    if (dt != null) {
+      date = dt;
       explicitDate = true;
       mark(lmd);
     }
@@ -116,12 +127,17 @@ DateHit extractDateTime(String text, DateTime wallNow) {
     mark(wk);
   } else if (dayOnly != null) {
     final d = _num(dayOnly.group(1)!);
-    if (d != null && d >= 1 && d <= 31) {
-      var dt = DateTime.utc(wallNow.year, wallNow.month, d);
-      if (dt.isAfter(wallNow)) dt = DateTime.utc(wallNow.year, wallNow.month - 1, d);
-      date = dt;
-      explicitDate = true;
-      mark(dayOnly);
+    if (d != null) {
+      var dt = _validDate(wallNow.year, wallNow.month, d);
+      if (dt == null || dt.isAfter(wallNow)) {
+        final prev = DateTime.utc(wallNow.year, wallNow.month - 1, 1);
+        dt = _validDate(prev.year, prev.month, d); // 本月还没到 / 本月没有这一天 → 上个月的；上个月也没有就不认
+      }
+      if (dt != null) {
+        date = dt;
+        explicitDate = true;
+        mark(dayOnly);
+      }
     }
   }
 
@@ -145,8 +161,17 @@ DateHit extractDateTime(String text, DateTime wallNow) {
   int hour;
   int minute = 0;
   var explicitTime = false;
-  final clock = _clockRe.firstMatch(text);
-  if (clock != null && _num(clock.group(1)!) != null && _num(clock.group(1)!)! <= 24) {
+  // 时刻：跳过落在金额里的「X点」——「三点五元」「3点5元」的「点」是小数点，不是 3 点钟
+  final amountSpans = [for (final a in extractAmounts(text)) (a.start, a.end)];
+  RegExpMatch? clock;
+  for (final c in _clockRe.allMatches(text)) {
+    final h = _num(c.group(1)!);
+    if (h == null || h > 24) continue;
+    if (amountSpans.any((sp) => c.start < sp.$2 && sp.$1 < c.end)) continue;
+    clock = c;
+    break;
+  }
+  if (clock != null) {
     hour = _num(clock.group(1)!)!;
     final mm = clock.group(2);
     if (mm == '半') {

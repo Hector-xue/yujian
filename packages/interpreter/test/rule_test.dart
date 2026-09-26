@@ -124,4 +124,68 @@ void main() {
       expect(r.drafts.single.missing, contains('account_id'));
     });
   });
+
+  group('2026-09 审查修复', () {
+    final now = DateTime.utc(2026, 9, 26, 6); // 14:00 +08
+    final wall = DateTime.utc(2026, 9, 26, 14);
+    final ctx = InterpretContext(
+      now: now,
+      tzOffsetMinutes: 480,
+      defaultAccountId: 'wx',
+      accounts: const [AccountRef(id: 'wx', name: '微信', currency: 'CNY')],
+      categories: const [
+        CategoryRef(id: 'food', name: '餐饮', kind: 'expense'),
+        CategoryRef(id: 'housing', name: '住房', kind: 'expense'),
+        CategoryRef(id: 'transport', name: '交通', kind: 'expense'),
+        CategoryRef(id: 'other_expense', name: '其他', kind: 'expense'),
+        CategoryRef(id: 'salary', name: '工资', kind: 'income'),
+        CategoryRef(id: 'bonus', name: '奖金', kind: 'income'),
+      ],
+      recentTransactions: const [RecentTransaction(id: 'inc1', amountMinor: 500000, currency: 'CNY', localDate: '2026-09-26', categoryId: 'salary', type: 'income')],
+    );
+    final r = RuleInterpreter();
+
+    test('「三点五元」「3点5元」里的点是小数点，不是几点钟', () {
+      expect(extractDateTime('咖啡三点五元', wall).explicitTime, isFalse);
+      expect(extractDateTime('咖啡3点5元', wall).explicitTime, isFalse);
+      expect(extractDateTime('晚上8点吃饭30元', wall).wall.hour, 20);
+      expect(r.interpretSync('咖啡三点五元', ctx).drafts.single.payload['occurred_at'], '2026-09-26T14:00:00.000+08:00');
+    });
+
+    test('「3号线」不是 3 号', () {
+      expect(extractDateTime('坐地铁3号线花了4元', wall).explicitDate, isFalse);
+      expect(extractDateTime('9号房东收了 2500', wall).explicitDate, isTrue);
+    });
+
+    test('不存在的日子不溢出到下个月', () {
+      expect(extractDateTime('2月31号买菜', wall).explicitDate, isFalse);
+      final oct = DateTime.utc(2026, 10, 5, 12);
+      expect(extractDateTime('上个月31号打车', oct).explicitDate, isFalse); // 9 月没有 31 号
+      expect(extractDateTime('31号吃饭', oct).explicitDate, isFalse); // 10 月 31 号还没到，9 月没有 31 号
+      expect(extractDateTime('30号吃饭', oct).wall.day, 30);
+    });
+
+    test('改收入的分类在收入分类里找', () {
+      final res = r.interpretSync('刚才那笔改成奖金', ctx);
+      expect(res.drafts.single.payload['category_id'], 'bonus');
+    });
+
+    test('转账给别人（不是自己的账户）是支出', () {
+      final d = r.interpretSync('转账给房东2000', ctx).drafts.single.payload;
+      expect(d['type'], 'expense');
+      expect(d['category_id'], 'housing');
+      expect(d['description'], '房东');
+    });
+
+    test('LLM 回 amount_minor 时按分用，不再乘 100', () {
+      final res = LLMInterpreter.parseModelJson({
+        'intent': 'propose_transactions',
+        'transactions': [
+          {'type': 'expense', 'amount_minor': 2850, 'category_id': 'food'},
+          {'type': 'expense', 'amount': '28.50', 'category_id': 'food'},
+        ],
+      }, ctx);
+      expect(res.drafts.map((d) => d.payload['amount_minor']), [2850, 2850]);
+    });
+  });
 }

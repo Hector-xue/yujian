@@ -545,7 +545,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                   setState(() => testResult = x.ignored
                       ? '判定为无关通知（营销/验证码）'
                       : x.usable
-                          ? '${x.direction == 'income' ? '收入' : x.direction == 'transfer' ? '转账' : '支出'} ${fmtMoney(x.amountMinor!, x.currency)}${x.merchant != null ? ' · ${x.merchant}' : ''} · 模板 ${x.templateId} · 置信 ${(x.confidence * 100).round()}%'
+                          ? '${x.direction == 'income' ? '收入' : x.direction == 'transfer' ? '转账' : x.direction == 'refund' ? '退款' : '支出'} ${fmtMoney(x.amountMinor!, x.currency)}${x.merchant != null ? ' · ${x.merchant}' : ''} · 模板 ${x.templateId} · 置信 ${(x.confidence * 100).round()}%'
                           : '没抽到金额或方向，这种会进收件箱附原文');
                 },
                 child: const Text('解析'),

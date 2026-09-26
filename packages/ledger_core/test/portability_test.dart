@@ -100,8 +100,8 @@ void main() {
       expect(rows.length, 3);
       expect(rows[0].categoryHint, '交通出行');
       expect(rows[0].accountHint, '花呗');
-      expect(rows[2].type, 'unknown');
-      expect(rows[2].problems, contains('分不清收支'));
+      expect(rows[2].type, 'transfer'); // 不计收支 = 自己账户之间挪钱，不是支出
+      expect(rows[2].problems.single, startsWith('不计收支'));
 
       final own = parseBillCsv(exportCsv(ledger));
       expect(own.length, 3);
@@ -120,6 +120,36 @@ void main() {
       ledger.commit(d1.single.id);
       final d2 = ledger.propose([importedRowToDraft(rows.single, accountId: wechat.id, categoryId: 'food')], source: Source.import_);
       expect(d2, isEmpty); // 同一行再导：精确指纹丢弃
+    });
+
+    test('quoted newlines stay in one cell; order id fingerprints; identical rows without id are not merged', () {
+      const csv = '交易时间,交易对方,商品说明,收/支,金额,交易订单号\n'
+          '2026-09-14 12:31:05,瑞幸,"拿铁\n大杯",支出,19.00,A1\n'
+          '2026-09-14 12:31:05,瑞幸,"拿铁\n大杯",支出,19.00,A2\n';
+      final rows = parseBillCsv(csv);
+      expect(rows.length, 2);
+      expect(rows[0].description, '拿铁\n大杯');
+      expect(rows.map((r) => r.fingerprint), ['import:order:A1', 'import:order:A2']);
+      const noId = '交易时间,交易对方,商品,收/支,金额\n2026-09-14 12:31:05,瑞幸,拿铁,支出,19.00\n2026-09-14 12:31:05,瑞幸,拿铁,支出,19.00\n';
+      final twice = parseBillCsv(noId);
+      expect(twice[0].fingerprint, isNot(twice[1].fingerprint)); // 同一分钟两杯同价咖啡
+      expect(parseBillCsv(noId).map((r) => r.fingerprint), twice.map((r) => r.fingerprint)); // 再导同一文件仍对得上
+    });
+
+    test('refund rows are refunds, unknown rows keep type empty for the inbox', () {
+      const csv = '交易时间,交易类型,交易对方,商品,收/支,金额(元),当前状态\n2026-09-14 12:31:05,美团-退款,美团,外卖,收入,¥32.50,已退款\n2026-09-14 13:00:00,其他,某某,,/,¥5.00,成功\n';
+      final rows = parseBillCsv(csv);
+      expect(rows[0].type, 'refund');
+      final d = importedRowToDraft(rows[1], accountId: wechat.id);
+      expect(d.payload['type'], isNull);
+      expect(ledger.propose([d], source: Source.import_).single.missingFields, contains('type'));
+    });
+
+    test('csv export neutralises formula injection in text cells', () {
+      ledger.commit(ledger.propose([DraftInput(payload: {'type': 'expense', 'amount_minor': 100, 'currency': 'CNY', 'account_id': wechat.id, 'category_id': 'food', 'merchant': '=HYPERLINK("x")', 'occurred_at': at})], source: Source.manual).single.id);
+      final csv = exportCsv(ledger);
+      expect(csv, contains("'=HYPERLINK"));
+      expect(csv, isNot(contains(',=HYPERLINK')));
     });
 
     test('rejects files without a usable header', () {
