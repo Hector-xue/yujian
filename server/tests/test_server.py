@@ -124,3 +124,13 @@ def test_ai_proxy_streams_and_reuses_one_client(tmp_path, monkeypatch):
 
 def test_health_reports_version(client):
     assert client.get("/healthz").json()["version"] == "0.5.0"
+
+
+def test_reset_keeps_seq_moving(client):
+    ch = [{"entity": "transaction", "entity_id": "t1", "deleted": False, "payload": {"v": 1}, "at": 1}]
+    client.post("/api/v1/sync/push", json={"device_id": "dev-a", "changes": ch}, headers=h())
+    assert client.post("/api/v1/sync/reset", headers=h()).json() == {"removed": 1}
+    r = client.post("/api/v1/sync/push", json={"device_id": "dev-a", "changes": ch}, headers=h())
+    assert r.json()["server_seq"] == 2  # 不回退：别的设备游标停在 1，照样能拉到新的这条
+    rows = client.get("/api/v1/sync/pull", params={"device_id": "dev-b", "since": 1}, headers=h("dev-b")).json()["changes"]
+    assert [c["seq"] for c in rows] == [2]

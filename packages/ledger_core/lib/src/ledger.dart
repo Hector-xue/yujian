@@ -134,6 +134,7 @@ class Ledger implements ValidationContext {
     _db.transaction(() {
       _db.execute('UPDATE memory_map SET account_id = NULL WHERE account_id = ?', [id]);
       if (profile.salaryAccountId == id) profile.salaryAccountId = null;
+      if (profile.defaultAccountId == id) profile.defaultAccountId = null;
       if (profile.getString('${CreditCards.keyPrefix}$id') != null) profile.set('${CreditCards.keyPrefix}$id', null); // 信用卡条款跟着账户走
       _db.execute('DELETE FROM accounts WHERE id = ?', [id]);
       _audit(Actor.user, 'account.delete', 'account', id, before: a.toJson(), confirmed: true);

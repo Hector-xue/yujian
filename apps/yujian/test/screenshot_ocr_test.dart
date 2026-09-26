@@ -97,5 +97,14 @@ void main() {
       expect(r.usable, isTrue);
       expect(r.occurredAt, isNull);
     });
+
+    test('bill list screenshot: one draft per signed amount, time below each amount', () {
+      final wx = ScreenshotOcrParser.parseList(lines(['14:02', '账单', '9月', '扫二维码付款-给张三', '-25.00', '9月19日 11:20', '瑞幸咖啡', '-19.90', '9月18日 08:10', '淘宝-退款', '+45.00', '9月17日 20:00']), fallbackTime: shotAt);
+      expect(wx.map((x) => (x.direction, x.amountMinor, x.merchant)).toList(), [('expense', 2500, '扫二维码付款-给张三'), ('expense', 1990, '瑞幸咖啡'), ('refund', 4500, '淘宝-退款')]);
+      expect(wx[1].occurredAt, DateTime(2026, 9, 18, 8, 10));
+      // 单笔详情页不是列表
+      expect(ScreenshotOcrParser.parseList(lines(['支付成功', '-25.00', '天福便利店', '-3.00']), fallbackTime: shotAt), isEmpty);
+      expect(ScreenshotOcrParser.parseList(lines(['天福便利店', '-25.00']), fallbackTime: shotAt), isEmpty);
+    });
   });
 }

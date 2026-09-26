@@ -4,12 +4,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ledger_core/ledger_core.dart';
 
+import 'package:cryptography/cryptography.dart' show SecretBoxAuthenticationError;
+
 import 'backup_crypto.dart';
+import 'sync_crypto.dart';
 
 class SyncConfig {
   final String baseUrl;
   final String token;
-  const SyncConfig({required this.baseUrl, required this.token});
+  /// 同步加密口令：设了就端到端加密（服务端只见密文）；null / 空 = 明文 JSON（走 HTTPS）。所有设备要填同一个。
+  final String? passphrase;
+  const SyncConfig({required this.baseUrl, required this.token, this.passphrase});
+  bool get encrypted => (passphrase ?? '').isNotEmpty;
   String get _base => baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
 }
 
@@ -31,6 +37,15 @@ class SyncReport {
   const SyncReport({required this.pushed, required this.pulled, required this.applied, required this.skipped, this.failed = 0, required this.serverSeq});
   @override
   String toString() => '推 $pushed · 拉 $pulled · 应用 $applied · 冲突跳过 $skipped${failed > 0 ? ' · 失败 $failed（见审计日志）' : ''}';
+}
+
+/// 服务端看到的一台设备。
+class DeviceInfo {
+  final String deviceId;
+  final int changes;
+  final DateTime? lastSeen;
+  final bool blocked;
+  const DeviceInfo({required this.deviceId, required this.changes, this.lastSeen, required this.blocked});
 }
 
 class BackupInfo {
@@ -60,6 +75,7 @@ class SyncClient {
       throw SyncException('网络错误：${e.message}');
     }
     if (r.statusCode == 401) throw SyncException('token 不对', status: 401);
+    if (r.statusCode == 403) throw SyncException('这台设备已被移出同步（在另一台设备的同步页里恢复它）', status: 403);
     if (r.statusCode < 200 || r.statusCode >= 300) throw SyncException('服务端 ${r.statusCode}：${utf8.decode(r.bodyBytes, allowMalformed: true)}', status: r.statusCode);
     return r;
   }
@@ -74,17 +90,26 @@ class SyncClient {
   }
 
   /// 一轮同步：推 → 拉 → 应用。每一步失败都抛 SyncException，已推的已标记，可重试。
+  Future<SyncCipher?> _cipher() async => config.encrypted ? SyncCipher.forPassphrase(config.passphrase!) : null;
+
+  Future<Map<String, Object?>> _wire(ChangeRecord c, SyncCipher? k) async {
+    if (k == null) return c.toWire();
+    return {'entity': c.entity, 'entity_id': await k.hashId(c.entity, c.entityId), 'deleted': c.deleted, 'payload': await k.seal(c.entity, c.entityId, c.payload), 'at': c.at};
+  }
+
   Future<SyncReport> sync() async {
     final device = ledger.changes.deviceId;
+    final cipher = await _cipher();
     var pushed = 0;
     var serverSeq = 0;
     while (true) {
       final batch = ledger.changes.pending(limit: 500);
       if (batch.isEmpty) break;
+      final wire = [for (final c in batch) await _wire(c, cipher)];
       final r = await _send(() => _http.post(
             Uri.parse('${config._base}/api/v1/sync/push'),
             headers: _headers,
-            body: jsonEncode({'device_id': device, 'changes': batch.map((c) => c.toWire()).toList()}),
+            body: jsonEncode({'device_id': device, 'changes': wire}),
           ));
       final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map;
       ledger.changes.markPushed(batch.map((c) => c.seq));
@@ -103,12 +128,25 @@ class SyncClient {
       serverSeq = (j['server_seq'] as num).toInt();
       final changes = (j['changes'] as List).cast<Map>();
       for (final c in changes) {
+        var entityId = c['entity_id'] as String;
+        var payload = (c['payload'] as Map?)?.cast<String, Object?>();
+        if (SyncCipher.isSealed(payload)) {
+          // 解不开是配置问题（没填 / 填错口令），不是坏数据：停在这一条之前、游标不动，改好口令重试就能接着拉
+          if (cipher == null) throw SyncException('服务器上的同步内容是加密的，这台设备还没填同步加密口令');
+          try {
+            final (id, p) = await cipher.open(c['entity'] as String, payload!);
+            entityId = id;
+            payload = p;
+          } on SecretBoxAuthenticationError {
+            throw SyncException('同步加密口令和别的设备不一致，解不开');
+          }
+        }
         final rec = ChangeRecord(
           seq: (c['seq'] as num).toInt(),
           entity: c['entity'] as String,
-          entityId: c['entity_id'] as String,
+          entityId: entityId,
           deleted: c['deleted'] == true,
-          payload: (c['payload'] as Map?)?.cast<String, Object?>(),
+          payload: payload,
           at: (c['at'] as num).toInt(),
           origin: c['device_id'] as String,
           pushed: true,
@@ -135,6 +173,41 @@ class SyncClient {
       if (j['has_more'] != true) break;
     }
     return SyncReport(pushed: pushed, pulled: pulled, applied: applied, skipped: skipped, failed: failed, serverSeq: serverSeq);
+  }
+
+  /// 服务端上推过变更的设备（条数、最后出现时间、是否已移出）。
+  Future<List<DeviceInfo>> devices() async {
+    final r = await _send(() => _http.get(Uri.parse('${config._base}/api/v1/devices'), headers: _headers));
+    final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map;
+    return [
+      for (final d in (j['devices'] as List).cast<Map>())
+        DeviceInfo(
+          deviceId: d['device_id'] as String,
+          changes: (d['changes'] as num?)?.toInt() ?? 0,
+          lastSeen: d['last_seen'] == null ? null : DateTime.fromMillisecondsSinceEpoch((d['last_seen'] as num).toInt()),
+          blocked: d['blocked'] == true,
+        ),
+    ];
+  }
+
+  /// 移出 / 恢复一台设备（丢了的手机移出后它再推拉都会被拒）。
+  Future<void> setDeviceBlocked(String deviceId, bool blocked) async {
+    await _send(() => _http.post(Uri.parse('${config._base}/api/v1/devices/${Uri.encodeComponent(deviceId)}/${blocked ? 'block' : 'unblock'}'), headers: _headers));
+  }
+
+  /// 服务端变更日志压缩：每个实体只留最新一条。返回删掉的条数。
+  Future<int> compactServer() async {
+    final r = await _send(() => _http.post(Uri.parse('${config._base}/api/v1/sync/compact'), headers: _headers));
+    return ((jsonDecode(utf8.decode(r.bodyBytes)) as Map)['removed'] as num).toInt();
+  }
+
+  /// 用本机账本重建服务端日志：清空服务端变更日志 → 本机全量记成新变更 → 推上去。
+  /// 刚开 / 换了同步加密口令时用：服务器上旧的明文（或旧口令的密文）一条不留，其他设备按新内容接着拉。
+  Future<SyncReport> rebuildServerLog() async {
+    await _send(() => _http.post(Uri.parse('${config._base}/api/v1/sync/reset'), headers: _headers));
+    ledger.changes.clear();
+    ledger.recordFullSnapshotAsChanges();
+    return sync();
   }
 
   Future<BackupInfo> uploadBackup(String passphrase) async {

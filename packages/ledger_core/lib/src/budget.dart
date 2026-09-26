@@ -46,6 +46,9 @@ class Budget {
         alertThreshold: (r['alert_threshold'] as num).toDouble(),
         isActive: (r['is_active'] as int) == 1,
       );
+
+  /// 过了结束日（含当天仍算在内）。
+  bool endedBy(String today) => endDate != null && today.compareTo(endDate!) > 0;
 }
 
 class BudgetStatus {
@@ -103,10 +106,30 @@ class BudgetStore {
   List<Budget> list({bool activeOnly = true}) =>
       _db.select('SELECT * FROM budgets ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY created_at').map(Budget.fromRow).toList();
 
-  void update(String id, {int? amountMinor, double? alertThreshold, bool? isActive, String? name}) {
+  /// 改预算：金额 / 提醒线 / 开关 / 名字 / 范围（分类，[clearCategory] = 改成全部支出）/ 周期 / 起止日（[clearEndDate] = 不设结束）。
+  void update(String id, {int? amountMinor, double? alertThreshold, bool? isActive, String? name, String? categoryId, bool clearCategory = false, BudgetPeriod? period, String? startDate, String? endDate, bool clearEndDate = false}) {
     final b = get(id);
-    _db.execute('UPDATE budgets SET amount_minor=?, alert_threshold=?, is_active=?, name=?, updated_at=? WHERE id=?',
-        [amountMinor ?? b.amountMinor, alertThreshold ?? b.alertThreshold, (isActive ?? b.isActive) ? 1 : 0, name ?? b.name, _nowMs(), id]);
+    if (amountMinor != null && amountMinor <= 0) throw ValidationException('amount_minor', 'must be > 0');
+    if (name != null && name.trim().isEmpty) throw ValidationException('name', 'required');
+    if (categoryId != null && ledger.category(categoryId) == null) throw NotFoundException('category', categoryId);
+    final date = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (startDate != null && !date.hasMatch(startDate)) throw ValidationException('start_date', 'yyyy-MM-dd');
+    if (endDate != null && !date.hasMatch(endDate)) throw ValidationException('end_date', 'yyyy-MM-dd');
+    final newStart = startDate ?? b.startDate;
+    final newEnd = clearEndDate ? null : (endDate ?? b.endDate);
+    if (newEnd != null && newEnd.compareTo(newStart) < 0) throw ValidationException('end_date', 'before start_date');
+    _db.execute('UPDATE budgets SET amount_minor=?, alert_threshold=?, is_active=?, name=?, category_id=?, period=?, start_date=?, end_date=?, updated_at=? WHERE id=?', [
+      amountMinor ?? b.amountMinor,
+      alertThreshold ?? b.alertThreshold,
+      (isActive ?? b.isActive) ? 1 : 0,
+      name?.trim() ?? b.name,
+      clearCategory ? null : (categoryId ?? b.categoryId),
+      (period ?? b.period).name,
+      newStart,
+      newEnd,
+      _nowMs(),
+      id,
+    ]);
     _changes?.record('budget', id, toJson(get(id)));
   }
 
@@ -130,7 +153,11 @@ class BudgetStore {
     return BudgetStatus(budget: b, from: from, to: to, spentMinor: _spent(b, from, to));
   }
 
-  List<BudgetStatus> statuses({required String today}) => [for (final b in list()) status(b.id, today: today)];
+  /// 各预算当前周期的执行情况。过了结束日的默认不算（首页提醒、陪聊都不该再提它）；预算页要列出来时传 [includeEnded]。
+  List<BudgetStatus> statuses({required String today, bool includeEnded = false}) => [
+        for (final b in list())
+          if (includeEnded || !b.endedBy(today)) status(b.id, today: today),
+      ];
 
   static (String, String) periodRange(Budget b, String today) {
     DateTime parse(String s) {

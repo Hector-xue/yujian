@@ -179,7 +179,7 @@ class AppState extends ChangeNotifier {
       }
     }
     matcher = TemplateMatcher(userTemplates: userTemplates);
-    sync = settings.syncActive ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
+    sync = settings.syncActive ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!, passphrase: settings.syncPassphrase)) : null;
     notifyListeners();
   }
 
@@ -425,6 +425,7 @@ class AppState extends ChangeNotifier {
       try {
         ledger.changes.compact();
       } catch (_) {}
+      unawaited(_maybeCompactServer(c));
       lastSyncNote = '${DateTime.now().toIso8601String().substring(11, 16)} ${r.toString()}';
       notifyListeners();
       return r;
@@ -433,6 +434,18 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  /// 服务器变更日志每 7 天压缩一次（每个实体只留最新一条；新设备首次拉取快、服务器不无限长）。失败不打扰。
+  Future<void> _maybeCompactServer(SyncClient c) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final last = p.getInt('server_compact_at') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - last < const Duration(days: 7).inMilliseconds) return;
+      await trackSync('compact', () => c.compactServer());
+      await p.setInt('server_compact_at', now);
+    } catch (_) {}
   }
 
   /// 同步页和启动同步都从这里过：成功失败都进出网记录。
@@ -670,6 +683,15 @@ class AppState extends ChangeNotifier {
       _noteScreenshot(e, 'skipped', '这个平台没有本地识别（换「发原图」才能用）');
       return 0;
     }
+    // 账单列表截图（一屏好几笔）：每笔一条草稿，都进收件箱让用户过目（列表里的商户 / 时间靠版式猜，不自动入账）
+    final list = ScreenshotOcrParser.parseList(lines, fallbackTime: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
+    if (list.isNotEmpty) {
+      final inputs = <DraftInput>[
+        for (var i = 0; i < list.length; i++)
+          DraftInput(payload: _localShotPayload(list[i], fallback: DateTime.fromMillisecondsSinceEpoch(e.addedMs)).$1, confidence: list[i].confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
+      ];
+      return _proposeShot(e, inputs, interpreter: 'ocr:list', modelUsed: null, autoOk: false);
+    }
     final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
     if (!shot.looksLikeTransaction) {
       _noteScreenshot(e, 'ignored', '不是交易截图（本机判断，没上传）');
@@ -743,6 +765,16 @@ class AppState extends ChangeNotifier {
       return (drafts: const <Draft>[], error: '本机识别出错了，换一张试试', modelUsed: null);
     }
     if (lines == null) return null;
+    final list = ScreenshotOcrParser.parseList(lines, fallbackTime: DateTime.now());
+    if (list.isNotEmpty) {
+      final drafts = ledger.propose([
+        for (var i = 0; i < list.length; i++)
+          DraftInput(payload: _localShotPayload(list[i], fallback: DateTime.now()).$1, confidence: list[i].confidence, eventFingerprint: 'shotlocal:${TemplateMatcher.stableHash(list[i].text)}:$i', fingerprintIsExact: true),
+      ], source: Source.screenshot, interpreter: 'ocr:list');
+      if (drafts.isEmpty) return (drafts: const <Draft>[], error: '这张图已经记过', modelUsed: null);
+      notifyListeners();
+      return (drafts: drafts, error: null, modelUsed: '本机识别（账单列表 ${drafts.length} 笔）');
+    }
     final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.now());
     if (!shot.looksLikeTransaction) return (drafts: const <Draft>[], error: '这张图不像交易截图（本机判断，没上传）', modelUsed: null);
     if (!shot.usable) return (drafts: const <Draft>[], error: '像是交易，但本机没认出金额。支付成功页 / 账单详情认得准，排版乱的小票认不出', modelUsed: null);
@@ -814,7 +846,7 @@ class AppState extends ChangeNotifier {
       }
     }
     final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
-    final how = interpreter == 'ocr:local' ? '本机识别 · ' : '';
+    final how = interpreter == 'ocr:local' ? '本机识别 · ' : (interpreter == 'ocr:list' ? '本机识别账单列表 · ' : '');
     _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', '$how${committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts'}', modelUsed: modelUsed);
     return drafts.length;
   }
@@ -867,12 +899,25 @@ class AppState extends ChangeNotifier {
   List<Category> get categories => ledger.listCategories();
   List<Draft> get inbox => ledger.listDrafts(status: DraftStatus.pending);
 
+  /// 默认记账账户：用户在账户页设的（没归档）优先，没设就是账户列表第一个。
+  String? get defaultAccountId {
+    final accs = accounts;
+    final chosen = ledger.profile.defaultAccountId;
+    if (chosen != null && accs.any((a) => a.id == chosen)) return chosen;
+    return accs.isEmpty ? null : accs.first.id;
+  }
+
+  void setDefaultAccount(String? id) {
+    ledger.profile.defaultAccountId = id;
+    notifyListeners();
+  }
+
   InterpretContext context() {
     final accs = accounts;
     return InterpretContext(
       now: DateTime.now(),
       tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes,
-      defaultAccountId: accs.isEmpty ? null : accs.first.id,
+      defaultAccountId: defaultAccountId,
       accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency)],
       categories: [for (final c in categories) CategoryRef(id: c.id, name: c.name, kind: c.kind.db, parentId: c.parentId)],
       merchantMap: {for (final m in ledger.memory.all(limit: 300)) m.key: (categoryId: m.categoryId, accountId: m.accountId)},

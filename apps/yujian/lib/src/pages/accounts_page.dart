@@ -29,7 +29,7 @@ class AccountsPage extends StatelessWidget {
     Widget tile(Account a) => ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(a.name, style: a.isArchived ? TextStyle(color: theme.textTheme.bodySmall?.color) : null),
-          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}', style: theme.textTheme.bodySmall),
+          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}${!a.isArchived && app.defaultAccountId == a.id ? ' · 默认记账' : ''}', style: theme.textTheme.bodySmall),
           trailing: Text(fmtMoney(app.ledger.balance(a.id).minor, a.currency), style: theme.textTheme.titleMedium),
           onTap: () => _edit(context, a),
         );
@@ -57,6 +57,8 @@ class AccountsPage extends StatelessWidget {
     final name = TextEditingController(text: a.name);
     final initial = TextEditingController(text: Money(a.initialBalanceMinor, a.currency).toDecimalString());
     var type = a.type;
+    final wasDefault = app.defaultAccountId == a.id;
+    var makeDefault = wasDefault;
     final hasPostings = app.ledger.accountPostingCount(a.id) > 0;
     final result = await showDialog<String>(
       context: context,
@@ -79,6 +81,14 @@ class AccountsPage extends StatelessWidget {
                   controller: initial,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                   decoration: InputDecoration(labelText: '期初余额（${a.currency}）', helperText: hasPostings ? '币种已有交易，不能改' : null)),
+              if (!a.isArchived)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('默认记账账户'),
+                  subtitle: const Text('一句话记账、通知认不出账户时都记到这里'),
+                  value: makeDefault,
+                  onChanged: (v) => setState(() => makeDefault = v),
+                ),
               if (hasPostings) ...[
                 const SizedBox(height: 10),
                 Align(alignment: Alignment.centerLeft, child: Text('已有交易的账户只能归档，删了历史就对不上。', style: Theme.of(d).textTheme.bodySmall)),
@@ -123,6 +133,7 @@ class AccountsPage extends StatelessWidget {
           }
         case 'save':
           app.ledger.updateAccount(a.id, name: name.text.trim(), type: type, initialBalanceMinor: Money.parse(initial.text.trim().isEmpty ? '0' : initial.text.trim(), a.currency).minor);
+          if (makeDefault != wasDefault) app.setDefaultAccount(makeDefault ? a.id : null);
       }
       app.touch();
     } on Exception catch (e) {

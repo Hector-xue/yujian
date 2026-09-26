@@ -72,7 +72,7 @@ class RecurringPage extends StatelessWidget {
     var type = 'expense';
     var freq = Frequency.monthly;
     String? categoryId = 'housing';
-    String? accountId = app.accounts.isEmpty ? null : app.accounts.first.id;
+    String? accountId = app.defaultAccountId;
     var firstDue = todayLocal();
     final ok = await showDialog<bool>(
       context: context,

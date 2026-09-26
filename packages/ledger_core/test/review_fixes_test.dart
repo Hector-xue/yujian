@@ -215,4 +215,31 @@ void main() {
       }
     });
   });
+
+  group('功能补齐', () {
+    test('提醒型周期项过期后滚到下一期', () {
+      final r = ledger.recurring.create(name: '续费提醒', template: {'type': 'expense', 'amount_minor': 1500, 'currency': 'CNY', 'account_id': 'wx', 'category_id': 'entertainment'}, frequency: Frequency.monthly, firstDue: '2026-08-10', autoCreate: false);
+      expect(ledger.recurring.generateDue(today: '2026-09-26', tzOffsetMinutes: 480), isEmpty);
+      expect(ledger.recurring.get(r.id).nextDue, '2026-10-10');
+      expect(ledger.recurring.upcoming(today: '2026-10-05').single.id, r.id);
+    });
+
+    test('预算：结束日之后不再提醒；可改范围 / 周期 / 结束日', () {
+      final b = ledger.budgets.create(name: '吃饭', categoryId: 'food', amountMinor: 100000, startDate: '2026-09-01', endDate: '2026-09-20');
+      expect(ledger.budgets.statuses(today: '2026-09-26'), isEmpty);
+      expect(ledger.budgets.statuses(today: '2026-09-26', includeEnded: true), hasLength(1));
+      ledger.budgets.update(b.id, clearEndDate: true, clearCategory: true, period: BudgetPeriod.weekly, startDate: '2026-09-21');
+      final nb = ledger.budgets.get(b.id);
+      expect([nb.endDate, nb.categoryId, nb.period], [null, null, BudgetPeriod.weekly]);
+      expect(ledger.budgets.statuses(today: '2026-09-26').single.from, '2026-09-21');
+      expect(() => ledger.budgets.update(b.id, endDate: '2026-01-01'), throwsA(isA<ValidationException>()));
+    });
+
+    test('默认记账账户随账户删除清掉', () {
+      ledger.createAccount(id: 'tmp', name: '临时', type: AccountType.cash, currency: 'CNY');
+      ledger.profile.defaultAccountId = 'tmp';
+      ledger.deleteAccount('tmp');
+      expect(ledger.profile.defaultAccountId, isNull);
+    });
+  });
 }

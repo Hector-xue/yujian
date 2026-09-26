@@ -67,7 +67,7 @@ final toolDefs = <ToolDef>[
   const ToolDef('list_goals', '目标（心愿 / 应急金 / 还清 / 里程碑）及进度：已攒、目标额、按当前速度还要几天', {'type': 'object', 'properties': {'today': {'type': 'string', 'description': 'yyyy-MM-dd，默认今天'}}}),
   const ToolDef('get_wealth', '财富指标：可花的（可支配余额）、今天还能花、生存月数与等级、储蓄率、净资产、收入分线；每个数都是账本推导的', {'type': 'object', 'properties': {'today': {'type': 'string'}}}),
   const ToolDef('list_tasks', '周任务（本周及最近几周）与结算结果', {'type': 'object', 'properties': {'week': {'type': 'string', 'description': '那一周周一 yyyy-MM-dd，默认本周'}}}),
-  const ToolDef('propose_goal', '提议建一个目标。只写进收件箱式的「待建目标」列表（返回草案），不会直接创建；用户在余见的目标页确认。', {
+  const ToolDef('propose_goal', '起草一个目标：只返回一份目标草案，不写入账本、也不进收件箱；请把草案展示给用户，由用户在余见「目标」页里建。', {
     'type': 'object',
     'properties': {'kind': {'type': 'string', 'enum': ['wish', 'emergency', 'milestone']}, 'name': {'type': 'string'}, 'amount': {'type': 'string', 'description': '目标金额，元'}, 'deadline': {'type': 'string', 'description': 'yyyy-MM-dd'}, 'emoji': {'type': 'string'}},
     'required': ['kind', 'name', 'amount'],

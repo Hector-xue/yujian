@@ -215,7 +215,7 @@ class GameLayer extends ChangeNotifier {
     }
     final sal = ledger.profile.salaryAccountId;
     if (sal != null && ledger.account(sal) != null) return sal;
-    return app.accounts.first.id;
+    return app.defaultAccountId ?? (throw StateError('还没有账户'));
   }
 
   /// 存入。虚拟锁仓：只是标记，直接记账；真锁仓：进收件箱，用户去银行 App 真转了再确认。
@@ -275,7 +275,7 @@ class GameLayer extends ChangeNotifier {
   Future<void> release(Goal g, {bool silent = false}) async {
     if (g.vaultAccountId == null) return;
     if (!g.isVirtualVault) return; // 真锁仓：钱就在那个账户里，无需转
-    final backs = ledger.goals.releasePayloads(g, fallbackAccountId: app.accounts.first.id);
+    final backs = ledger.goals.releasePayloads(g, fallbackAccountId: _defaultFrom(g));
     // 多笔释放要么全成、要么全不成（不会只退回一半）
     ledger.database.transaction(() {
       for (final b in backs) {
@@ -595,7 +595,8 @@ class GameLayer extends ChangeNotifier {
   Future<List<Draft>> proposePaydayPlan(int incomeMinor, {String? fromAccountId, String? note}) async {
     final plan = ledger.goals.paydayPlan(incomeMinor);
     if (plan.isEmpty) return const [];
-    final from = fromAccountId ?? ledger.profile.salaryAccountId ?? app.accounts.first.id;
+    final from = fromAccountId ?? ledger.profile.salaryAccountId ?? app.defaultAccountId;
+    if (from == null) return const [];
     final month = _today.substring(0, 7);
     final inputs = <DraftInput>[];
     for (final a in plan) {

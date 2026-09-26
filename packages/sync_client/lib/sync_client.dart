@@ -3,3 +3,4 @@ library;
 
 export 'src/backup_crypto.dart';
 export 'src/client.dart';
+export 'src/sync_crypto.dart';

@@ -63,6 +63,7 @@ DraftOrigin describeDraftOrigin(AppState app, Draft d) {
           if (added != null && added > 0) ('截图时间', fmtExactTime(DateTime.fromMillisecondsSinceEpoch(added))),
           ('认法', switch (how) {
             'ocr:local' => '本机 OCR + 规则，图和字都没出手机',
+            'ocr:list' => '本机 OCR 认出一屏账单列表里的这一笔（商户、时间按版式推的，确认前看一眼），图和字都没出手机',
             'ocr:text' => '本机 OCR，文字打码后交给模型${model == null ? '' : '（$model）'}',
             'vision:auto' => '原图交给看图模型${model == null ? '' : '（$model）'}',
             _ => how,

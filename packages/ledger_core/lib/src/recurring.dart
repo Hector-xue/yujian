@@ -154,7 +154,18 @@ class RecurringStore {
     final out = <Draft>[];
     _db.transaction(() {
       for (final r in list()) {
-        if (!r.autoCreate) continue;
+        if (!r.autoCreate) {
+          // 只提醒不起草的：日子过了就滚到下一期，否则 next_due 永远停在过去，「即将到期」再也看不到它
+          if (r.nextDue.compareTo(today) < 0) {
+            var d = r.nextDue;
+            while (d.compareTo(today) < 0) {
+              d = advanceDate(d, r.frequency, r.interval);
+            }
+            _db.execute('UPDATE recurring SET next_due = ?, updated_at = ? WHERE id = ?', [d, _nowMs(), r.id]);
+            _changes?.record('recurring', r.id, get(r.id).toJson());
+          }
+          continue;
+        }
         var due = r.nextDue;
         var n = 0;
         final inputs = <DraftInput>[];

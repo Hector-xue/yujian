@@ -146,6 +146,13 @@ class Store:
             self._conn.execute("VACUUM")
         return {"before": before, "after": after, "removed": before - after}
 
+    def reset(self) -> int:
+        """清空变更日志（App 用本机账本重建时先调它）。seq 用 AUTOINCREMENT，不会回退，其他设备的拉取游标照常往后走。"""
+        with self.tx() as c:
+            n = int(c.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
+            c.execute("DELETE FROM changes")
+        return n
+
     def put_backup(self, name: str, blob: bytes, device_id: Optional[str]) -> dict[str, Any]:
         now = int(time.time() * 1000)
         with self.tx() as c:
@@ -246,6 +253,10 @@ def create_app(data_dir: Optional[Path] = None, token: Optional[str] = None, ups
     @app.post("/api/v1/sync/compact", dependencies=[Depends(auth)])
     def compact() -> dict[str, Any]:
         return store.compact()
+
+    @app.post("/api/v1/sync/reset", dependencies=[Depends(auth)])
+    def reset() -> dict[str, Any]:
+        return {"removed": store.reset()}
 
     @app.put("/api/v1/backup", dependencies=[Depends(auth)])
     async def put_backup(request: Request, x_device: str = Header(default="")) -> dict[str, Any]:
