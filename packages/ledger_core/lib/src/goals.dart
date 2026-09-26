@@ -570,8 +570,10 @@ class GoalStore {
     final out = <DueDeposit>[];
     for (final g in list()) {
       if (g.vaultAccountId == null) continue;
+      // 建目标的那一周和它前一周照结（原来就是：周一建目标，上周的零头照样存进去）；更早的周不倒补——
+      // 补结扩成最近 4 周以后，不加这条新目标一建就会一次倒存 4 周的零头
       final created = DateTime.fromMillisecondsSinceEpoch(g.createdAt);
-      if (DateTime.utc(created.year, created.month, created.day).isAfter(sunday)) continue; // 那一周目标还没建
+      if (DateTime.utc(created.year, created.month, created.day).isAfter(sunday.add(const Duration(days: 7)))) continue;
       for (final r in g.rules) {
         if (r.kind != GoalRuleKind.roundup || r.roundTo <= 1) continue;
         final fp = 'goal:${g.id}:roundup:$weekMonday';

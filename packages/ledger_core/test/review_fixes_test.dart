@@ -242,4 +242,13 @@ void main() {
       expect(ledger.profile.defaultAccountId, isNull);
     });
   });
+
+  test('零头周结：建目标的前一周照结，更早的周不倒补', () {
+    commitNew(pay(2800, '2026-09-08T12:00:00+08:00')); // 两周前（9/7 那周）
+    commitNew(pay(3650, '2026-09-16T12:00:00+08:00')); // 上周（9/14 那周）
+    final g = ledger.goals.create(kind: GoalKind.wish, name: 'G', targetMinor: 1000000, rules: const [GoalRule(kind: GoalRuleKind.roundup, roundTo: 1000)]); // 9/26 建
+    expect(ledger.goals.roundupDue(weekMonday: '2026-09-14').single.amountMinor, 350);
+    expect(ledger.goals.roundupDue(weekMonday: '2026-09-07'), isEmpty);
+    expect(g.id, isNotEmpty);
+  });
 }
