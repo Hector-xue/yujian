@@ -96,15 +96,28 @@ class Ledger implements ValidationContext {
       .where((a) => includeVault || a.type != AccountType.vault)
       .toList();
 
-  void archiveAccount(String id) {
+  /// 还在用这个账户付款 / 收款的周期账单（启用中的）。归档前给用户看：归档后它们起草出来也确认不了。
+  List<Recurring> recurringUsing(String accountId) => [
+        for (final r in recurring.list())
+          if (r.template['account_id'] == accountId || r.template['to_account_id'] == accountId) r,
+      ];
+
+  /// 归档：账户从列表、余额、净资产里拿掉（历史交易保留）。用它的周期账单一并停掉——不停的话每期都起草一笔
+  /// 「账户已归档」确认不了的草稿。返回停掉了几条（恢复账户后要去周期账单页手动打开）。
+  int archiveAccount(String id) {
     final before = getAccount(id);
     if (before.isArchived) throw InvalidStateException('account already archived');
+    final using = recurringUsing(id);
     _db.transaction(() {
+      for (final r in using) {
+        recurring.setActive(r.id, false);
+      }
       _db.execute('UPDATE accounts SET is_archived = 1, updated_at = ? WHERE id = ?', [_nowMs(), id]);
       _audit(Actor.user, 'account.archive', 'account', id,
           before: before.toJson(), after: getAccount(id).toJson(), confirmed: true);
       changes.record('account', id, getAccount(id).toJson());
     });
+    return using.length;
   }
 
   void unarchiveAccount(String id) {
@@ -540,8 +553,16 @@ class Ledger implements ValidationContext {
     final merged = {...before.toPayload(), ...patch};
     final a = analyzeCreatePayload(merged, this, selfId: id)..throwIfInvalid();
     final v = a.validated!;
-    if (v.type != TransactionType.refund && _refundedMinorRaw(id) > 0 && v.type != before.type) {
+    final refunded = v.type != TransactionType.refund ? _refundedMinorRaw(id) : 0;
+    if (refunded > 0 && v.type != before.type) {
       throw InvalidStateException('transaction has refunds; void them before changing its type');
+    }
+    // 退过款的原单：金额不能改得比已退的还少（否则退得比买的多，净支出成负数），也不能换币种（退款跟着原单的币种）
+    if (refunded > 0 && v.amountMinor < refunded) {
+      throw InvalidStateException('这笔已经退过 ${before.currency == 'CNY' ? '¥${Money(refunded, 'CNY').toDecimalString()}' : Money(refunded, before.currency)}，金额不能改得比这还少；要改先作废那笔退款');
+    }
+    if (refunded > 0 && v.currency != before.currency) {
+      throw InvalidStateException('这笔有退款，不能换币种；要改先作废那笔退款');
     }
     _db.execute(
       'UPDATE transactions SET type=?,occurred_at_ms=?,tz_offset_min=?,currency=?,merchant=?,description=?,category_id=?,'
@@ -676,9 +697,11 @@ class Ledger implements ValidationContext {
 
   /// 最早一笔记录的入库时间（毫秒）；空账本 = null。用作「用了多久」的依据：跟着账本走，换机 / 重装恢复后不会归零。
   /// [from] 之后有已确认记录的本地日期（yyyy-MM-dd）。只读时间两列，不实例化交易和 posting（连续记账天数这类判定用）。
+  /// 有「记录」的日子：只认用户自己记下的（手记、对话、通知、截图、导入……），周期账单自动生成的、自动定存 / 零头 / 发薪日分钱
+  /// （都是 recurring 来源）不算——否则一笔不记也能「连续 100 天有记录」。
   Set<String> recordedDates({required DateTime from}) {
     final out = <String>{};
-    for (final r in _db.select("SELECT occurred_at_ms, tz_offset_min FROM transactions WHERE status = 'confirmed' AND occurred_at_ms >= ?", [from.toUtc().millisecondsSinceEpoch])) {
+    for (final r in _db.select("SELECT occurred_at_ms, tz_offset_min FROM transactions WHERE status = 'confirmed' AND source != 'recurring' AND occurred_at_ms >= ?", [from.toUtc().millisecondsSinceEpoch])) {
       out.add(OccurredAt.fromMillis(r['occurred_at_ms'] as int, r['tz_offset_min'] as int).localDate);
     }
     return out;

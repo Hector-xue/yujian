@@ -83,6 +83,9 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
+      recurringSkipped
+        ..clear()
+        ..addAll(p.getStringList('recurring_skipped') ?? const []);
       _anomaliesDismissed.addAll(p.getStringList('anomalies_dismissed') ?? const []);
     } catch (_) {}
     _apply();
@@ -257,11 +260,35 @@ class AppState extends ChangeNotifier {
     markSupporter(via: e.source == 'screen' ? 'screen' : 'notification');
   }
 
+  /// 太久没打开、没自动补的周期账单（一行一条：「房租 3/10、4/10…」），首页提示，用户关掉为止。
+  /// 以前是悄悄跳过，少记了几期用户不知道。
+  final List<String> recurringSkipped = [];
+
   /// 周期账单到期 → 草稿进收件箱。启动和新增周期项时调用。
   int generateRecurring() {
     final n = ledger.recurring.generateDue(today: _today(), tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes).length;
-    if (n > 0) notifyListeners();
+    final skipped = ledger.recurring.lastSkipped;
+    if (skipped.isNotEmpty) {
+      for (final k in skipped) {
+        final dates = k.dates.map((d) => '${int.parse(d.substring(5, 7))}/${int.parse(d.substring(8, 10))}').toList();
+        recurringSkipped.add('${k.recurring.name}：${dates.length > 4 ? '${dates.first}–${dates.last} 共 ${dates.length} 期' : dates.join('、')}');
+      }
+      unawaited(_saveRecurringSkipped());
+    }
+    if (n > 0 || skipped.isNotEmpty) notifyListeners();
     return n;
+  }
+
+  Future<void> dismissRecurringSkipped() async {
+    recurringSkipped.clear();
+    notifyListeners();
+    await _saveRecurringSkipped();
+  }
+
+  Future<void> _saveRecurringSkipped() async {
+    try {
+      await (await SharedPreferences.getInstance()).setStringList('recurring_skipped', recurringSkipped);
+    } catch (_) {}
   }
 
   static String _today() {
@@ -956,7 +983,7 @@ class AppState extends ChangeNotifier {
         // 信用卡：没还清的账单（陪聊能提醒「招行 25 号到期还剩 3000」，逾期的把违约金 / 利息说清）
         for (final c in cardStatuses())
           if (c.state == CardBillState.due || c.state == CardBillState.overdue)
-            '信用卡「${c.account.name}」${c.statementDate.substring(5)} 账单还剩 ${fmtMoney(c.remainingMinor, 'CNY')}，${c.state == CardBillState.overdue ? '已逾期 ${-c.daysToDue} 天，违约金 ${fmtMoney(c.lateFeeMinor, 'CNY')}、利息约 ${fmtMoney(c.interestMinor, 'CNY')}' : '${c.dueDate.substring(5)} 到期，最低还款 ${fmtMoney(c.minPaymentMinor, 'CNY')}'}，可用额度 ${fmtMoney(c.availableMinor, 'CNY')}',
+            '信用卡「${c.account.name}」${c.statementDate.substring(5)} 账单还剩 ${fmtMoney(c.remainingMinor, 'CNY')}，${c.state == CardBillState.overdue ? '已逾期 ${c.overdueDays} 天，违约金 ${fmtMoney(c.lateFeeMinor, 'CNY')}、利息约 ${fmtMoney(c.interestMinor, 'CNY')}' : '${c.dueDate.substring(5)} 到期，最低还款 ${fmtMoney(c.minPaymentMinor, 'CNY')}'}，可用额度 ${fmtMoney(c.availableMinor, 'CNY')}',
         if (game.enabled && game.metrics?.title != null) '称号「${game.metrics!.title}」${game.metrics!.inDebt ? '（净资产 ${fmtMoney(game.metrics!.netWorthMinor, 'CNY')}，负翁档按欠款分）' : '（等级「${game.metrics!.level!.name}」）'}，可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
       ];
       return lines.join('\n');
@@ -1200,13 +1227,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// 导入账单 CSV：解析 → 账户/分类映射 → 一组草稿进收件箱。返回统计。
-  ({int drafts, int deduped, int problems, String? error}) importBillCsv(String text) {
-    final List<ImportedRow> rows;
+  ({int drafts, int deduped, int problems, int refundsSkipped, String? error}) importBillCsv(String text) {
+    final List<ImportedRow> parsed;
     try {
-      rows = parseBillCsv(text, tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes);
+      parsed = parseBillCsv(text, tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes);
     } on FormatException catch (e) {
-      return (drafts: 0, deduped: 0, problems: 0, error: e.message);
+      return (drafts: 0, deduped: 0, problems: 0, refundsSkipped: 0, error: e.message);
     }
+    // 退款：账本里有原单的挂上去；没有的在同一个文件里冲减原单；都没有的（原单全额退了、没导）不记
+    final guesses = <ImportedRow, String?>{
+      for (final r in parsed)
+        if (r.type == 'refund' && r.amountMinor != null) r: ledger.guessRefundOriginal(amountMinor: r.amountMinor!, currency: r.currency, merchant: r.merchant, at: r.occurredAt?.utc.toLocal()),
+    };
+    final net = netImportedRefunds(parsed, linked: (r) => guesses[r] != null);
+    final rows = net.rows;
     final ctx = context();
     final rule = interpreter.rule;
     final inputs = <DraftInput>[];
@@ -1217,14 +1251,12 @@ class AppState extends ChangeNotifier {
       final text = [r.categoryHint, r.merchant, r.description].whereType<String>().join(' ');
       final categoryId = r.type == 'expense' || r.type == 'income' ? rule.guessCategory(text, ctx, kind) : null;
       final accountId = (r.accountHint == null ? null : rule.matchAccount(r.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      final refundOf = r.type == 'refund' && r.amountMinor != null
-          ? ledger.guessRefundOriginal(amountMinor: r.amountMinor!, currency: r.currency, merchant: r.merchant, at: r.occurredAt?.utc.toLocal())
-          : null;
+      final refundOf = r.type == 'refund' ? guesses[r] : null;
       inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId, refundOfId: refundOf));
     }
     final drafts = ledger.propose(inputs, source: Source.import_, actor: Actor.automation, interpreter: 'import');
     notifyListeners();
-    return (drafts: drafts.length, deduped: inputs.length - drafts.length, problems: problems, error: null);
+    return (drafts: drafts.length, deduped: inputs.length - drafts.length, problems: problems, refundsSkipped: net.orphans.length, error: null);
   }
 
   /// 恢复备份：整库替换，之后重新装配（分类/账户变了）。

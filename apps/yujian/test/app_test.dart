@@ -145,6 +145,16 @@ void main() {
     expect(find.text('全部确认'), findsOneWidget);
   });
 
+  test('recurring: 太久没打开只补最近 3 期，跳过的记下来给首页提示，关掉后不再显示', () async {
+    final t = DateTime.now();
+    final first = DateTime(t.year, t.month - 6, 1);
+    state.ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 220000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '${first.year}-${first.month.toString().padLeft(2, '0')}-01');
+    expect(state.generateRecurring(), 3);
+    expect(state.recurringSkipped.single, startsWith('房租：'));
+    await state.dismissRecurringSkipped();
+    expect(state.recurringSkipped, isEmpty);
+  });
+
   testWidgets('recurring due → inbox draft; budget alert shows on home', (tester) async {
     final today = DateTime.now();
     final ym = '${today.year}-${today.month.toString().padLeft(2, '0')}';
