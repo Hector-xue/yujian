@@ -30,6 +30,7 @@ import 'sync_page.dart';
 import 'tasks_page.dart';
 import 'wealth_page.dart';
 import 'widgets_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 更多：按「记账 / 自动化 / AI / 隐私 / 外观 / 数据 / 关于」分组，每组一张卡。模型相关只留一个入口（模型与语音）。
 class MorePage extends StatelessWidget {
@@ -97,6 +98,7 @@ class MorePage extends StatelessWidget {
             item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.title == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.title}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),
             item(Icons.health_and_safety_outlined, '资产体检', subtitle: '资产状况 + 按先后排好的调优方案', onTap: () => go(const CheckupPage())),
             item(Icons.event_note_outlined, '还款计划', subtitle: '按发薪日和各个还款日，排出每一笔怎么还', onTap: () => go(const RepaymentPlanPage())),
+            item(Icons.payments_outlined, '发薪日', subtitle: paydaySummary(app), onTap: () => showPaydaySheet(context)),
           ]),
           group('记账', [
             item(Icons.bar_chart_outlined, '月度统计', onTap: () => go(const StatsPage())),

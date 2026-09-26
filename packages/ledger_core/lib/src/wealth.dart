@@ -5,6 +5,7 @@ import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
 import 'money.dart';
+import 'payday.dart';
 import 'models/transaction.dart';
 
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
@@ -117,6 +118,7 @@ class WealthMetrics {
   final int disposableMinor; // 可花的 = 手头余额 − locked − fixedDue − cardOwed，永远 ≤ 手头余额
   final String payday; // 下个发薪日 yyyy-MM-dd
   final String paydaySource; // profile | inferred | month_end
+  final String? paydayLateSince; // 这一期本该这天发、到现在还没到（此时 payday 是「按明天到」估的）；null = 没晚
   final int daysToPayday; // ≥ 1
   final int spentTodayMinor;
   final int dailyAllowanceMinor; // 今天还能花 = disposable ÷ daysToPayday（可花的已经是扣掉今天支出之后的数，不再减一次）
@@ -149,6 +151,7 @@ class WealthMetrics {
     required this.disposableMinor,
     required this.payday,
     required this.paydaySource,
+    this.paydayLateSince,
     required this.daysToPayday,
     required this.spentTodayMinor,
     required this.dailyAllowanceMinor,
@@ -284,7 +287,9 @@ class Wealth {
     final debtTotals = debts.totals(today: today, currency: currency);
 
     // 发薪日
-    final (payday, source) = nextPayday(today: today);
+    final next = Paydays(ledger).next(today: today);
+    final payday = next.date;
+    final source = _sourceName(next.source);
     final pd = _parse(payday);
     final days = pd.difference(t).inDays.clamp(1, 366);
 
@@ -406,6 +411,7 @@ class Wealth {
       disposableMinor: disposable,
       payday: payday,
       paydaySource: source,
+      paydayLateSince: next.lateSince,
       daysToPayday: days,
       spentTodayMinor: spentToday,
       dailyAllowanceMinor: daily,
@@ -428,65 +434,21 @@ class Wealth {
     );
   }
 
-  /// 下一个发薪日：画像里填了按画像；没填从最近 3 个月里最大的那笔收入推日子；推不出按月底。
+  /// 下一个发薪日和来源（profile | inferred | month_end）。规则全在 [Paydays]：可以几个发薪日，看这一期实际到没到。
   (String, String) nextPayday({required String today}) {
-    final t = _parse(today);
-    final day = ledger.profile.payday ?? inferPaydayDay(today: today);
-    final source = ledger.profile.payday != null ? 'profile' : (day != null ? 'inferred' : 'month_end');
-    if (day == null) {
-      final end = DateTime.utc(t.year, t.month + 1, 0);
-      final next = end.isAfter(t) ? end : DateTime.utc(t.year, t.month + 2, 0);
-      return (_fmt(next), source);
-    }
-    DateTime candidate(int y, int m) {
-      final last = DateTime.utc(y, m + 1, 0).day;
-      return DateTime.utc(y, m, day > last ? last : day);
-    }
-
-    var c = candidate(t.year, t.month);
-    if (!c.isAfter(t)) c = candidate(t.year, t.month + 1);
-    return (_fmt(c), source);
+    final n = Paydays(ledger).next(today: today);
+    return (n.date, _sourceName(n.source));
   }
 
-  /// 今天是不是发薪日（画像填的日子，没填按推断；大于当月天数的按月底）。
-  /// 注意 [nextPayday] 永远返回「今天之后」的下一个，不能拿它和今天比（以前这么比，发薪日仪式从来没触发过）。
-  bool isPayday({required String today}) {
-    final day = ledger.profile.payday ?? inferPaydayDay(today: today);
-    if (day == null) return false;
-    final t = _parse(today);
-    final last = DateTime.utc(t.year, t.month + 1, 0).day;
-    return t.day == (day > last ? last : day);
-  }
+  static String _sourceName(PaydaySource s) => switch (s) { PaydaySource.profile => 'profile', PaydaySource.inferred => 'inferred', PaydaySource.monthEnd => 'month_end' };
 
-  /// 从收入记录推发薪日：每个月取一笔代表——有工资 / 奖金就取其中最大的，没有才取最大的一笔收入——日子取众数。
-  /// 顺序是上月、上上月、再往前一月，最后才是本月（本月只在已经有工资 / 奖金时才参与：工资还没到的话，
-  /// 本月别的收入会把日子带偏）；平票取排在前面的，也就是最近的整月。
+  /// 今天是不是发薪日（填的或推断的某一个发薪日；推不出时不算）。
+  bool isPayday({required String today}) => Paydays(ledger).isPayday(today: today);
+
+  /// 从收入记录推的主发薪日（见 [Paydays.infer]，那里还会推第二个）；推不出 = null。
   int? inferPaydayDay({required String today}) {
-    final t = _parse(today);
-    final days = <int>[];
-    for (final i in const [1, 2, 3, 0]) {
-      final m = DateTime.utc(t.year, t.month - i, 1);
-      final last = DateTime.utc(m.year, m.month + 1, 0);
-      Transaction? salary;
-      Transaction? any;
-      for (final tx in _range(from: _fmt(m), to: _fmt(last))) {
-        if (tx.type != TransactionType.income) continue;
-        if ((tx.categoryId == 'salary' || tx.categoryId == 'bonus') && (salary == null || tx.amountMinor > salary.amountMinor)) salary = tx;
-        if (any == null || tx.amountMinor > any.amountMinor) any = tx;
-      }
-      final best = salary ?? (i == 0 ? null : any);
-      if (best != null) days.add(int.parse(best.occurredAt.localDate.substring(8, 10)));
-    }
-    if (days.isEmpty) return null;
-    final counts = <int, int>{};
-    for (final d in days) {
-      counts[d] = (counts[d] ?? 0) + 1;
-    }
-    var pick = days.first;
-    for (final d in days) {
-      if (counts[d]! > counts[pick]!) pick = d; // 严格大于：平票保留更早出现（更近的整月）的那个
-    }
-    return pick;
+    final days = Paydays(ledger).infer(today: today);
+    return days.isEmpty ? null : days.first;
   }
 
   List<Transaction> _range({required String from, required String to, String? currency}) {

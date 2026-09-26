@@ -76,7 +76,15 @@ class _StatsPageState extends State<StatsPage> {
           IconButton(tooltip: '下个月', onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
         ],
       ),
-      body: ListView(
+      body: GestureDetector(
+        // 左右滑切月份（和标题栏的箭头一样）：往左滑看下个月，往右滑看上个月；要滑得够快才算，免得上下滚动时斜一下就翻了
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (v.abs() < 300) return;
+          setState(() => month = DateTime(month.year, month.month + (v < 0 ? 1 : -1)));
+        },
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
           section(
@@ -136,6 +144,7 @@ class _StatsPageState extends State<StatsPage> {
             trailing: seg(rank, (v) => setState(() => rank = v)),
           ),
         ],
+      ),
       ),
     );
   }
