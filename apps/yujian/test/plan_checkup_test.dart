@@ -87,9 +87,9 @@ void main() {
     await tester.tap(find.text('🌸 花呗'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, '额度（元）'), '5000');
-    await tester.ensureVisible(find.text('建好'));
+    await tester.ensureVisible(find.text('添加'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('建好'));
+    await tester.tap(find.text('添加'));
     await tester.pumpAndSettle();
     final a = state.accounts.firstWhere((a) => a.type == AccountType.creditCard);
     expect(a.name, '花呗');

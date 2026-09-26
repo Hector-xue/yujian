@@ -136,7 +136,7 @@ class HomePage extends StatelessWidget {
                       dense: true,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                       title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
+                      subtitle: Text('${fmtMd(a.tx.occurredAt.localDate)} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
                       trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
                     ),
                   ),
@@ -163,7 +163,7 @@ class HomePage extends StatelessWidget {
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(r.nextDue.substring(5).replaceFirst('-', '/'), style: theme.textTheme.bodySmall),
+                    subtitle: Text(fmtMd(r.nextDue), style: theme.textTheme.bodySmall),
                     trailing: Text(fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String), style: theme.textTheme.titleMedium?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
                   ),
               ]),
@@ -253,7 +253,7 @@ class _GameHeader extends StatelessWidget {
             _BigMoney(fmtMoney(m.disposableMinor, 'CNY'), color: m.disposableMinor < 0 ? y.danger : y.balance),
             // 只留一行：今天还能花多少、几天后发薪。公式在财富页（点卡片进），首页不摆三行小字
             Text(
-              m.disposableMinor < 0 ? '发薪前得省着：固定支出比手头的钱多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
+              m.disposableMinor < 0 ? '发薪前得省着：要付的比现金余额多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
               style: theme.textTheme.bodySmall,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -262,7 +262,8 @@ class _GameHeader extends StatelessWidget {
             // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 非负债账户相加（含投资，透支的照减，不扣负债）
             _StatRow(children: [
               _Stat(label: '现金余额', value: fmtMoney(m.cashMinor, 'CNY')),
-              _Stat(label: '总资产', value: fmtMoney(m.assetsMinor, 'CNY')),
+              // 没有投资 / 借出这类账户时总资产就等于现金余额，并排两个一样的数没意义
+              if (m.assetsMinor != m.cashMinor) _Stat(label: '总资产', value: fmtMoney(m.assetsMinor, 'CNY')),
               _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
               _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),

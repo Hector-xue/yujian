@@ -11,6 +11,7 @@ import '../platform/platform_info.dart';
 import '../theme.dart';
 import '../version.dart';
 import 'feedback_history_page.dart';
+import '../errors_zh.dart';
 
 /// 反馈的接收端（yujian.ivyea.com 上的 yujian-feedback 服务：落盘 + 转作者的飞书）。
 const feedbackEndpoint = 'https://yujian.ivyea.com/api/feedback';
@@ -120,7 +121,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
       _save(imagesChanged: true);
       if (tooBig > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$tooBig 张图压缩后还超过 2MB，没加上')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('选图失败：$e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('选图失败：${friendlyError(e)}')));
     }
   }
 
@@ -178,11 +179,11 @@ class _FeedbackPageState extends State<FeedbackPage> {
         builder: (d) => AlertDialog(
           title: const Text('收到了，谢谢'),
           content: Text('作者会看到这条反馈。编号 $id${_contact.text.trim().isEmpty ? '' : '，需要的话会按你留的方式联系你'}。'),
-          actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text('好'))],
+          actions: [FilledButton(onPressed: () => Navigator.pop(d), child: const Text('知道了'))],
         ),
       );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('没发出去：${'$e'.replaceFirst('Exception: ', '')}。写的内容还在，稍后再点发送')));
+      messenger.showSnackBar(SnackBar(content: Text('没发出去：${friendlyError(e)}。写的内容还在，稍后再点发送')));
     } finally {
       if (mounted) setState(() => _sending = false);
     }

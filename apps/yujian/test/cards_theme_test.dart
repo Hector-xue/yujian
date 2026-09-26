@@ -68,9 +68,9 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, '名称'), '中行');
     await tester.enterText(find.widgetWithText(TextField, '额度（元）'), '20000');
     await tester.enterText(find.widgetWithText(TextField, '现在欠多少（元）'), '1500');
-    await tester.ensureVisible(find.text('建好'));
+    await tester.ensureVisible(find.text('添加'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('建好'));
+    await tester.tap(find.text('添加'));
     await tester.pumpAndSettle();
     final a = state.accounts.firstWhere((a) => a.name == '中行');
     expect(a.type, AccountType.creditCard);
@@ -92,10 +92,10 @@ void main() {
     expect(m.incomeRank, isNotNull);
     await tester.pumpWidget(YujianApp(state: state));
     await tester.pumpAndSettle();
-    // 只有微信一个正余额账户：现金余额和总资产是同一个数
+    // 只有微信一个正余额账户：现金余额和总资产是同一个数 → 总资产不再重复摆一格
     expect(m.assetsMinor, m.cashMinor);
-    expect(find.text(fmtMoney(m.cashMinor, 'CNY')), findsNWidgets(2));
-    expect(find.text('总资产'), findsOneWidget);
+    expect(find.text(fmtMoney(m.cashMinor, 'CNY')), findsOneWidget);
+    expect(find.text('总资产'), findsNothing);
     // 寄语轮播从今天那句开始，点一下换下一句
     final first = cheerFor(m)!;
     expect(find.text(first.line), findsOneWidget);

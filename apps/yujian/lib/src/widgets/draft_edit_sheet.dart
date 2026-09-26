@@ -3,6 +3,8 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import 'picker_field.dart';
+import '../errors_zh.dart';
+import 'fmt.dart';
 
 /// 收件箱里改一条 create 草稿：类型 / 金额 / 分类 / 账户 / 退的是哪一笔 / 说明。返回 edits（只含改动的字段），取消返回 null。
 /// 类型能改：导入账单里「分不清收支」的、通知里认成退款却找不到原单的，都靠这里补。
@@ -70,7 +72,7 @@ class _EditFormState extends State<_EditForm> {
     try {
       return app.addCategory(name: name, kind: kind).id;
     } on LedgerException catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       return null;
     }
   }
@@ -112,7 +114,7 @@ class _EditFormState extends State<_EditForm> {
               decoration: const InputDecoration(labelText: '退的是哪一笔'),
               items: [
                 for (final t in refundCands)
-                  DropdownMenuItem(value: t.id, child: Text('${t.occurredAt.localDate.substring(5)} ${t.merchant ?? t.description ?? app.categoryName(t.categoryId)} ${Money(t.amountMinor, t.currency).toDecimalString()}', overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(value: t.id, child: Text('${fmtMd(t.occurredAt.localDate)} ${t.merchant ?? t.description ?? app.categoryName(t.categoryId)} ${fmtMoney(t.amountMinor, t.currency)}', overflow: TextOverflow.ellipsis)),
               ],
               onChanged: (v) => setState(() => refundOfId = v),
             ),

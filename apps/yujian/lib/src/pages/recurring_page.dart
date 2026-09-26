@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import '../errors_zh.dart';
 
 class RecurringPage extends StatelessWidget {
   const RecurringPage({super.key});
@@ -17,7 +18,7 @@ class RecurringPage extends StatelessWidget {
     final theme = Theme.of(context);
     final items = app.ledger.recurring.list(activeOnly: false);
     return Scaffold(
-      appBar: AppBar(title: const Text('周期账单'), actions: [IconButton(onPressed: () => _add(context), icon: const Icon(Icons.add))]),
+      appBar: AppBar(title: const Text('周期账单'), actions: [IconButton(tooltip: '添加周期账单', onPressed: () => _add(context), icon: const Icon(Icons.add))]),
       body: items.isEmpty
           ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text('房租、会员、话费这类固定支出放这里。到期只生成草稿进收件箱，确认后才入账。', textAlign: TextAlign.center, style: theme.textTheme.bodySmall)))
           : ListView(
@@ -30,7 +31,8 @@ class RecurringPage extends StatelessWidget {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     title: Text(r.name, style: r.isActive ? null : TextStyle(color: theme.textTheme.bodySmall?.color)),
                     subtitle: Text(
-                        '${freqLabel[r.frequency]}${r.interval > 1 ? ' ×${r.interval}' : ''} · 下次 ${r.nextDue} · ${app.categoryName(r.template['category_id'] as String?)} · ${app.accountName(r.template['account_id'] as String?)}',
+                        // 转账（还贷、定存）没有分类：写「招商银行 → 车贷」，不写「未分类」
+                        '${freqLabel[r.frequency]}${r.interval > 1 ? ' ×${r.interval}' : ''} · 下次 ${fmtMd(r.nextDue)} · ${r.template['type'] == 'transfer' ? '${app.accountName(r.template['account_id'] as String?)} → ${app.accountName(r.template['to_account_id'] as String?)}' : '${app.categoryName(r.template['category_id'] as String?)} · ${app.accountName(r.template['account_id'] as String?)}'}${r.isActive ? '' : ' · 已暂停'}',
                         style: theme.textTheme.bodySmall),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -86,7 +88,7 @@ class RecurringPage extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '房租'), autofocus: true),
+                  TextField(controller: name, decoration: const InputDecoration(labelText: '名称（可不填）', hintText: '如 房租；不填就用分类名'), autofocus: true),
                   const SizedBox(height: 12),
                   TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '金额（CNY）')),
                   const SizedBox(height: 12),
@@ -137,6 +139,8 @@ class RecurringPage extends StatelessWidget {
     );
     if (ok != true || !context.mounted) return;
     try {
+      // 名称不填：用分类名（「住房」），不再因为空名字报错
+      if (name.text.trim().isEmpty) name.text = app.categoryName(categoryId);
       app.ledger.recurring.create(
         name: name.text.trim(),
         template: {'type': type, 'amount_minor': Money.parse(amount.text.trim(), 'CNY').minor, 'currency': 'CNY', 'account_id': accountId, 'category_id': categoryId, 'description': name.text.trim()},
@@ -145,7 +149,7 @@ class RecurringPage extends StatelessWidget {
       );
       app.generateRecurring();
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

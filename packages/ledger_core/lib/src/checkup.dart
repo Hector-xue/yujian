@@ -109,13 +109,13 @@ class Checkups {
     }
     // 2. 发薪前的缺口
     if (p.shortfallMinor > 0) {
-      f.add(CheckFinding(CheckTone.bad, '发薪前差 ${_y(p.shortfallMinor)}', '按还款计划，手头的钱不够付完这期的月供和各卡最低还款。'));
+      f.add(CheckFinding(CheckTone.bad, '发薪前差 ${_y(p.shortfallMinor)}', '按还款计划，现金余额不够付完这期的月供和各卡最低还款。'));
       steps.add(CheckStep('补上发薪前的缺口', '先保月供和各卡最低还款（不上征信）；能缓的支出往后放。别用新的网贷去填旧的——利息只会越滚越多。', amountMinor: p.shortfallMinor));
     }
     // 3. 应急金
     if (baseline > 0 && runway != null) {
       final tone = runway < 1 ? CheckTone.bad : (runway < 3 ? CheckTone.warn : (runway < 6 ? CheckTone.ok : CheckTone.good));
-      f.add(CheckFinding(tone, '手头的钱够花 ${runway.toStringAsFixed(1)} 个月', '按每月 ${_y(baseline)} 算。${hasDebt ? '有负债时' : ''}应急金建议至少 $targetMonths 个月（${_y(emergencyTarget)}）。'));
+      f.add(CheckFinding(tone, '现金余额够花 ${runway.toStringAsFixed(1)} 个月', '按每月 ${_y(baseline)} 算。${hasDebt ? '有负债时' : ''}应急金建议至少 $targetMonths 个月（${_y(emergencyTarget)}）。'));
     }
     // 4. 还款压力
     if (repayRatio != null) {

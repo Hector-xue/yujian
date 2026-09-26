@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/picker_field.dart';
+import '../errors_zh.dart';
 
 class CategoriesPage extends StatelessWidget {
   const CategoriesPage({super.key});
@@ -18,7 +19,7 @@ class CategoriesPage extends StatelessWidget {
           appBar: AppBar(
             title: const Text('分类'),
             bottom: const TabBar(tabs: [Tab(text: '支出'), Tab(text: '收入')]),
-            actions: [IconButton(onPressed: () => _edit(context, kind: DefaultTabController.of(context).index == 0 ? CategoryKind.expense : CategoryKind.income), icon: const Icon(Icons.add))],
+            actions: [IconButton(tooltip: '添加分类', onPressed: () => _edit(context, kind: DefaultTabController.of(context).index == 0 ? CategoryKind.expense : CategoryKind.income), icon: const Icon(Icons.add))],
           ),
           body: TabBarView(children: [
             _List(kind: CategoryKind.expense, onTap: (c) => _edit(context, kind: CategoryKind.expense, existing: c)),
@@ -90,7 +91,7 @@ class CategoriesPage extends StatelessWidget {
     } on InvalidStateException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_cn(e.message))));
     } on LedgerException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -122,7 +123,10 @@ class _List extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
         GlassCard(
-          child: Column(children: [
+          // 上下留一点：第一行的图标贴着卡片顶边会被圆角裁掉一截
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(children: [
             for (final c in cats.where((c) => c.parentId == null)) ...[
               ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -134,6 +138,7 @@ class _List extends StatelessWidget {
                 ListTile(contentPadding: const EdgeInsets.only(left: 36, right: 16), dense: true, leading: CategoryIcon(category: s, size: 28), title: Text(s.name), onTap: () => onTap(s)),
             ],
           ]),
+          ),
         ),
         Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点一个分类改名、换图标、换上级或删除；内置分类不能删。', style: theme.textTheme.bodySmall)),
       ],

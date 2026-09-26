@@ -34,7 +34,7 @@ class TasksPage extends StatelessWidget {
           body: ListView(
             padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
             children: [
-              Text('本周 ${week.substring(5).replaceFirst('-', '/')} 起 · 周日结算，判定全在本机看账本，做不到不扣任何东西。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+              Text('本周 ${fmtMd(week)} 起 · 周日结算，判定全在本机看账本，做不到不扣任何东西。', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
               const SizedBox(height: 10),
               if (game.weekTasks.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('本周还没有任务。从下面挑 1～3 个。', style: theme.textTheme.bodySmall)),
               for (final t in game.weekTasks) _TaskTile(task: t, progress: game.taskProgress[t.id]),
@@ -82,7 +82,7 @@ class TasksPage extends StatelessWidget {
                         dense: true,
                         leading: Icon(switch (t.result) { TaskResult.done => Icons.check_circle_outline, TaskResult.missed => Icons.remove_circle_outline, _ => Icons.schedule }, size: 20, color: t.result == TaskResult.done ? y.income : y.muted),
                         title: Text(t.title),
-                        subtitle: Text('${t.week.substring(5).replaceFirst('-', '/')} 那周 · ${t.evidence?['detail'] ?? '未结算'}', style: theme.textTheme.bodySmall),
+                        subtitle: Text('${fmtMd(t.week)} 那周 · ${t.evidence?['detail'] ?? '未结算'}', style: theme.textTheme.bodySmall),
                       ),
                   ]),
                 ),
@@ -208,7 +208,7 @@ class TasksPage extends StatelessWidget {
               const SizedBox(height: 8),
               if (kind == TaskKind.categoryCap) PickerField<String>(value: cat, decoration: const InputDecoration(labelText: '分类'), items: [for (final c in cats) DropdownMenuItem(value: c.id, child: Text(c.name))], onChanged: (v) => setSt(() => cat = v)),
               if (kind == TaskKind.deposit) PickerField<String>(value: goalId, decoration: const InputDecoration(labelText: '目标'), items: [for (final g in goals) DropdownMenuItem(value: g.id, child: Text(g.name))], onChanged: (v) => setSt(() => goalId = v)),
-              if (kind == TaskKind.countCap) TextField(controller: kw, decoration: const InputDecoration(labelText: '关键词（逗号分开）', hintText: '美团, 饿了么')),
+              if (kind == TaskKind.countCap) TextField(controller: kw, decoration: const InputDecoration(labelText: '关键词（逗号分开）', hintText: '如 美团, 饿了么')),
               if (kind != TaskKind.streakDays)
                 TextField(
                   controller: numCtl,
@@ -294,7 +294,17 @@ class _TaskTile extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.close, size: 18),
                   tooltip: '放弃这个任务',
-                  onPressed: () => app.game.removeTask(task.id),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: Text('放弃「${task.title}」？'),
+                        content: const Text('这周不再算它；放弃后可以从候选里重新挑。'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('放弃'))],
+                      ),
+                    );
+                    if (ok == true) await app.game.removeTask(task.id);
+                  },
                 ),
             ]),
             ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: ratio, minHeight: 6, backgroundColor: y.hairline, color: color)),

@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import '../errors_zh.dart';
 
 class BudgetsPage extends StatelessWidget {
   const BudgetsPage({super.key});
@@ -18,7 +19,7 @@ class BudgetsPage extends StatelessWidget {
     final running = statuses.where((s) => !s.budget.endedBy(today)).toList();
     final ended = statuses.where((s) => s.budget.endedBy(today)).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('预算'), actions: [IconButton(onPressed: () => _edit(context), icon: const Icon(Icons.add))]),
+      appBar: AppBar(title: const Text('预算'), actions: [IconButton(tooltip: '添加预算', onPressed: () => _edit(context), icon: const Icon(Icons.add))]),
       body: statuses.isEmpty
           ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text('给某个分类或总支出定个月度上限，超过提醒线会在首页提示。', textAlign: TextAlign.center, style: theme.textTheme.bodySmall)))
           : ListView(
@@ -69,6 +70,17 @@ class BudgetsPage extends StatelessWidget {
     String? categoryId = b?.categoryId;
     var period = b?.period ?? BudgetPeriod.monthly;
     String? endDate = b?.endDate;
+    String? amountError;
+    String scopeName() => categoryId == null ? '全部支出' : (app.ledger.category(categoryId!)?.name ?? '预算');
+    // 上限没填 / 填错时留在对话框里、在输入框下面说，不关掉再弹一句英文
+    int? parsedAmount() {
+      try {
+        final m = Money.parse(amount.text.trim(), 'CNY').minor;
+        return m > 0 ? m : null;
+      } on FormatException {
+        return null;
+      }
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => StatefulBuilder(
@@ -78,9 +90,18 @@ class BudgetsPage extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '吃饭'), autofocus: b == null),
+                // 名称可不填：不填就用范围的名字（「全部支出」「餐饮」）。占位字写成说明，不写成一个像已经填好的例子
+                TextField(controller: name, decoration: InputDecoration(labelText: '名称（可不填）', hintText: '不填就叫「${scopeName()}」')),
                 const SizedBox(height: 12),
-                TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '上限（CNY）')),
+                TextField(
+                  controller: amount,
+                  autofocus: b == null,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(labelText: '上限（元）', errorText: amountError),
+                  onChanged: (_) {
+                    if (amountError != null) setState(() => amountError = null);
+                  },
+                ),
                 const SizedBox(height: 12),
                 PickerField<String?>(
                   value: categoryId,
@@ -120,14 +141,24 @@ class BudgetsPage extends StatelessWidget {
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(b == null ? '添加' : '保存')),
+            FilledButton(
+              onPressed: () {
+                if (parsedAmount() == null) {
+                  setState(() => amountError = amount.text.trim().isEmpty ? '填一个上限' : '上限要是大于 0 的数字');
+                  return;
+                }
+                Navigator.pop(d, true);
+              },
+              child: Text(b == null ? '添加' : '保存'),
+            ),
           ],
         ),
       ),
     );
     if (ok != true || !context.mounted) return;
     try {
-      final minor = Money.parse(amount.text.trim(), 'CNY').minor;
+      final minor = parsedAmount()!;
+      if (name.text.trim().isEmpty) name.text = scopeName();
       if (b == null) {
         final now = DateTime.now();
         final start = period == BudgetPeriod.weekly ? todayLocal() : '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
@@ -143,7 +174,7 @@ class BudgetsPage extends StatelessWidget {
       }
       app.touch();
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

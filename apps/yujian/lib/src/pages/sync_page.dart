@@ -4,6 +4,7 @@ import 'package:sync_client/sync_client.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../errors_zh.dart';
 
 /// 同步与云备份（§4.5 可选服务端）。服务端存变更日志（默认明文；设了同步加密口令就只有密文）和加密备份。
 class SyncPage extends StatefulWidget {
@@ -142,7 +143,7 @@ class _SyncPageState extends State<SyncPage> {
     } on FormatException catch (e) {
       if (mounted) setState(() => status = '$label失败：${e.message}');
     } on LedgerException catch (e) {
-      if (mounted) setState(() => status = '$label失败：${e.message}');
+      if (mounted) setState(() => status = '$label失败：${friendlyError(e)}');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -163,7 +164,7 @@ class _SyncPageState extends State<SyncPage> {
           const SizedBox(height: 12),
           // 服务器 / 备份两块各一张卡：表单和按钮框在一起，和别的页一套
           GlassCard(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(controller: url, decoration: const InputDecoration(labelText: '服务器地址', hintText: 'https://yujian.example.com'), keyboardType: TextInputType.url),
+          TextField(controller: url, decoration: const InputDecoration(labelText: '服务器地址', hintText: '如 https://yujian.example.com'), keyboardType: TextInputType.url),
           const SizedBox(height: 12),
           TextField(controller: token, obscureText: true, decoration: const InputDecoration(labelText: 'Token', helperText: '服务端 YUJIAN_SYNC_TOKEN')),
           const SizedBox(height: 12),

@@ -18,6 +18,8 @@ class PersonaReplier {
 
   Future<String> reply(PersonaEvent event, {int n = 0, String label = '', Map<String, Object?> data = const {}}) async {
     final fallback = template(event, n: n, label: label);
+    // 模板写成空串 = 这个人格在这件事上不说话（极简助手：记账卡片自己就说清楚了），也不让模型补一句
+    if (fallback.trim().isEmpty) return '';
     final p = provider;
     if (p == null) return fallback;
     try {

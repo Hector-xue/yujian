@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'goal_detail_page.dart';
+import '../errors_zh.dart';
 
 /// 目标列表：心愿 / 应急金 / 还清 / 里程碑，一张卡一个进度条。拖动排序 = 发薪日分钱的优先级。
 class GoalsPage extends StatelessWidget {
@@ -28,6 +29,8 @@ class GoalsPage extends StatelessWidget {
               ? _Empty(onCreate: () => showGoalForm(context))
               : ReorderableListView(
                   padding: EdgeInsets.fromLTRB(20, 4, 20, 96 + MediaQuery.paddingOf(context).bottom),
+                  // 所有平台都长按整张卡拖动（和上面写的「长按拖动」一致）：默认在 Web / 桌面会在卡片右边叠一个「=」手柄，压着进度条和字
+                  buildDefaultDragHandles: false,
                   // 默认的拖动代理是一块带阴影的 Material（长按就是一块直角板子，还连着卡片底下的 10 间距）；
                   // 换成透明 Material + 轻微放大，拖起来仍是那张圆角玻璃卡
                   proxyDecorator: (child, index, animation) => AnimatedBuilder(
@@ -62,7 +65,10 @@ class GoalsPage extends StatelessWidget {
                     ids.insert(to, id);
                     app.game.reorderGoals(ids);
                   },
-                  children: [for (final p in goals) GoalCard(key: ValueKey(p.goal.id), progress: p)],
+                  children: [
+                    for (var i = 0; i < goals.length; i++)
+                      ReorderableDelayedDragStartListener(key: ValueKey(goals[i].goal.id), index: i, child: GoalCard(progress: goals[i])),
+                  ],
                 ),
         );
       },
@@ -124,7 +130,7 @@ class GoalCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(app.game.describe(p).replaceFirst(RegExp(r'^[^：]*：'), ''), style: theme.textTheme.bodySmall),
-              if (g.kind == GoalKind.wish && g.deadline != null) Text('期限 ${g.deadline}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+              if (g.kind == GoalKind.wish && g.deadline != null) Text('期限 ${fmtMd(g.deadline!)}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
             ]),
           ),
         ),
@@ -245,7 +251,7 @@ class _GoalFormState extends State<_GoalForm> {
         if (target <= 0) throw '还没有足够的支出记录来算月支出，先填一个目标金额';
         if (name.text.trim().isEmpty) name.text = '应急金（$emergencyMonths 个月）';
       } else if (kind == GoalKind.payoff) {
-        if (linkedAccountId == null) throw '选一个信用卡 / 应付类账户';
+        if (linkedAccountId == null) throw '选一个信用卡或贷款账户';
         target = 0;
         if (name.text.trim().isEmpty) name.text = '还清${app.accountName(linkedAccountId)}';
       } else {
@@ -271,7 +277,7 @@ class _GoalFormState extends State<_GoalForm> {
       }
       nav.pop(g);
     } catch (x) {
-      setState(() => note = x is LedgerException ? x.message : '$x');
+      setState(() => note = friendlyError(x));
     }
   }
 
@@ -328,8 +334,8 @@ class _GoalFormState extends State<_GoalForm> {
             Wrap(spacing: 8, children: [for (final n in [1, 3, 6, 12]) ChoiceChip(label: Text('$n 个月'), selected: emergencyMonths == n, onSelected: (_) => setState(() => emergencyMonths = n))]),
           ],
           if (kind == GoalKind.payoff) ...[
-            Text('只能选信用卡 / 应付类账户，进度跟着它的余额走。准不准取决于你有没有把刷卡消费记在这个账户上。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
-            if (debtAccounts.isEmpty) Text('还没有信用卡 / 应付类账户，先到「账户」里建一个。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+            Text('只能选信用卡或贷款账户，进度跟着它的余额走。准不准取决于你有没有把刷卡消费记在这个账户上。', style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+            if (debtAccounts.isEmpty) Text('还没有信用卡或贷款账户，先到「负债」里添加一个。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
             PickerField<String>(
               value: linkedAccountId,
               decoration: const InputDecoration(labelText: '负债账户'),
@@ -351,7 +357,7 @@ class _GoalFormState extends State<_GoalForm> {
           TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '目标金额（元）'), onChanged: (_) => setState(() {})),
           const SizedBox(height: 8),
           Row(children: [
-            Expanded(child: Text(deadline == null ? '不设期限' : '期限 $deadline', style: theme.textTheme.bodyMedium)),
+            Expanded(child: Text(deadline == null ? '不设期限' : '期限 ${fmtMd(deadline!)}', style: theme.textTheme.bodyMedium)),
             TextButton(
               onPressed: () async {
                 final d = await showDatePicker(context: context, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365 * 10)), initialDate: deadline == null ? DateTime.now().add(const Duration(days: 180)) : DateTime.parse(deadline!));
@@ -359,7 +365,7 @@ class _GoalFormState extends State<_GoalForm> {
               },
               child: const Text('选日期'),
             ),
-            if (deadline != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => deadline = null)),
+            if (deadline != null) IconButton(tooltip: '不设期限', icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => deadline = null)),
           ]),
         ],
         if (kind != GoalKind.payoff) ...[
@@ -390,14 +396,14 @@ class _GoalFormState extends State<_GoalForm> {
                   ? '默认。存入只是标记，不用真的转账；首页「可花的」立刻变少。'
                   : '每次存入会进收件箱，你去银行 / 余额宝真转了再点确认（余见不会替你转钱）。'
                       '「${vaultPicked.name}」里现有的 ${fmtMoney(app.ledger.balance(vaultPicked.id).minor, 'CNY')} 会直接算作已攒，最好用一个专门存这笔钱的账户。'
-                      '${vaultPicked.type == AccountType.investment ? '投资账户本来就不算在手头余额里，所以不会再从「可花的」里扣。' : ''}',
+                      '${vaultPicked.type == AccountType.investment ? '投资账户本来就不算在现金余额里，所以不会再从「可花的」里扣。' : ''}',
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
           ],
         ],
         if (note != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(note!, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary))),
         const SizedBox(height: 16),
-        FilledButton(onPressed: _save, child: Text(widget.edit == null ? '建好' : '保存')),
+        FilledButton(onPressed: _save, child: Text(widget.edit == null ? '添加' : '保存')),
       ]),
     );
   }

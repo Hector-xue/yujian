@@ -4,6 +4,7 @@ import 'package:notification_templates/notification_templates.dart';
 import '../app_state.dart';
 import '../widgets/disclosure_tile.dart';
 import '../widgets/fmt.dart';
+import '../errors_zh.dart';
 
 /// 通知来源 App 的显示名：内置名单认得的给中文名，认不得的给包名最后一段，没包名就是「任意 App」。
 String noticeAppName(String? pkg) {
@@ -161,7 +162,7 @@ class _LearnSheetState extends State<_LearnSheet> {
           _problem = '生成的模板没匹配上这条文案';
         }
       } catch (e) {
-        _problem = '模板不合法：$e';
+        _problem = '模板不合法：${friendlyError(e)}';
       }
     }
     if (rebuild) setState(() {});

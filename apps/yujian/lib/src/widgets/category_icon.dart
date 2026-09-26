@@ -134,7 +134,7 @@ Future<String?> pickCategoryIcon(BuildContext context, {String? current}) async 
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')),
-        FilledButton(onPressed: () => Navigator.pop(d, ctl.text.trim()), child: const Text('好')),
+        FilledButton(onPressed: () => Navigator.pop(d, ctl.text.trim()), child: const Text('保存')),
       ],
     ),
   );

@@ -60,9 +60,9 @@ class _CalendarPageState extends State<CalendarPage> {
       appBar: AppBar(
         title: const Text('日历'),
         actions: [
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
+          IconButton(tooltip: '上个月', onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
           Center(child: Text('${month.year} 年 ${month.month} 月', style: theme.textTheme.titleMedium)),
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
+          IconButton(tooltip: '下个月', onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
           const SizedBox(width: 4),
         ],
       ),
@@ -205,10 +205,10 @@ class _CalendarPageState extends State<CalendarPage> {
 
   static String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  /// 格子里放不下小数：整数元，上万用 w。
+  /// 格子里放不下小数：整数元，上万写「万」。
   static String _short(int minor) {
     final yuan = minor / 100;
-    if (yuan >= 10000) return '${(yuan / 10000).toStringAsFixed(1)}w';
+    if (yuan >= 10000) return '${(yuan / 10000).toStringAsFixed(1)}万';
     if (yuan >= 100) return yuan.toStringAsFixed(0);
     return yuan.toStringAsFixed(yuan == yuan.roundToDouble() ? 0 : 1);
   }

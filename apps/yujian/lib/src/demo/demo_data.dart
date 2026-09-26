@@ -18,7 +18,7 @@ Future<void> seedDemoData(AppState app) async {
 
   final bank = app.addAccount(name: '招商银行', type: AccountType.bank, currency: 'CNY', initialBalanceMinor: 300000);
   ledger.updateAccount('wechat', initialBalanceMinor: 180000);
-  ledger.updateAccount('alipay', initialBalanceMinor: 96000);
+  ledger.updateAccount('alipay', initialBalanceMinor: 260000); // 四个月日常从支付宝走约 2100，期初要够，不然截图里支付宝是负的
   ledger.updateAccount('cash', initialBalanceMinor: 30000);
   ledger.profile.payday = 10;
   ledger.profile.salaryAccountId = bank.id;
@@ -37,7 +37,7 @@ Future<void> seedDemoData(AppState app) async {
   for (var m = 3; m >= 0; m--) {
     final base = DateTime(today.year, today.month - m, 1);
     tx('income', 1500000, DateTime(base.year, base.month, 10), 'salary', bank.id, '工资', hour: 9);
-    tx('expense', 280000, DateTime(base.year, base.month, 1), 'housing', 'alipay', '房租', hour: 10);
+    tx('expense', 280000, DateTime(base.year, base.month, 1), 'housing', bank.id, '房租', hour: 10); // 房租从工资卡交
     for (var i = 0; i < daily.length; i++) {
       final (cat, minor, desc) = daily[i];
       final day = 2 + i * 2 + (m % 2);
@@ -56,7 +56,7 @@ Future<void> seedDemoData(AppState app) async {
 
   // 周期账单：房租每月 1 号
   final nextMonth1 = DateTime(today.year, today.month + 1, 1);
-  ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 280000, 'currency': 'CNY', 'account_id': 'alipay', 'category_id': 'housing', 'description': '房租'}, frequency: Frequency.monthly, firstDue: d(nextMonth1));
+  ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 280000, 'currency': 'CNY', 'account_id': bank.id, 'category_id': 'housing', 'description': '房租'}, frequency: Frequency.monthly, firstDue: d(nextMonth1));
 
 
   // 信用卡 / 花呗：账单日挑「6 天前」，还款日在账单日后 20 天——截图里正好是已出账、还没到期

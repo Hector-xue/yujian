@@ -9,6 +9,7 @@ import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import '../widgets/transaction_edit_sheet.dart';
 import 'calendar_page.dart';
+import '../errors_zh.dart';
 
 /// 交易记录：按日分组；点开看详情、改分类、作废。一页 [recordPageSize] 笔，底部「加载更多」往前翻。
 class TransactionsPage extends StatefulWidget {
@@ -154,7 +155,7 @@ class TransactionTile extends StatelessWidget {
                         app.voidTransaction(tx.id, reason.text.trim().isEmpty ? '记错了' : reason.text.trim());
                         Navigator.pop(ctx);
                       } on LedgerException catch (e) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.message)));
+                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                       }
                     },
                     child: const Text('作废'),

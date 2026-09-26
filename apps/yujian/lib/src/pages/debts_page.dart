@@ -10,6 +10,8 @@ import '../widgets/picker_field.dart';
 import 'accounts_page.dart';
 import 'goals_page.dart';
 import 'repayment_plan_page.dart';
+import '../widgets/disclosure_tile.dart';
+import '../errors_zh.dart';
 
 /// 负债：总负债 / 每月还款 / 预计还清 一眼看完；每一笔负债一行（还剩多少、每月还多少、已还进度）。
 /// 一张表单建三件（负债账户 + 每月还款的周期转账 + 还清目标），别的地方（可花的 / 等级 / 首页目标条 / 小部件）自动跟着走。
@@ -107,16 +109,18 @@ class DebtsPage extends StatelessWidget {
                   TextButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡 / 花呗')),
                 ]),
               ],
-              const SizedBox(height: 18),
-              Text('怎么算的', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                '负债账户的余额 = 还剩多少要还（本息合计，不拆）。每月还款是一笔转账到这个账户，到期进收件箱，你确认了余额就少一期。\n'
-                '「每月还款」= 贷款月供 + 每张信用卡最近一期要还的（没设账单日的卡按全部欠款算）；贷款还清按每笔各自算，取最晚的那笔。\n'
-                '首页「可花的」会扣掉发薪日前要还的那期；等级按「生活支出 + 每月贷款月供」算生存月数（信用卡刷的时候已经算进支出，不重复扣）；信用卡刷了就从可花的里扣，还卡时不再扣。\n'
-                '信用卡：额度按此刻欠款算（还进去额度马上回来，再刷再占）；账单按账单日那天的欠款算，账单日之后刷的进下一期。到期没还清按日计息，没还够最低还款另收违约金。\n'
-                '净资产 = 资产 − 负债，有房贷时通常是负的，这很正常——看「还清进度」比看净资产更有用。',
-                style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+              const SizedBox(height: 12),
+              // 口径说明收起来：要看的人点开，不看的人不用对着一整段字
+              DisclosureTile(
+                title: const Text('怎么算的'),
+                children: [
+                  Text(
+                    '负债的余额就是还剩多少要还；每月还款到期进收件箱，确认一笔少一期。\n'
+                    '「每月还款」= 贷款月供 + 每张卡最近一期账单。「可花的」只扣发薪前要还的那期。\n'
+                    '信用卡账单按账单日那天的欠款算，之后刷的进下一期；没还清会计息，不够最低还款另收违约金。',
+                    style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(spacing: 4, children: [
@@ -202,11 +206,16 @@ class _DebtRow extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(d.account.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(sub, style: theme.textTheme.bodySmall?.copyWith(color: card?.state == CardBillState.overdue ? y.danger : null), maxLines: 1, overflow: TextOverflow.ellipsis),
+                // 信用卡的账单状态（还剩多少、几号到期、还有几天）最多两行，不再截成「还有 16…」
+                Text(sub, style: theme.textTheme.bodySmall?.copyWith(color: card?.state == CardBillState.overdue ? y.danger : null), maxLines: 2, overflow: TextOverflow.ellipsis),
               ]),
             ),
             const SizedBox(width: 8),
-            Text(d.owedMinor > 0 ? fmtMoney(d.owedMinor, d.account.currency) : '已还清', style: theme.textTheme.titleMedium?.copyWith(color: d.owedMinor > 0 ? y.danger : y.income, fontFeatures: const [FontFeature.tabularFigures()])),
+            // 右边的大数标明是什么：信用卡是此刻总欠款（和左边「本期还剩」不是一个数），贷款是还欠多少
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(d.owedMinor > 0 ? fmtMoney(d.owedMinor, d.account.currency) : '已还清', style: theme.textTheme.titleMedium?.copyWith(color: d.owedMinor > 0 ? y.danger : y.income, fontFeatures: const [FontFeature.tabularFigures()])),
+              if (d.owedMinor > 0) Text(d.isCard ? '总欠款' : '还欠', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            ]),
           ]),
           // 信用卡：额度用了几成（还进去马上回来，再刷再占）
           if (card != null && card.usedRatio != null) ...[
@@ -256,7 +265,7 @@ class _DebtRow extends StatelessWidget {
       final r = app.removeDebt(d.account.id);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.accountDeleted ? '已删除「$name」' : '「$name」已归档，还款提醒和还清目标已删')));
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -324,7 +333,7 @@ class _DebtRow extends StatelessWidget {
       if (minor <= 0) return;
       app.setDebtRepayment(d.account.id, monthlyMinor: minor, day: day, fromAccountId: from!);
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }
@@ -366,7 +375,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
                 ),
             ]),
             const SizedBox(height: 12),
-            TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '房贷 / 车贷 / 花呗 / 借小王的'), textInputAction: TextInputAction.next),
+            TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '如 房贷、车贷、借小王的'), textInputAction: TextInputAction.next),
             const SizedBox(height: 12),
             TextField(controller: owed, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '还剩多少要还（元）', helperText: '本息合计，看还款计划表上的剩余总额'), textInputAction: TextInputAction.next),
             const SizedBox(height: 12),
@@ -392,7 +401,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
               ),
             ]),
             const SizedBox(height: 16),
-            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('建好'))),
+            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('添加'))),
           ]),
         );
       },
@@ -420,7 +429,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(monthlyMinor > 0 ? '建好了：账户「$n」+ 每月 $day 号的还款提醒 + 还清目标' : '建好了：账户「$n」+ 还清目标')));
     return setup;
   } on Exception catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     return null;
   }
 }

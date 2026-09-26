@@ -183,7 +183,7 @@ class _ModelPageState extends State<ModelPage> {
             decoration: InputDecoration(
               labelText: 'API Key',
               helperText: '只存在本机安全存储里',
-              suffixIcon: IconButton(icon: Icon(showKey ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKey = !showKey)),
+              suffixIcon: IconButton(tooltip: showKey ? '隐藏 Key' : '显示 Key', icon: Icon(showKey ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKey = !showKey)),
             ),
           ),
           const SizedBox(height: 12),
@@ -191,7 +191,7 @@ class _ModelPageState extends State<ModelPage> {
             controller: model,
             decoration: InputDecoration(
               labelText: '模型名',
-              hintText: 'deepseek-flash',
+              hintText: '如 deepseek-flash',
               helperText: '点右侧列表从端点拉可用模型，别手猜名字',
               suffixIcon: IconButton(
                   tooltip: '从端点拉模型列表',

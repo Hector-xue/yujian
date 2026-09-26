@@ -315,7 +315,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
-          Text('三条路，按需开：微信 / 支付宝付款时 App 在前台，系统不弹通知，「支付页识别」抓支付成功那一刻；银行、购物平台的到账 / 支付通知由「通知自动记账」读；没有「支付成功」字样的消费（订单页、账单、小票）截个图，「截图自动记账」认。三条默认都只在本机处理、不上传；截图那条可以自己选要不要借助模型。关掉随时生效。', style: theme.textTheme.bodySmall),
+          Text('三条路按需开，默认都只在本机处理（截图那条可以自己选借助模型）：微信 / 支付宝付款用「支付页识别」，银行和购物平台的通知用「通知自动记账」，订单页、小票截个图用「截图自动记账」。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 6),
           GlassCard(
             child: ListTile(
@@ -478,9 +478,19 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
                     title: Text(t.description ?? app.categoryName(t.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text('${t.occurredAt.localDate} · ${app.categoryName(t.categoryId)} · ${app.accountName(t.accountId)}', style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: Text(fmtSigned(t), style: theme.textTheme.titleMedium),
-                    onLongPress: () {
+                    // 作废是改账本、撤不回：先问一句（以前长按直接作废，碰一下就没了）
+                    onLongPress: () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (d) => AlertDialog(
+                          title: const Text('作废这笔自动记账？'),
+                          content: Text('${t.description ?? app.categoryName(t.categoryId)} ${fmtSigned(t)}（${t.occurredAt.localDate}）会从账本里去掉，余额跟着变回来。作废后不能恢复。'),
+                          actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('作废'))],
+                        ),
+                      );
+                      if (ok != true || !context.mounted) return;
                       app.voidTransaction(t.id, '撤销自动记账');
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已撤销')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已作废')));
                     },
                   ),
                 if (autoLog.isNotEmpty)
@@ -522,6 +532,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               ),
               onTap: () => showLearnTemplateSheet(context, edit: t),
               trailing: IconButton(
+                tooltip: '删掉这个模板',
                 icon: const Icon(Icons.delete_outline, size: 20),
                 onPressed: () => app.saveSettings(s.copyWith(userTemplates: [
                   for (final x in s.userTemplates)
@@ -535,7 +546,7 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
           const SizedBox(height: 4),
           Text('把一条支付通知的文字粘进来，看余见能不能读懂。读不懂的可以在 GitHub 提 Issue，会做成模板。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
-          TextField(controller: testText, maxLines: 3, decoration: const InputDecoration(hintText: '已支付¥19.90，商户：瑞幸咖啡')),
+          TextField(controller: testText, maxLines: 3, decoration: const InputDecoration(hintText: '例：已支付¥19.90，商户：瑞幸咖啡')),
           const SizedBox(height: 8),
           Row(
             children: [
