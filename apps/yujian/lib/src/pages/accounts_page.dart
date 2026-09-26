@@ -27,10 +27,18 @@ class AccountsPage extends StatelessWidget {
     final all = app.ledger.listAccounts(includeArchived: true);
     final active = all.where((a) => !a.isArchived).toList();
     final archived = all.where((a) => a.isArchived).toList();
+    // 定期（对话里登记的）：副标题带上到期日 / 年利率
+    String deposit(Account a) {
+      if (a.type != AccountType.investment) return '';
+      final t = DepositTerms.read(app.ledger, a.id);
+      if (t == null) return '';
+      return '${t.maturity != null ? ' · ${t.maturity} 到期' : ''}${t.ratePercent != null ? ' · 年利率 ${t.ratePercent}%' : ''}';
+    }
+
     Widget tile(Account a) => ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(a.name, style: a.isArchived ? TextStyle(color: theme.textTheme.bodySmall?.color) : null),
-          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}${!a.isArchived && app.defaultAccountId == a.id ? ' · 默认记账' : ''}', style: theme.textTheme.bodySmall),
+          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${deposit(a)}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}${!a.isArchived && app.defaultAccountId == a.id ? ' · 默认记账' : ''}', style: theme.textTheme.bodySmall),
           trailing: Text(fmtMoney(app.ledger.balance(a.id).minor, a.currency), style: theme.textTheme.titleMedium),
           onTap: () => _edit(context, a),
         );

@@ -12,3 +12,7 @@ export 'src/rule/datetime.dart';
 export 'src/rule/keywords.dart';
 export 'src/rule/rule_interpreter.dart';
 export 'src/vision_interpreter.dart';
+export 'src/setup/setup_numbers.dart';
+export 'src/setup/setup_rule.dart';
+export 'src/setup/setup_dialog.dart';
+export 'src/setup/setup_interpreter.dart';

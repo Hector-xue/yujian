@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:interpreter/interpreter.dart' show SetupAnswerKind, SetupChoice, SetupOutcome, SetupQuestion, answerSetupQuestion, answerSetupReady, applySetupChoice, nextSetupQuestion;
 import 'package:ledger_core/ledger_core.dart';
 import 'package:persona/persona.dart';
 import 'package:providers/providers.dart';
@@ -24,6 +25,7 @@ import '../widgets/draft_card.dart';
 import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import '../widgets/persona_avatar.dart';
+import '../widgets/setup_card.dart';
 import 'ai_page.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
@@ -43,6 +45,7 @@ sealed class _Msg {
         'sticker' => _StickerMsg(j['text'] as String),
         'image' => _ImageMsg(name: (j['name'] as String?) ?? '', path: j['path'] as String?),
         'goal' => _GoalMsg(name: (j['name'] as String?) ?? '', amountMinor: (j['amount'] as num?)?.toInt() ?? 0, goalId: j['goal_id'] as String?),
+        'setup' => _SetupMsg.fromJson(j),
         _ => null,
       };
 }
@@ -100,6 +103,41 @@ class _GoalMsg extends _Msg {
   Map<String, Object?> toJson() => {'t': 'goal', 'name': name, 'amount': amountMinor, if (goalId != null) 'goal_id': goalId};
 }
 
+/// 对话建档卡片：说了负债 / 资产 → 一张「我理解的是……」卡，缺的一项项问，确认才建，建好能撤销。
+/// 整张卡（待建的项、问到哪、建出来的 id）都存在对话历史里，退出 App 再回来接着问 / 还能撤销。
+class _SetupMsg extends _Msg {
+  final List<SetupItem> items;
+  SetupCardStatus status;
+  List<SetupApplied> applied;
+  final String meta;
+  String? note;
+  _SetupMsg({required this.items, required this.status, required this.meta, this.applied = const [], this.note});
+
+  @override
+  Map<String, Object?> toJson() => {
+        't': 'setup',
+        'items': [for (final i in items) i.toJson()],
+        'status': status.name,
+        if (applied.isNotEmpty) 'applied': [for (final a in applied) a.toJson()],
+        'meta': meta,
+        if (note != null) 'note': note,
+      };
+
+  static _SetupMsg? fromJson(Map<String, Object?> j) {
+    try {
+      return _SetupMsg(
+        items: [for (final i in (j['items'] as List)) SetupItem.fromJson((i as Map).cast<String, Object?>())],
+        status: SetupCardStatus.values.asNameMap()[j['status']] ?? SetupCardStatus.paused,
+        applied: [for (final a in (j['applied'] as List?) ?? const []) SetupApplied.fromJson((a as Map).cast<String, Object?>())],
+        meta: (j['meta'] as String?) ?? '',
+        note: j['note'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 class _StickerMsg extends _Msg {
   final String text;
   _StickerMsg(this.text);
@@ -128,6 +166,8 @@ class _ChatPageState extends State<ChatPage> {
   final _tts = SpeechOutput();
   var _speak = false;
   var _stickerCount = 0;
+  /// 点了「登记负债 / 资产」：下一句按建档理解（不猜是不是在记账）。
+  var _setupMode = false;
 
   @override
   void initState() {
@@ -182,6 +222,10 @@ class _ChatPageState extends State<ChatPage> {
       final raw = p.getString(_historyKey);
       if (raw != null && raw.isNotEmpty) {
         final list = (jsonDecode(raw) as List).cast<Map>().map((m) => _Msg.fromJson(m.cast<String, Object?>())).whereType<_Msg>().toList();
+        // 上次没问完的建档卡：放下，要点「继续」才接着问（别让隔天随口一句「好」把它确认了）
+        for (final m in list) {
+          if (m is _SetupMsg && (m.status == SetupCardStatus.asking || m.status == SetupCardStatus.ready)) m.status = SetupCardStatus.paused;
+        }
         if (mounted) setState(() => _msgs.addAll(list));
       }
     } catch (_) {
@@ -550,11 +594,40 @@ class _ChatPageState extends State<ChatPage> {
     final text = _input.text.trim();
     if (text.isEmpty || _busy) return;
     final app = AppScope.of(context);
+    // 正在追问：这句先当成回答；答不上就把追问放下（卡片留着能「继续」），这句照常处理
+    final active = _activeSetup;
+    if (active != null && _answerSetup(app, active, text)) {
+      _input.clear();
+      return;
+    }
+    final explicit = _setupMode;
     setState(() {
       _msgs.add(_UserMsg(text));
       _busy = true;
+      _setupMode = false;
       _input.clear();
     });
+    // 像在说自己的负债 / 资产（「欠白条 5000，每月 15 号还 1000」「工行定期 1 万」）：出建档卡，不进记账
+    SetupOutcome? so;
+    try {
+      so = await app.trySetup(text, explicit: explicit);
+    } catch (_) {
+      so = null; // 建档解析出错不影响记账
+    }
+    if (!mounted) return;
+    if (so != null && so.items.isNotEmpty) {
+      _startSetup(app, so);
+      return;
+    }
+    if (explicit) {
+      setState(() {
+        _busy = false;
+        _msgs.add(_TextMsg('没看出是哪笔欠款或存款。可以这样说：\n「欠白条 5000，每月 15 号还 1000」\n「房贷还剩 30 万，每月还 4500」\n「工行定期 1 万，明年 3 月到期」\n「小李欠我 3000」'));
+      });
+      _saveHistory();
+      _jumpToEnd();
+      return;
+    }
     final r = await app.say(text);
     if (!mounted) return;
     if (r.error == null && r.query == null && r.drafts.isEmpty) {
@@ -603,6 +676,167 @@ class _ChatPageState extends State<ChatPage> {
       if (stickerEvent != null) _maybeSticker(app, stickerEvent);
     });
     _say(reply);
+    _saveHistory();
+    _jumpToEnd();
+  }
+
+  // ------------------------------------------------------------- 对话建档
+
+  /// 正在追问 / 等确认的那张卡（只认最新的一张建档卡）。
+  _SetupMsg? get _activeSetup {
+    for (final m in _msgs.reversed) {
+      if (m is _SetupMsg) return m.status == SetupCardStatus.asking || m.status == SetupCardStatus.ready ? m : null;
+    }
+    return null;
+  }
+
+  static String _setupMeta(SetupOutcome so) => so.modelUsed != null
+      ? '规则 + ${so.modelUsed} · 确认后才会建'
+      : so.notes.any((n) => n.startsWith('model unavailable') || n.startsWith('model error'))
+          ? '规则解析 · 模型暂时不可用 · 确认后才会建'
+          : '规则解析 · 确认后才会建';
+
+  void _startSetup(AppState app, SetupOutcome so) {
+    final env = app.setupEnv();
+    // 之前没问完的卡先放下
+    for (final m in _msgs) {
+      if (m is _SetupMsg && (m.status == SetupCardStatus.asking || m.status == SetupCardStatus.ready)) m.status = SetupCardStatus.paused;
+    }
+    final allExisting = so.items.every((i) => i.existingAccountId != null);
+    final q = allExisting ? null : nextSetupQuestion(so.items, env);
+    final m = _SetupMsg(items: so.items, status: allExisting ? SetupCardStatus.info : (q == null ? SetupCardStatus.ready : SetupCardStatus.asking), meta: _setupMeta(so));
+    setState(() {
+      _busy = false;
+      _msgs.add(m);
+    });
+    if (q != null) _say(q.text);
+    _saveHistory();
+    _jumpToEnd();
+  }
+
+  /// 打字回答追问。返回 true = 这句被追问吃掉了。
+  bool _answerSetup(AppState app, _SetupMsg m, String text) {
+    final env = app.setupEnv();
+    final q = nextSetupQuestion(m.items, env);
+    final kind = q == null ? answerSetupReady(text) : answerSetupQuestion(m.items, q, text, env);
+    switch (kind) {
+      case SetupAnswerKind.notAnswer:
+        setState(() => m.status = SetupCardStatus.paused);
+        return false;
+      case SetupAnswerKind.cancel:
+        setState(() {
+          _msgs.add(_UserMsg(text));
+          m.status = SetupCardStatus.cancelled;
+          _msgs.add(_TextMsg('好，不建了。'));
+        });
+        _saveHistory();
+        _jumpToEnd();
+        return true;
+      case SetupAnswerKind.confirm:
+        setState(() => _msgs.add(_UserMsg(text)));
+        _confirmSetup(app, m);
+        return true;
+      case SetupAnswerKind.requiredSkip:
+        setState(() {
+          _msgs.add(_UserMsg(text));
+          _msgs.add(_TextMsg('这一项不填建不了。说个大概的数也行，或者说「算了」。'));
+        });
+        _saveHistory();
+        _jumpToEnd();
+        return true;
+      case SetupAnswerKind.answered:
+        _advanceSetup(app, m, question: q!.text, answer: text);
+        return true;
+    }
+  }
+
+  void _chooseSetup(AppState app, _SetupMsg m, SetupQuestion q, SetupChoice c) {
+    if (m != _activeSetup) return;
+    final it = m.items[q.itemIndex];
+    if (!applySetupChoice(it, q.slot, c, app.setupEnv())) return;
+    _advanceSetup(app, m, question: q.text, answer: c.label);
+  }
+
+  /// 答了一问：问题和回答留在对话里，卡片挪到最后，接着问下一项（或等确认）。
+  void _advanceSetup(AppState app, _SetupMsg m, {required String question, required String answer}) {
+    final next = nextSetupQuestion(m.items, app.setupEnv());
+    setState(() {
+      _msgs.remove(m);
+      _msgs.add(_TextMsg(question));
+      _msgs.add(_UserMsg(answer));
+      m.status = next == null ? SetupCardStatus.ready : SetupCardStatus.asking;
+      m.note = null;
+      _msgs.add(m);
+    });
+    _say(next?.text ?? '都齐了，看一眼没问题就点「确认建立」。');
+    _saveHistory();
+    _jumpToEnd();
+  }
+
+  void _confirmSetup(AppState app, _SetupMsg m) {
+    if (m.status == SetupCardStatus.applied) return; // 连点 / 重复确认：只建一次
+    try {
+      final r = app.applySetup(m.items);
+      setState(() {
+        m.applied = r;
+        m.status = SetupCardStatus.applied;
+        m.note = null;
+        _msgs.remove(m);
+        _msgs.add(m);
+      });
+    } on Exception catch (e) {
+      setState(() => m.note = friendlyError(e));
+    }
+    _saveHistory();
+    _jumpToEnd();
+  }
+
+  void _undoSetup(AppState app, _SetupMsg m) {
+    if (m.status != SetupCardStatus.applied) return;
+    try {
+      final deleted = app.undoSetup(m.applied);
+      final archived = m.applied.length - deleted;
+      setState(() {
+        m.status = SetupCardStatus.undone;
+        m.note = archived > 0 ? '有 $archived 个账户上已经有记录了，只归档没删（账户页「已归档」里能恢复）' : null;
+      });
+    } on Exception catch (e) {
+      setState(() => m.note = friendlyError(e));
+    }
+    _saveHistory();
+  }
+
+  void _resumeSetup(AppState app, _SetupMsg m) {
+    final q = nextSetupQuestion(m.items, app.setupEnv());
+    setState(() {
+      for (final x in _msgs) {
+        if (x is _SetupMsg && x != m && (x.status == SetupCardStatus.asking || x.status == SetupCardStatus.ready)) x.status = SetupCardStatus.paused;
+      }
+      m.status = q == null ? SetupCardStatus.ready : SetupCardStatus.asking;
+      _msgs.remove(m);
+      _msgs.add(m);
+    });
+    if (q != null) _say(q.text);
+    _saveHistory();
+    _jumpToEnd();
+  }
+
+  Future<void> _editSetup(AppState app, _SetupMsg m, int i) async {
+    final changed = await showSetupItemEditSheet(context, m.items[i], app.setupEnv());
+    if (!changed || !mounted) return;
+    final q = nextSetupQuestion(m.items, app.setupEnv());
+    setState(() {
+      m.note = null;
+      if (m.status != SetupCardStatus.paused) m.status = q == null ? SetupCardStatus.ready : SetupCardStatus.asking;
+    });
+    _saveHistory();
+  }
+
+  void _toggleSetupMode() {
+    setState(() {
+      _setupMode = !_setupMode;
+      if (_setupMode) _msgs.add(_TextMsg('说说你现在的欠款或存款，比如「欠白条 5000，每月 15 号还 1000」「工行定期 1 万」。一句话里说几件都行，我整理成一张卡给你确认。'));
+    });
     _saveHistory();
     _jumpToEnd();
   }
@@ -764,7 +998,7 @@ class _ChatPageState extends State<ChatPage> {
                               children: [
                                 PersonaAvatar(app.persona, size: 96),
                                 const SizedBox(height: 16),
-                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}',
+                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"\n"欠白条 5000，每月 15 号还 1000"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}',
                                     textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
                               ],
                             ),
@@ -788,6 +1022,7 @@ class _ChatPageState extends State<ChatPage> {
                 // 识别截图放第一位：常用，且在末尾要横滑一下才看得见
                 _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
                 _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
+                _chip(Icons.account_balance_outlined, _setupMode ? '登记中…（点一下取消）' : '登记负债 / 资产', _busy ? null : _toggleSetupMode),
                 _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
                 _chip(Icons.calendar_month_outlined, '日历', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()))),
                 _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
@@ -829,7 +1064,7 @@ class _ChatPageState extends State<ChatPage> {
                             onSubmitted: (_) => _send(),
                             decoration: InputDecoration(
                               hintText: switch (_phase) {
-                                VoicePhase.idle => '记一笔，或问问账本',
+                                VoicePhase.idle => _setupMode ? '说说欠款或存款…' : '记一笔，或问问账本',
                                 VoicePhase.listening => '在听…',
                                 VoicePhase.recording => '录音中…',
                                 VoicePhase.transcribing => '转写中…',
@@ -952,6 +1187,28 @@ class _ChatPageState extends State<ChatPage> {
         ));
       case _QueryMsg():
         return withAvatar(_QueryCard(result: m.result, meta: m.meta));
+      case _SetupMsg():
+        final env = app.setupEnv();
+        final active = identical(m, _activeSetup);
+        final q = active ? nextSetupQuestion(m.items, env) : null;
+        return withAvatar(SetupCard(
+          items: m.items,
+          env: env,
+          status: m.status,
+          question: q,
+          note: m.note,
+          meta: m.meta,
+          existingNames: {for (final i in m.items) if (i.existingAccountId != null) i.existingAccountId!: app.accountName(i.existingAccountId)},
+          onChoice: q == null || _busy ? null : (c) => _chooseSetup(app, m, q, c),
+          onConfirm: () => _confirmSetup(app, m),
+          onCancel: () {
+            setState(() => m.status = SetupCardStatus.cancelled);
+            _saveHistory();
+          },
+          onUndo: () => _undoSetup(app, m),
+          onResume: () => _resumeSetup(app, m),
+          onEdit: (i) => _editSetup(app, m, i),
+        ));
       case _GoalMsg():
         return withAvatar(GlassCard(
           child: Padding(

@@ -159,7 +159,8 @@ class Debts {
   }
 
   /// 一张表单建三件。[owedMinor] 是还剩多少要还，[monthlyMinor] 每月还多少（0 = 先不设），[day] 每月几号（1–28），
-  /// [fromAccountId] 从哪个账户扣。
+  /// [fromAccountId] 从哪个账户扣。[firstDue] 给了就从这天开始还（对话建档：今天就是还款日、这期已经还了 → 从下个月算），
+  /// 不给 = 今天起下一个 [day] 号。
   DebtSetup add({
     required String name,
     required DebtKind kind,
@@ -169,6 +170,7 @@ class Debts {
     String? fromAccountId,
     String currency = 'CNY',
     required String today,
+    String? firstDue,
   }) {
     if (owedMinor <= 0) throw ArgumentError.value(owedMinor, 'owedMinor', 'must be > 0');
     if (monthlyMinor < 0) throw ArgumentError.value(monthlyMinor, 'monthlyMinor', 'must be >= 0');
@@ -181,7 +183,7 @@ class Debts {
         name: '$name 还款',
         template: {'type': 'transfer', 'amount_minor': monthlyMinor, 'currency': currency, 'account_id': fromAccountId, 'to_account_id': account.id, 'description': '$name 还款'},
         frequency: Frequency.monthly,
-        firstDue: _nextDay(today, d),
+        firstDue: firstDue ?? _nextDay(today, d),
         reminderDaysBefore: 3,
       );
     }

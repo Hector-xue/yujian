@@ -38,6 +38,8 @@ class AppState extends ChangeNotifier {
   TemplateMatcher matcher = TemplateMatcher();
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
+  /// 对话建档（「欠白条 5000，每月 15 号还 1000」「工行定期 1 万」）：规则优先，规则说不清才问模型；只在对话页用。
+  SetupInterpreter setupInterpreter = SetupInterpreter();
   VisionInterpreter? vision;
   /// 截图自动记账用的两条模型路（标签不同，出网记录里分得清）：「发文字」档的文本模型、「发原图」档的看图模型。
   LLMInterpreter? shotLlm;
@@ -161,6 +163,7 @@ class AppState extends ChangeNotifier {
     final p = tagged('interpret');
     provider = p;
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
+    setupInterpreter = SetupInterpreter(llm: tagged('setup'));
     final v = tagged('image');
     vision = v == null ? null : VisionInterpreter(v);
     final st = tagged('shot_text');
@@ -960,7 +963,7 @@ class AppState extends ChangeNotifier {
       now: DateTime.now(),
       tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes,
       defaultAccountId: defaultAccountId,
-      accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency)],
+      accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency, type: a.type.db)],
       categories: [for (final c in categories) CategoryRef(id: c.id, name: c.name, kind: c.kind.db, parentId: c.parentId)],
       merchantMap: {for (final m in ledger.memory.all(limit: 300)) m.key: (categoryId: m.categoryId, accountId: m.accountId)},
       recentTransactions: [
@@ -1005,6 +1008,44 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return '';
     }
+  }
+
+  // ---------------------------------------------------------------- 对话建档
+
+  /// 一句话像不像在说自己的负债 / 资产；像就返回待建的项（还没写账本），不像返回 null（照常走 [say]）。
+  /// [explicit] = 点了「登记负债 / 资产」再说的。
+  Future<SetupOutcome?> trySetup(String text, {bool explicit = false}) async {
+    final env = setupEnv();
+    final r = await setupInterpreter.interpret(text, context(), explicit: explicit, today: env.today, redactForModel: settings.redact ? redactForModel : null);
+    if (r == null) return null;
+    for (final it in r.items) {
+      it.infer(env);
+    }
+    return r;
+  }
+
+  SetupEnv setupEnv() => SetupEnv.of(ledger, today: _today());
+
+  /// 用户点了确认：一个事务建完（失败全部回滚，抛出去让页面说原因）。
+  List<SetupApplied> applySetup(List<SetupItem> items) {
+    final r = Setups(ledger).apply(items, env: setupEnv());
+    // 和负债页表单一样：建了还清目标就在对话里说一声
+    if (game.enabled) {
+      for (final x in r) {
+        if (x.goalId == null) continue;
+        final g = ledger.goals.get(x.goalId!);
+        game.pendingMessages.add((text: replier.template(PersonaEvent.goalCreated, label: g.name), sticker: null, meta: null));
+      }
+    }
+    notifyListeners();
+    return r;
+  }
+
+  /// 撤销刚建的；返回真删掉的账户数（有记录的只归档）。
+  int undoSetup(List<SetupApplied> applied) {
+    final n = Setups(ledger).undo(applied);
+    notifyListeners();
+    return n;
   }
 
   /// 一句话 → 解析 → 草稿进收件箱（不落账）。返回解析结果与建立的草稿。

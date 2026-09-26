@@ -45,7 +45,7 @@ void main() {
 
     test('every kind has a plain-language explanation naming the destination', () {
       const host = 'h.example';
-      for (final (kind, purpose) in [('chat', 'interpret'), ('chat', 'companion'), ('chat', 'reply'), ('chat', 'shot_text'), ('chat', 'probe'), ('vision', 'image'), ('vision', 'shot_image'), ('transcribe', 'asr'), ('speech', 'tts'), ('models', 'list'), ('sync', 'sync'), ('sync', 'backup'), ('sync', 'restore'), ('sync', 'ping'), ('update', 'check'), ('download', 'apk'), ('download', 'asr_model')]) {
+      for (final (kind, purpose) in [('chat', 'interpret'), ('chat', 'setup'), ('chat', 'companion'), ('chat', 'reply'), ('chat', 'shot_text'), ('chat', 'probe'), ('vision', 'image'), ('vision', 'shot_image'), ('transcribe', 'asr'), ('speech', 'tts'), ('models', 'list'), ('sync', 'sync'), ('sync', 'backup'), ('sync', 'restore'), ('sync', 'ping'), ('update', 'check'), ('download', 'apk'), ('download', 'asr_model')]) {
         final e = NetEvent(atMs: 0, kind: kind, purpose: purpose, host: host);
         expect(e.explain(), contains(host), reason: '$kind/$purpose');
         expect(e.explain().length, greaterThan(10), reason: '$kind/$purpose');
