@@ -313,6 +313,11 @@ class Ledger implements ValidationContext {
             dupOf = hit;
           }
         }
+        // 跨来源疑似重复：同一笔钱常被通知、支付页识别、截图、账单导入各抓一次，它们的指纹格式各不相同，
+        // 只比指纹永远撞不上。自动来源的新建草稿再按「方向 + 金额 + 币种 + 前后 10 分钟」找一遍已记的账和待确认的草稿。
+        if (dupOf == null && input.kind == DraftKind.create && _dupCheckedSources.contains(source)) {
+          dupOf = _findNearDuplicate(input.payload, excludeGroup: gid);
+        }
         final missing = _draftProblems(input);
         final did = Ulid.next();
         _db.execute(
@@ -331,6 +336,44 @@ class Ledger implements ValidationContext {
       }
       return out;
     });
+  }
+
+  static const _dupCheckedSources = {Source.notification, Source.screenshot, Source.share, Source.import_};
+  static const nearDuplicateWindow = Duration(minutes: 10);
+
+  /// 金额、方向、币种都一样，发生时间前后 [nearDuplicateWindow] 内的已确认交易（优先）或待确认草稿 id；没有返回 null。
+  String? _findNearDuplicate(Map<String, Object?> p, {String? excludeGroup}) {
+    final type = p['type'];
+    final amount = p['amount_minor'];
+    final currency = p['currency'];
+    final at = p['occurred_at'];
+    if (type is! String || amount is! int || amount <= 0 || currency is! String || at is! String) return null;
+    final OccurredAt when;
+    try {
+      when = OccurredAt.parse(at);
+    } on FormatException {
+      return null;
+    }
+    final w = nearDuplicateWindow.inMilliseconds;
+    final t = _db.select(
+      "SELECT t.id FROM transactions t WHERE t.status = 'confirmed' AND t.type = ? AND t.currency = ? AND t.occurred_at_ms BETWEEN ? AND ? "
+      'AND EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = t.id AND ABS(p.amount_minor) = ?) ORDER BY ABS(t.occurred_at_ms - ?) LIMIT 1',
+      [type, currency, when.millis - w, when.millis + w, amount, when.millis],
+    );
+    if (t.isNotEmpty) return t.first['id'] as String;
+    // 待确认草稿：只看最近两天建的（收件箱里一般不会压更久），在 Dart 里比 payload
+    final since = _nowMs() - const Duration(days: 2).inMilliseconds;
+    for (final r in _db.select("SELECT id, group_id, payload FROM drafts WHERE status = 'pending' AND kind = 'create' AND created_at >= ?", [since])) {
+      if (excludeGroup != null && r['group_id'] == excludeGroup) continue;
+      final q = (jsonDecode(r['payload'] as String) as Map).cast<String, Object?>();
+      if (q['type'] != type || q['amount_minor'] != amount || q['currency'] != currency || q['occurred_at'] is! String) continue;
+      try {
+        if ((OccurredAt.parse(q['occurred_at'] as String).millis - when.millis).abs() <= w) return r['id'] as String;
+      } on FormatException {
+        continue;
+      }
+    }
+    return null;
   }
 
   /// 某指纹是否已有已确认交易或待处理草稿（目标的定存 / 零头周结用它防重）。
@@ -698,7 +741,16 @@ class Ledger implements ValidationContext {
         this.achievements.upsertRaw(a);
       }
       profile.forEach((k, v) => this.profile.upsertRaw({'key': k, 'value': v}));
-      // 恢复后的全量当作本机新变更，下次同步整体推上去
+      recordFullSnapshotAsChanges();
+      return n;
+    });
+  }
+
+
+  /// 把整本账本当前的每个实体都记成一条本机新变更（时间 = 现在）。整库恢复后调用：
+  /// 下次同步整体推上去，其他设备跟着变；拉回来的服务端旧变更按 LWW 比这些旧，全部跳过，不会把刚恢复的内容盖回去。
+  void recordFullSnapshotAsChanges() {
+    _db.transaction(() {
       for (final a in listAccounts(includeArchived: true, includeVault: true)) {
         changes.record('account', a.id, a.toJson());
       }
@@ -710,26 +762,25 @@ class Ledger implements ValidationContext {
           changes.record('transaction', t.id, t.toJson());
         }
       }
-      for (final m in this.memory.all(limit: 1 << 30)) {
+      for (final m in memory.all(limit: 1 << 30)) {
         changes.record('memory', m.key, {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source});
       }
-      for (final r in this.recurring.list(activeOnly: false)) {
+      for (final r in recurring.list(activeOnly: false)) {
         changes.record('recurring', r.id, r.toJson());
       }
-      for (final b in this.budgets.list(activeOnly: false)) {
+      for (final b in budgets.list(activeOnly: false)) {
         changes.record('budget', b.id, BudgetStore.toJson(b));
       }
-      for (final g in this.goals.list(activeOnly: false)) {
+      for (final g in goals.list(activeOnly: false)) {
         changes.record('goal', g.id, g.toJson());
       }
-      for (final t in this.tasks.list(limit: 1 << 30)) {
+      for (final t in tasks.list(limit: 1 << 30)) {
         changes.record('task', t.id, t.toJson());
       }
-      for (final a in this.achievements.list()) {
+      for (final a in achievements.list()) {
         changes.record('achievement', a.key, a.toJson());
       }
-      this.profile.all().forEach((k, v) => changes.record('profile', k, {'key': k, 'value': v}));
-      return n;
+      profile.all().forEach((k, v) => changes.record('profile', k, {'key': k, 'value': v}));
     });
   }
 
@@ -769,6 +820,16 @@ class Ledger implements ValidationContext {
           );
         case 'category':
           if (c.deleted) {
+            // 对方删了，但本机还有交易 / 子分类 / 预算在用（对方没同步到的记录）：保留，别让外键把整轮同步卡死
+            int n(String sql) => _db.select(sql, [c.entityId]).first['n'] as int;
+            final inUse = n('SELECT COUNT(*) AS n FROM transactions WHERE category_id = ?') > 0 ||
+                n('SELECT COUNT(*) AS n FROM categories WHERE parent_id = ?') > 0 ||
+                n('SELECT COUNT(*) AS n FROM budgets WHERE category_id = ?') > 0;
+            if (inUse) {
+              _audit(Actor.automation, 'sync.delete_kept', 'category', c.entityId, after: {'from': fromDevice, 'reason': 'in use locally'});
+              return 'skipped';
+            }
+            _db.execute('UPDATE memory_map SET category_id = NULL WHERE category_id = ?', [c.entityId]);
             _db.execute('DELETE FROM categories WHERE id = ?', [c.entityId]);
           } else {
             _db.execute('INSERT OR REPLACE INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,?,?)',
@@ -812,6 +873,19 @@ class Ledger implements ValidationContext {
       return 'applied';
     });
   }
+
+  /// 一条远端变更应用失败（坏数据 / 本机缺它依赖的账户……）：整条回滚后在这里留痕，同步继续往后走，不卡死在这一条。
+  /// 审计里带着原始载荷，之后能人工看、也能重放。
+  void recordSyncFailure(ChangeRecord c, {required String fromDevice, required Object error}) {
+    _audit(Actor.automation, 'sync.apply_failed', c.entity, c.entityId,
+        after: {'from': fromDevice, 'error': '$error', 'deleted': c.deleted, 'at': c.at, 'payload': c.payload});
+  }
+
+  /// 应用失败过的远端变更（新在前）。
+  List<AuditEntry> syncFailures({int limit = 50}) => _db
+      .select("SELECT * FROM audit_log WHERE action = 'sync.apply_failed' ORDER BY seq DESC LIMIT ?", [limit])
+      .map(AuditEntry.fromRow)
+      .toList();
 
   static int? _parseIsoMs(Object? v) => v is String ? DateTime.tryParse(v)?.toUtc().millisecondsSinceEpoch : null;
 

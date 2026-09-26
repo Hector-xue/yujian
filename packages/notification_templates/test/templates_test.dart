@@ -18,6 +18,21 @@ void main() {
     expect(x.fingerprintIsExact, isTrue);
   });
 
+  test('same notification key reused by the app: different payments are not duplicates', () {
+    const key = '0|com.tencent.mm|1234|null|10123';
+    final a = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥19.90', key: key));
+    final b = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥36.00', key: key));
+    final again = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥19.90', key: key));
+    expect(a.fingerprintIsExact, isTrue);
+    expect(a.fingerprint, isNot(b.fingerprint)); // 第二笔不能被当重复吞掉
+    expect(a.fingerprint, again.fingerprint); // 同一条被系统重发 / 更新：仍是重复
+  });
+
+  test('stable hash is deterministic', () {
+    expect(TemplateMatcher.stableHash('已支付¥19.90'), TemplateMatcher.stableHash('已支付¥19.90'));
+    expect(TemplateMatcher.stableHash('a'), isNot(TemplateMatcher.stableHash('b')));
+  });
+
   test('wechat income', () {
     final x = m.extract(ev('com.tencent.mm', '微信收款', '微信支付收款200.00元'));
     expect(x.direction, 'income');

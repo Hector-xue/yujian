@@ -131,6 +131,24 @@ void main() {
     expect(b.getTransaction(tx.id).categoryId, 'transport');
   });
 
+  test('a change that cannot be applied (FK / bad fields) is recorded and skipped; the cursor keeps moving', () async {
+    final b = mk();
+    // 服务端上有：一条引用本机不存在账户的交易（外键失败）、一条时间字段坏掉的交易、一条正常的账户
+    s.changes.addAll([
+      {'seq': 1, 'device_id': 'devA', 'entity': 'transaction', 'entity_id': 't1', 'deleted': false, 'at': base, 'payload': {'id': 't1', 'type': 'expense', 'occurred_at': '2026-09-15T12:00:00+08:00', 'currency': 'CNY', 'category_id': 'food', 'postings': [{'account_id': 'nope', 'amount_minor': -100}]}},
+      {'seq': 2, 'device_id': 'devA', 'entity': 'transaction', 'entity_id': 't2', 'deleted': false, 'at': base, 'payload': {'id': 't2', 'type': 'expense'}},
+      {'seq': 3, 'device_id': 'devA', 'entity': 'account', 'entity_id': 'w', 'deleted': false, 'at': base, 'payload': {'id': 'w', 'name': '微信', 'type': 'e_wallet', 'currency': 'CNY'}},
+    ]);
+    final r = await client(b).sync();
+    expect(r.failed, 2);
+    expect(r.applied, 1);
+    expect(b.account('w'), isNotNull);
+    expect(b.changes.lastPullSeq, 3);
+    expect(b.syncFailures().map((e) => e.targetId).toSet(), {'t1', 't2'});
+    // 下一轮不会再卡在同一条上
+    expect((await client(b).sync()).pulled, 0);
+  });
+
   test('bad token and unreachable server surface as SyncException; nothing marked pushed', () async {
     final a = mk();
     a.createAccount(id: 'w', name: '微信', type: AccountType.eWallet, currency: 'CNY');

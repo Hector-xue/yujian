@@ -286,10 +286,26 @@ class TemplateMatcher {
     }
   }
 
-  /// 有系统 key 就是精确指纹；否则 包名+分钟桶+金额 只能算候选。
+  /// 有系统 key：key + 标题正文的稳定哈希 = 精确指纹。只挡「同一条通知被系统重发 / 更新但内容没变」；
+  /// 不能只用 key——安卓的 key 是「包名 + 通知 id + tag」，微信这类 App 同一个会话一直复用同一个 id，
+  /// 只用 key 的话第二笔支付会被当成第一笔的重复静默丢掉。
+  /// 没有 key：包名 + 分钟桶 + 文案哈希，只能算候选。
   static (String, bool) _fingerprint(NotificationEvent e) {
-    if (e.key != null && e.key!.isNotEmpty) return ('notif:${e.packageName}:${e.key}', true);
+    final h = stableHash('${e.title ?? ''}\n${e.text}');
+    if (e.key != null && e.key!.isNotEmpty) return ('notif:${e.packageName}:${e.key}:$h', true);
     final minute = e.postedAtMs ~/ 60000;
-    return ('notif:${e.packageName}:$minute:${e.text.hashCode}', false);
+    return ('notif:${e.packageName}:$minute:$h', false);
+  }
+
+  /// 跨运行、跨平台稳定的哈希（String.hashCode 不保证稳定，指纹要落库比对）。两路 31 位多项式，
+  /// 全程 < 2^53，Web(JS 数字) 与原生结果一致。
+  static String stableHash(String s) {
+    var a = 7;
+    var b = 13;
+    for (final c in s.codeUnits) {
+      a = (a * 131 + c) % 2147483647;
+      b = (b * 137 + c) % 2147483629;
+    }
+    return '${a.toRadixString(16).padLeft(8, '0')}${b.toRadixString(16).padLeft(8, '0')}';
   }
 }

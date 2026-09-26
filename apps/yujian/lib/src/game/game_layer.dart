@@ -383,9 +383,13 @@ class GameLayer extends ChangeNotifier {
         }
       }
     }
-    // 上周零头周结
-    for (final d in ledger.goals.roundupDue(weekMonday: TaskStore.previousWeek(week))) {
-      await deposit(d.goal, d.amountMinor, fingerprint: d.fingerprint, note: d.note, source: Source.recurring);
+    // 零头周结：补最近 4 个过完的周（隔几周没打开也不漏；指纹按周，已结过的自动跳过）
+    var w = week;
+    for (var i = 0; i < 4; i++) {
+      w = TaskStore.previousWeek(w);
+      for (final d in ledger.goals.roundupDue(weekMonday: w)) {
+        await deposit(d.goal, d.amountMinor, fingerprint: d.fingerprint, note: d.note, source: Source.recurring);
+      }
     }
     // 本周候选
     try {
@@ -584,7 +588,8 @@ class GameLayer extends ChangeNotifier {
     final month = _today.substring(0, 7);
     final inputs = <DraftInput>[];
     for (final a in plan) {
-      final fp = 'goal:${a.goal.id}:payday:$month${a.rule.kind == GoalRuleKind.fixed ? ':fixed' : ''}';
+      // 每月定额和「到期定存」共用一个指纹：发薪日先到就在这里存，定存那天自动跳过；反过来也一样，不会一期存两次
+      final fp = a.rule.kind == GoalRuleKind.fixed ? GoalStore.fixedFingerprint(a.goal.id, a.rule, _today) : 'goal:${a.goal.id}:payday:$month';
       if (ledger.hasFingerprint(fp)) continue;
       inputs.add(DraftInput(payload: ledger.goals.depositPayload(a.goal, a.amountMinor, fromAccountId: from, note: '发薪日 → 「${a.goal.name}」${a.short ? '（钱不够，先保前面的目标，只给 ${fmtMoney(a.amountMinor, a.goal.currency)}）' : ''}'), eventFingerprint: fp, fingerprintIsExact: true, confidence: 0.9));
     }

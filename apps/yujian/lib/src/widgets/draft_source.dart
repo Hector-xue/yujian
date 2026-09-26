@@ -150,15 +150,18 @@ Future<void> showDraftOrigin(BuildContext context, Draft d) {
   final app = AppScope.of(context);
   final o = describeDraftOrigin(app, d);
   Transaction? dup;
+  Draft? dupDraft;
   if (d.possibleDuplicateOf != null) {
     try {
       dup = app.ledger.transaction(d.possibleDuplicateOf!);
+      if (dup == null) dupDraft = app.ledger.getDraft(d.possibleDuplicateOf!);
     } catch (_) {}
   }
   final rows = <(String, String)>[
     ('进入收件箱', fmtExactTime(d.createdAt)),
     ...o.details,
-    if (dup != null) ('疑似重复', '和 ${dup.occurredAt.localDate} 的「${dup.description ?? app.categoryName(dup.categoryId)}」金额、时间很接近'),
+    if (dup != null) ('疑似重复', '和 ${dup.occurredAt.localDate} 的「${dup.description ?? app.categoryName(dup.categoryId)}」金额、时间很接近（多半是同一笔被两条路各抓了一次）'),
+    if (dupDraft != null) ('疑似重复', '收件箱里还有一条「${describeDraftOrigin(app, dupDraft).label}」进来的，金额一样、时间只差几分钟（多半是同一笔被两条路各抓了一次，留一条就行）'),
   ];
   return showModalBottomSheet<void>(
     context: context,

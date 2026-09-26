@@ -26,10 +26,11 @@ class SyncReport {
   final int pulled;
   final int applied;
   final int skipped;
+  final int failed; // 应用失败、已留痕跳过的（审计 sync.apply_failed）
   final int serverSeq;
-  const SyncReport({required this.pushed, required this.pulled, required this.applied, required this.skipped, required this.serverSeq});
+  const SyncReport({required this.pushed, required this.pulled, required this.applied, required this.skipped, this.failed = 0, required this.serverSeq});
   @override
-  String toString() => '推 $pushed · 拉 $pulled · 应用 $applied · 冲突跳过 $skipped';
+  String toString() => '推 $pushed · 拉 $pulled · 应用 $applied · 冲突跳过 $skipped${failed > 0 ? ' · 失败 $failed（见审计日志）' : ''}';
 }
 
 class BackupInfo {
@@ -94,6 +95,7 @@ class SyncClient {
     var pulled = 0;
     var applied = 0;
     var skipped = 0;
+    var failed = 0;
     while (true) {
       final since = ledger.changes.lastPullSeq;
       final r = await _send(() => _http.get(Uri.parse('${config._base}/api/v1/sync/pull?device_id=$device&since=$since&limit=500'), headers: _headers));
@@ -119,15 +121,20 @@ class SyncClient {
           } else {
             skipped++;
           }
-        } on LedgerException {
-          skipped++; // 坏数据不阻塞后续；审计里没有它，留给下次整库校验
+        } catch (e) {
+          // 任何异常（校验失败、外键冲突、字段缺失、时间格式坏……）都只影响这一条：那条事务已整体回滚，
+          // 留痕后游标照常前进。以前只接 LedgerException，外键冲突这类 SqliteException 会让游标永远停在这里。
+          failed++;
+          try {
+            ledger.recordSyncFailure(rec, fromDevice: rec.origin, error: e);
+          } catch (_) {}
         }
         ledger.changes.lastPullSeq = rec.seq;
       }
       ledger.changes.lastPullSeq = (j['next_since'] as num).toInt();
       if (j['has_more'] != true) break;
     }
-    return SyncReport(pushed: pushed, pulled: pulled, applied: applied, skipped: skipped, serverSeq: serverSeq);
+    return SyncReport(pushed: pushed, pulled: pulled, applied: applied, skipped: skipped, failed: failed, serverSeq: serverSeq);
   }
 
   Future<BackupInfo> uploadBackup(String passphrase) async {
