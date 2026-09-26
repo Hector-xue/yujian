@@ -98,7 +98,7 @@ class GoalDetailPage extends StatelessWidget {
                     Text(app.game.describe(p).replaceFirst(RegExp(r'^[^：]*：'), ''), style: theme.textTheme.bodyMedium),
                     if (g.deadline != null) Text('期限 ${g.deadline}${p.behindDays != null ? (p.behindDays! > 0 ? ' · 按现在的速度晚 ${p.behindDays} 天' : ' · 按现在的速度提前 ${-p.behindDays!} 天') : ''}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                     const SizedBox(height: 6),
-                    Text(_basis(g, p, vault), style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+                    Text(_basis(g, p, vault, app.accountName(g.linkedAccountId)), style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                   ]),
                 ),
               ),
@@ -155,10 +155,10 @@ class GoalDetailPage extends StatelessWidget {
     );
   }
 
-  static String _basis(Goal g, GoalProgress p, Account? vault) => switch (g.kind) {
+  static String _basis(Goal g, GoalProgress p, Account? vault, String linkedName) => switch (g.kind) {
         GoalKind.wish => '依据：锁仓账户「${vault?.name ?? g.name}」的余额 ÷ 目标额。最近 30 天存入 ${p.paceMinorPerDay == null ? '为 0，算不出速度' : '平均每天 ${fmtMoney(p.paceMinorPerDay!.round(), g.currency)}'}。',
         GoalKind.emergency => '依据：${g.hasVault ? '锁仓余额' : '流动资产'} ÷ 目标额（创建时按近 3 个月平均月支出 × N 冻结）。',
-        GoalKind.payoff => '依据：账户「${g.linkedAccountId ?? ''}」的欠款从建目标时的 ${fmtMoney(p.targetMinor, g.currency)} 降到了多少。',
+        GoalKind.payoff => '依据：「$linkedName」的欠款从建目标时的 ${fmtMoney(g.targetMinor, g.currency)} 降到了多少${p.targetMinor > g.targetMinor ? '（现在欠的比建目标时还多，按现在的 ${fmtMoney(p.targetMinor, g.currency)} 算）' : ''}。',
         GoalKind.milestone => '依据：净资产（全部账户余额之和，信用卡 / 应付为负）÷ 目标额。',
       };
 
@@ -279,7 +279,17 @@ class GoalDetailPage extends StatelessWidget {
             content: Column(mainAxisSize: MainAxisSize.min, children: [
               Text('已锁的 ${fmtMoney(p.savedMinor, g.currency)} 会变成一笔「转到那个账户」的草稿进收件箱，你真转了再确认。以后每次存入也都要确认。', style: Theme.of(d).textTheme.bodySmall),
               const SizedBox(height: 8),
-              PickerField<String>(value: to, decoration: const InputDecoration(labelText: '转到'), items: [for (final a in app.accounts) DropdownMenuItem(value: a.id, child: Text(a.name))], onChanged: (v) => setSt(() => to = v)),
+              PickerField<String>(
+                value: to,
+                decoration: const InputDecoration(labelText: '转到'),
+                items: [for (final a in app.accounts) if (a.currency == g.currency && GoalStore.canBeVault(a.type)) DropdownMenuItem(value: a.id, child: Text(a.name))],
+                onChanged: (v) => setSt(() => to = v),
+              ),
+              if (to != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('「${app.accountName(to)}」里现有的 ${fmtMoney(app.ledger.balance(to!).minor, g.currency)} 也会算作已攒，最好用一个专门存这笔钱的账户。', style: Theme.of(d).textTheme.bodySmall),
+                ),
             ]),
             actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')), FilledButton(onPressed: to == null ? null : () => Navigator.pop(d, to), child: const Text('改'))],
           ),

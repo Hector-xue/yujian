@@ -55,7 +55,7 @@ class CheckupPage extends StatelessWidget {
                         cell('总资产', fmtMoney(m.assetsMinor, 'CNY')),
                         cell('总负债', fmtMoney(m.debt.totalMinor, 'CNY'), color: m.debt.totalMinor > 0 ? y.danger : null),
                         cell('月收入', c.monthlyIncomeMinor > 0 ? fmtMoney(c.monthlyIncomeMinor, 'CNY') : '—'),
-                        cell('月支出', m.monthlySpendAvgMinor > 0 ? fmtMoney(m.monthlySpendAvgMinor, 'CNY') : '—'),
+                        cell(m.debt.loanMonthlyMinor > 0 ? '月支出(含月供)' : '月支出', m.monthlySpendAvgMinor > 0 ? fmtMoney(m.monthlySpendAvgMinor, 'CNY') : '—'),
                         cell('够花', m.runwayMonths == null ? '—' : '${m.runwayMonths!.toStringAsFixed(1)} 个月'),
                       ],
                     ),

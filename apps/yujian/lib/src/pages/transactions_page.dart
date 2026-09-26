@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../record_list.dart';
 import '../theme.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/fmt.dart';
@@ -9,15 +10,22 @@ import '../widgets/manual_entry_sheet.dart';
 import '../widgets/transaction_edit_sheet.dart';
 import 'calendar_page.dart';
 
-/// 交易记录：按日分组；点开看详情、改分类、作废。
-class TransactionsPage extends StatelessWidget {
+/// 交易记录：按日分组；点开看详情、改分类、作废。一页 [recordPageSize] 笔，底部「加载更多」往前翻。
+class TransactionsPage extends StatefulWidget {
   const TransactionsPage({super.key});
+  @override
+  State<TransactionsPage> createState() => _TransactionsPageState();
+}
+
+class _TransactionsPageState extends State<TransactionsPage> {
+  var _limit = recordPageSize;
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    final txs = app.ledger.listTransactions(limit: 500);
+    final page = loadRecordPage(app.ledger, limit: _limit);
+    final txs = page.txs;
     final byDay = <String, List<Transaction>>{};
     for (final t in txs) {
       byDay.putIfAbsent(t.occurredAt.localDate, () => []).add(t);
@@ -41,21 +49,20 @@ class TransactionsPage extends StatelessWidget {
                       children: [
                         Text(fmtDate(e.key, today: today), style: theme.textTheme.bodySmall),
                         const Spacer(),
-                        Text(_daySum(e.value), style: theme.textTheme.bodySmall),
+                        Text(recordDaySummary(e.value), style: theme.textTheme.bodySmall),
                       ],
                     ),
                   ),
                   GlassCard(child: Column(children: [for (final t in e.value) TransactionTile(tx: t)])),
                 ],
+                if (page.hasMore)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Center(child: TextButton(onPressed: () => setState(() => _limit += recordPageSize), child: const Text('加载更多'))),
+                  ),
               ],
             ),
     );
-  }
-
-  String _daySum(List<Transaction> ts) {
-    final out =
-        ts.where((t) => t.type == TransactionType.expense).fold<int>(0, (a, t) => a + t.amountMinor) - ts.where((t) => t.type == TransactionType.refund).fold<int>(0, (a, t) => a + t.amountMinor);
-    return out == 0 ? '' : '支出 ${fmtMoney(out, ts.first.currency)}';
   }
 }
 

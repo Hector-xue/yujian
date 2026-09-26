@@ -238,13 +238,18 @@ class _GameHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
-            // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 所有账户里正的钱（含投资，不扣负债）
+            // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 非负债账户相加（含投资，透支的照减，不扣负债）
             _StatRow(children: [
               _Stat(label: '现金余额', value: fmtMoney(m.cashMinor, 'CNY')),
               _Stat(label: '总资产', value: fmtMoney(m.assetsMinor, 'CNY')),
               _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
               _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),
+            // 外币账户没折算：说一声，免得对着账户页加不起来
+            if (m.excludedForeign.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算进余额和总资产', style: theme.textTheme.bodySmall?.copyWith(color: y.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
             // 寄语轮播：收入排位（低于三成的不在首页亮出来，财富页里有）+ 按处境挑的一池话，几秒换一句、点一下换一句
             if (cheerToneFor(m) != null) ...[
               const SizedBox(height: 10),
