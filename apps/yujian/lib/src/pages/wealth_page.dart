@@ -5,10 +5,10 @@ import '../app_state.dart';
 import '../game/cheer.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
-import '../widgets/picker_field.dart';
 import 'checkup_page.dart';
 import 'debts_page.dart';
 import 'repayment_plan_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 财富页：可花的 / 今天还能花 / 等级（生存月数）/ 储蓄率 / 净资产 / 收入线 / 成就，每个数都写清怎么来的；
 /// 底部是游戏层的设置：发薪日、工资账户、总开关、代价行、三个仪式。
@@ -134,7 +134,7 @@ class WealthPage extends StatelessWidget {
                 ],
                 const SizedBox(height: 12),
                 stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 现金余额 ${fmtMoney(m.cashMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比现金余额多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
-                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${fmtMd(m.payday)}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
+                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${fmtMd(m.payday)}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从工资记录推的，可在下面改', _ => '没填也推不出，按月底估的，在下面设' }}${m.paydayLateSince != null ? '；本该 ${fmtMd(m.paydayLateSince!)} 发的这期还没到，按明天到估' : ''}）'),
                 stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}（目标锁仓算在资产里）${m.inDebt ? '。是负的很正常：有房贷车贷都这样，看下面的还清进度更有用' : ''}${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
                 if (m.debt.totalMinor > 0)
                   Padding(
@@ -365,38 +365,19 @@ class _MonthlyCostRowState extends State<_MonthlyCostRow> {
   }
 }
 
-/// 发薪日 + 工资账户：画像里的两项，指标要用。
+/// 发薪日 + 工资账户：点开统一的发薪日设置（首页、日历、「更多」里打开的是同一个）。
 class _PaydayRow extends StatelessWidget {
   const _PaydayRow();
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    final profile = app.ledger.profile;
-    return Row(children: [
-      Expanded(
-        child: PickerField<int?>(
-          value: profile.payday,
-          decoration: const InputDecoration(labelText: '发薪日'),
-          items: [const DropdownMenuItem<int?>(value: null, child: Text('自动推断')), for (var d = 1; d <= 31; d++) DropdownMenuItem<int?>(value: d, child: Text('每月 $d 号'))],
-          onChanged: (v) {
-            profile.payday = v;
-            app.touch();
-          },
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: PickerField<String?>(
-          value: app.accounts.any((a) => a.id == profile.salaryAccountId) ? profile.salaryAccountId : null,
-          decoration: const InputDecoration(labelText: '工资到哪个账户'),
-          items: [const DropdownMenuItem<String?>(value: null, child: Text('不指定')), for (final a in app.accounts) DropdownMenuItem<String?>(value: a.id, child: Text(a.name, style: theme.textTheme.bodyMedium))],
-          onChanged: (v) {
-            profile.salaryAccountId = v;
-            app.touch();
-          },
-        ),
-      ),
-    ]);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('发薪日'),
+      subtitle: Text('${paydaySummary(app)}${app.ledger.profile.salaryAccountId == null ? '' : ' · 工资到「${app.accountName(app.ledger.profile.salaryAccountId)}」'}', style: theme.textTheme.bodySmall),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showPaydaySheet(context),
+    );
   }
 }

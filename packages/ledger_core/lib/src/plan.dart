@@ -1,6 +1,7 @@
 import 'cards.dart';
 import 'debts.dart';
 import 'ledger.dart';
+import 'payday.dart';
 import 'wealth.dart';
 
 /// 计划里一笔的种类。
@@ -81,18 +82,25 @@ class RepaymentPlanner {
   RepaymentPlan build({required String today, WealthMetrics? metrics, String currency = 'CNY'}) {
     final m = metrics ?? Wealth(ledger).compute(today: today, currency: currency);
     final payday = m.payday;
-    // 排到「第二个发薪日」前一天：本周期 + 下一个周期的账单都进来
-    final (secondPayday, _) = Wealth(ledger).nextPayday(today: payday);
+    // 发薪日全走 Paydays（按真正的今天推；可以几个发薪日）。排到「下一次发薪之后那一次」的前一天：本期 + 下一期的账单都进来
+    final pays = Paydays(ledger);
+    final sched = pays.schedule(today: today);
+    final later = pays.occurrences(from: CreditCards.addDays(payday, 1), to: CreditCards.addDays(payday, 80), today: today, schedule: sched);
+    final secondPayday = later.isEmpty ? CreditCards.addMonths(payday, 1) : later.first;
     final until = CreditCards.addDays(secondPayday, -1);
-    final monthlyIncome = m.incomeRank == null ? 0 : m.incomeRank!.annualMinor ~/ 12;
+    // 每次发薪按「这一期」近几个月实际到账的中位数估（工资、绩效各估各的）；没有记录才按收入平均摊
+    final fallback = m.incomeRank == null ? 0 : m.incomeRank!.annualMinor ~/ 12 ~/ (sched.days.isEmpty ? 1 : sched.days.length);
+    int expected(String slot) => pays.expectedIncome(slot) ?? fallback;
+    final firstIncome = expected(m.paydayLateSince ?? payday);
+    final monthlyIncome = firstIncome;
 
     final raw = <_Event>[];
-    // 发薪
-    for (var d = payday; d.compareTo(until) <= 0;) {
-      if (monthlyIncome > 0) raw.add(_Event(d, PlanItemKind.income, '发薪', null, monthlyIncome, monthlyIncome));
-      final (next, _) = Wealth(ledger).nextPayday(today: d);
-      if (next.compareTo(d) <= 0) break;
-      d = next;
+    // 发薪：这一次（晚了的话按明天到估）+ 区间里后面的
+    if (firstIncome > 0) raw.add(_Event(payday, PlanItemKind.income, m.paydayLateSince == null ? '发薪' : '发薪（晚了，按明天到估）', null, firstIncome, firstIncome));
+    for (final d in later) {
+      if (d.compareTo(until) > 0) break;
+      final a = expected(d);
+      if (a > 0) raw.add(_Event(d, PlanItemKind.income, '发薪', null, a, a));
     }
     // 贷款月供 / 固定支出：周期账单在计划区间里的每一期
     final debts = ledger.debts;
@@ -203,14 +211,15 @@ class DueMark {
 List<DueMark> dueMarks(Ledger ledger, {required String from, required String to, required String today, String currency = 'CNY'}) {
   final out = <DueMark>[];
   bool inRange(String d) => d.compareTo(from) >= 0 && d.compareTo(to) <= 0;
-  // 发薪日
-  final w = Wealth(ledger);
-  var (pd, _) = w.nextPayday(today: CreditCards.addDays(from, -1));
-  for (var guard = 0; pd.compareTo(to) <= 0 && guard < 24; guard++) {
-    if (inRange(pd) && pd.compareTo(today) >= 0) out.add(DueMark(pd, DueMarkKind.payday, '发薪'));
-    final (n, _) = w.nextPayday(today: pd);
-    if (n.compareTo(pd) <= 0) break;
-    pd = n;
+  // 发薪日：按真正的今天推（以前从「这个月的前一天」往后推，看不到本月已经记的工资，退回月底）；
+  // 已经提前到账的那一期不再标；推不出时按月底标，注明是估的
+  final pays = Paydays(ledger);
+  final sched = pays.schedule(today: today);
+  final next = pays.next(today: today);
+  for (final d in pays.occurrences(from: from, to: to, today: today, schedule: sched)) {
+    if (d.compareTo(today) < 0) continue;
+    if (!next.isLate && d.compareTo(next.date) < 0) continue; // 在「下一次发薪」之前的那一期 = 已经提前发过了
+    out.add(DueMark(d, DueMarkKind.payday, '发薪', note: sched.source == PaydaySource.monthEnd ? '按月底估的' : ''));
   }
   // 月供 / 固定支出（月供不超过还欠的，还清了就不标）
   final debts = ledger.debts;

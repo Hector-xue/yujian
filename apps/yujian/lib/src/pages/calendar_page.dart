@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import 'transactions_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 日历视图：一个月的格子，每天显示当天支出（有收入再显示收入），点一天看那天的明细。
 class CalendarPage extends StatefulWidget {
@@ -73,7 +74,15 @@ class _CalendarPageState extends State<CalendarPage> {
         },
         child: const Icon(Icons.add),
       ),
-      body: ListView(
+      body: GestureDetector(
+        // 左右滑切月份（和标题栏的箭头一样）：往左滑看下个月，往右滑看上个月；要滑得够快才算，免得上下滚动时斜一下就翻了
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (v.abs() < 300) return;
+          setState(() => month = DateTime(month.year, month.month + (v < 0 ? 1 : -1)));
+        },
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
         children: [
           GlassCard(
@@ -176,6 +185,12 @@ class _CalendarPageState extends State<CalendarPage> {
                 for (final mk in selMarks)
                   ListTile(
                     dense: true,
+                    onTap: mk.kind == DueMarkKind.payday
+                        ? () async {
+                            await showPaydaySheet(context);
+                            if (mounted) setState(() {});
+                          }
+                        : null,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     leading: Text(switch (mk.kind) { DueMarkKind.payday => '💰', DueMarkKind.loan => '🏦', DueMarkKind.fixed => '🧾', DueMarkKind.cardDue => '💳', DueMarkKind.cardStatement => '📄' }, style: const TextStyle(fontSize: 18)),
                     title: Text(switch (mk.kind) {
@@ -199,6 +214,7 @@ class _CalendarPageState extends State<CalendarPage> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

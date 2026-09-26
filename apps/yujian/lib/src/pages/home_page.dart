@@ -14,6 +14,7 @@ import 'goals_page.dart';
 import 'tasks_page.dart';
 import 'transactions_page.dart';
 import 'wealth_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 首页列表的左右页边距；目标横滑条要把它吃回来（视口铺满屏宽）再自己留出来，所以单独记一份。
 const _gutter = 20.0;
@@ -252,11 +253,17 @@ class _GameHeader extends StatelessWidget {
             const SizedBox(height: 4),
             _BigMoney(fmtMoney(m.disposableMinor, 'CNY'), color: m.disposableMinor < 0 ? y.danger : y.balance),
             // 只留一行：今天还能花多少、几天后发薪。公式在财富页（点卡片进），首页不摆三行小字
-            Text(
-              m.disposableMinor < 0 ? '发薪前得省着：要付的比现金余额多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
-              style: theme.textTheme.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            // 发薪那半句点了就能改发薪日；晚了 / 按月底估的直接写出来，不装作是确定的
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => showPaydaySheet(context),
+              child: Text(
+                '${m.disposableMinor < 0 ? '发薪前得省着：要付的比现金余额多' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')}'} · '
+                '${m.paydayLateSince != null ? '工资还没到（本该 ${fmtMd(m.paydayLateSince!)} 发）' : '${m.daysToPayday} 天后发薪${m.paydaySource == 'month_end' ? '（按月底估）' : ''}'}',
+                style: theme.textTheme.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             const SizedBox(height: 12),
             // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 非负债账户相加（含投资，透支的照减，不扣负债）
