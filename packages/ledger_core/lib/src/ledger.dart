@@ -21,6 +21,7 @@ import 'recurring.dart';
 import 'tasks.dart';
 import 'occurred_at.dart';
 import 'money.dart';
+import 'setup.dart';
 import 'validation.dart';
 
 /// 账本门面（§18.1）。上层（UI / Interpreter / MCP）只通过这里读写账本。
@@ -160,6 +161,7 @@ class Ledger implements ValidationContext {
       if (profile.salaryAccountId == id) profile.salaryAccountId = null;
       if (profile.defaultAccountId == id) profile.defaultAccountId = null;
       if (profile.getString('${CreditCards.keyPrefix}$id') != null) profile.set('${CreditCards.keyPrefix}$id', null); // 信用卡条款跟着账户走
+      if (profile.getString('${DepositTerms.keyPrefix}$id') != null) profile.set('${DepositTerms.keyPrefix}$id', null); // 定期条款同理
       _db.execute('DELETE FROM accounts WHERE id = ?', [id]);
       _audit(Actor.user, 'account.delete', 'account', id, before: a.toJson(), confirmed: true);
       changes.record('account', id, null, deleted: true);

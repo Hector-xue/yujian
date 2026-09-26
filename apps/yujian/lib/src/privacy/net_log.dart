@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class NetEvent {
   final int atMs;
   final String kind; // chat | vision | transcribe | speech | models | sync | update | download
-  final String purpose; // 细分用途：interpret / companion / reply / shot_text / shot_image / image / push / backup / restore / ping / check / apk / asr_model …
+  final String purpose; // 细分用途：interpret / setup / companion / reply / shot_text / shot_image / image / push / backup / restore / ping / check / apk / asr_model …
   final String host; // 目的地域名
   final String? model;
   final int tokensIn;
@@ -109,6 +109,8 @@ class NetEvent {
         switch (purpose) {
           case 'interpret':
             return '把你在对话里说的这句话$mask，连同你的账户名、分类名、常去商户表和最近 10 笔记录，一起发给 $where，让模型理解你要记哪一笔或查什么。';
+          case 'setup':
+            return '对话建档「规则没分清」：你说的这句负债 / 资产$mask，连同你的账户名（不含余额和记录），发给 $where，让模型分清哪个数是欠款、哪个是月供。只出候选，你在卡片上确认才会建。';
           case 'companion':
             return '陪聊：把你这句话$mask、最近几轮对话、它记住的事，以及账本速览（今天 / 本月的合计数和最近几笔）发给 $where，生成回复。';
           case 'reply':

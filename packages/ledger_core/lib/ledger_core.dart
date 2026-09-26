@@ -29,6 +29,7 @@ export 'src/plan.dart';
 export 'src/portability.dart';
 export 'src/profile.dart';
 export 'src/recurring.dart';
+export 'src/setup.dart';
 export 'src/tasks.dart';
 export 'src/validation.dart' show Analysis, ValidatedTransaction, analyzeCreatePayload;
 export 'src/wealth.dart';
