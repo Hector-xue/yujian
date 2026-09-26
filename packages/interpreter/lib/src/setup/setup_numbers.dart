@@ -188,7 +188,7 @@ List<NumToken> extractSetupNumbers(String text) {
     // 「每个月 / 一个月还」是频率，不是期限
     if (termM != null && value == value.roundToDouble() && value >= 1 && !RegExp(r'每\s*$').hasMatch(before) && !RegExp(r'^\s*个月\s*(还|存|付|交|扣)').hasMatch(after)) {
       final months = termM.group(1) == '年' ? value.toInt() * 12 : value.toInt();
-      if (months <= 120) out.add(NumToken(NumKind.termMonths, months, start: start, end: end + termM.end));
+      if (months <= 360) out.add(NumToken(NumKind.termMonths, months, start: start, end: end + termM.end));
       i = end + termM.end;
       continue;
     }

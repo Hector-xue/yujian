@@ -89,12 +89,15 @@ String? bankKeyOf(String s) {
 }
 
 // 负债「现状」词：只有带了它们才算在说欠款（「白条还款 1000」「还花呗 500」是在记一笔还款，不是建档）
-final _debtStateRe = RegExp(r'欠|还剩|剩下|剩余|剩|待还|没还|未还|月供|每月|每个月|每期|本金|总共|一共|贷了|[\d一二两三四五六七八九十]+\s*期');
+// 光有「月供 / 每月」不算（「房贷月供 4500」多半是在记这个月的月供）
+final _debtStateRe = RegExp(r'欠|还剩|剩下|剩余|剩|待还|没还|未还|本金|总共|一共|贷了|借了|[\d一二两三四五六七八九十]+\s*期|还有\s*[\d一二两三四五六七八九十]+\s*(年|个月|期)');
+// 资产（定期除外）要带「有 / 余额 / 剩」这类现状词：「现金支出 20」「余额宝 5000」是在记账
+final _assetStateRe = RegExp('有|余额(?!宝)|剩|存款|持有|市值|总共|一共');
 final _creditStateRe = RegExp('欠|还剩|剩下|剩余|剩|待还|没还|未还|账单|额度');
 // 问句：不是建档（「白条还欠多少」是查询）
 final _questionRe = RegExp(r'[?？吗]|多少|几号|几期|几个月|多久|什么时候|怎么|哪个|哪些|是不是|有没有');
 // 动作：在记一笔账（「还了白条 1000」「借给小李 3000」「余额宝收益 12」）。「还了 3 期」是在说期数，不算
-final _eventRe = RegExp(r'花了|付了|买了|收到|到账|入账|还了(?!\s*[\d一二三四五六七八九十两]+\s*期)|还款了|转给|转出|转了|充了|充值|取了|取出|提现|支付|消费|退款|退了|收益|分红|返现|红包|利息(?![^，,。；;]*(%|百分之))|发工资|工资到|发了|赚了|亏了|赔了|刷了|扣了|交了|缴了|存了|存入|转入|存到|转到|借给|借了|报销|买(?!的)|申购|赎回|定投|投了|(存|转|取)(?=\s*[\d零〇一二两三四五六七八九十百千万])');
+final _eventRe = RegExp(r'花了|付了|买了|收到|到账|入账|还了(?!\s*[\d一二三四五六七八九十两]+\s*期)|还款了|转给|转出|转了|充了|充值|取了|取出|提现|支付|消费|退款|退了|收益|分红|返现|红包|利息(?![^，,。；;]*(%|百分之))|发工资|工资到|发了|赚了|亏了|赔了|刷了|扣了|交了|缴了|支出|收入|进账|提取|支取|提现|取款|存了|存入|转入|存到|转到|借给|借了|报销|买(?!的)|申购|赎回|定投|投了|(存|转|取)(?=\s*[\d零〇一二两三四五六七八九十百千万])');
 // 资产的动作（「存了一万定期」「买了 5000 基金」）：可能是从已有账户转过去的，要问
 final _assetActionRe = RegExp(r'存了|存入|存到|转了|转入|转到|放了|(存|转)(?=\s*[\d零〇一二两三四五六七八九十百千万])');
 const _depositVerbs = {'存了', '存入', '存到', '转了', '转入', '转到', '放了', '存', '转'};
@@ -149,7 +152,7 @@ List<_Subject> _findSubjects(String s) {
   }
   for (final m in _personLoanRe.allMatches(s)) {
     final who = _stripLead((m.group(1) ?? m.group(4) ?? '').trim());
-    if (who.isEmpty || _creditRe.hasMatch(who) || _loanRe.hasMatch(who) || _assetRe.hasMatch(who)) continue;
+    if (who.isEmpty || _creditRe.hasMatch(who) || _loanRe.hasMatch(who) || _assetRe.hasMatch(who) || RegExp('银行|公司|平台|机构').hasMatch(who)) continue;
     found.add(_Subject(m.start, m.end, SetupKind.loan, m.group(0)!, loan: ('', DebtKind.loan, '欠$who'), person: who));
   }
   // 重叠的留长的（「公积金贷款」不是「公积金」+「贷款」；「京东白条」不是「白条」）
@@ -158,6 +161,11 @@ List<_Subject> _findSubjects(String s) {
   for (final f in found) {
     if (out.isNotEmpty && f.start < out.last.end) {
       if ((f.end - f.start) > (out.last.end - out.last.start)) out[out.length - 1] = f;
+      continue;
+    }
+    // 「手上有现金 3000」：「手上有」紧挨着具体的资产词，是同一件事
+    if (out.isNotEmpty && out.last.kind == SetupKind.asset && f.kind == SetupKind.asset && RegExp('^(手上|手里|身上)').hasMatch(out.last.word) && f.start - out.last.end <= 2) {
+      out[out.length - 1] = f;
       continue;
     }
     out.add(f);
@@ -184,12 +192,13 @@ SetupParse? parseSetupRule(String raw, InterpretContext ctx, {bool explicit = fa
     final onlyAssets = subjects.every((x) => x.kind == SetupKind.asset);
     final owedPhrase = RegExp('还没还|没还|未还|还欠').hasMatch(s);
     final depositOnly = onlyAssets && events.every(_depositVerbs.contains);
-    final borrowOnly = owedPhrase && events.every((e) => e == '借了' || e == '借给');
+    final borrowOnly = events.every((e) => e == '借了' || e == '借给') && (owedPhrase || (events.every((e) => e == '借了') && subjects.any((x) => x.kind == SetupKind.loan && x.person == null) && _debtStateRe.hasMatch(s)));
     if (events.isNotEmpty && !depositOnly && !borrowOnly) return null;
     // 负债项要带「现状」词
     for (final x in subjects) {
       if (x.kind == SetupKind.credit && !_creditStateRe.hasMatch(s)) return null;
       if (x.kind == SetupKind.loan && x.person == null && !_debtStateRe.hasMatch(s)) return null;
+      if (x.kind == SetupKind.asset && !x.asset!.$3 && !_assetStateRe.hasMatch(s) && !assetAction) return null;
     }
   }
 
@@ -309,7 +318,9 @@ SetupItem _buildItem(_Subject sub, String whole, String text, List<NumToken> tok
         final label = Money(t.value, t.currency).toDecimalString();
         if (it.kind == SetupKind.loan || it.kind == SetupKind.credit) {
           final monthlyish = RegExp('每月|每个月|月供|每期|一个月|一月|月还').hasMatch(win) || RegExp(r'^\s*(/月|一个月|一期|每期)').hasMatch(after);
-          if (RegExp('额度').hasMatch(win)) {
+          if (RegExp('剩余额度|可用额度|剩下的额度|还能用').hasMatch(win)) {
+            unassigned.add(label); // 可用额度不是总额度，不猜
+          } else if (RegExp('额度').hasMatch(win)) {
             if (it.kind == SetupKind.credit && it.limitMinor == null) {
               it.limitMinor = t.value;
             } else {
@@ -366,6 +377,8 @@ SetupItem _buildItem(_Subject sub, String whole, String text, List<NumToken> tok
         if (it.kind == SetupKind.asset && t.percent > 0 && t.percent < 30) it.ratePercent ??= t.percent;
       case NumKind.termMonths:
         if (it.kind == SetupKind.asset && it.deposit) it.termMonths ??= t.value;
+        // 贷款「还有 20 年」= 还剩 240 期（月供）
+        if (it.kind == SetupKind.loan && RegExp('还有|还剩|剩|剩下').hasMatch(win)) it.periods ??= t.value;
     }
   }
   if (it.kind == SetupKind.loan && it.periods == null) {
