@@ -180,6 +180,7 @@ class CardStatus {
   final int lateFeeMinor; // 违约金：只有过了还款日、还的不够最低还款时才有
   final int interestMinor; // 利息（算到下一个账单日）：只有过了还款日还没还清才有
   final CardBillState state;
+  final String? overdueSince; // 错过的那个还款日：本期过了还款日 = 本期的；上期没还够、欠款滚进了本期 = 上期的
 
   const CardStatus({
     required this.account,
@@ -198,7 +199,11 @@ class CardStatus {
     required this.lateFeeMinor,
     required this.interestMinor,
     required this.state,
+    this.overdueSince,
   });
+
+  /// 逾期几天（从错过的那个还款日算起）；没逾期 = 0。
+  int get overdueDays => overdueSince == null ? 0 : CreditCards.daysBetween(overdueSince!, today);
 
   /// 本期还剩多少没还。
   int get remainingMinor => statementMinor - repaidMinor > 0 ? statementMinor - repaidMinor : 0;
@@ -280,7 +285,46 @@ class CreditCards {
       ];
 
   /// 一张卡此刻的状态；没设条款 = null。
+  ///
+  /// 上一期过了还款日没还够、到今天还没补上的，出了新账单也还是逾期：欠款滚进了本期账单，可逾期已经发生（违约金、
+  /// 利息、征信都是那时候的事）。只看最近一期的话，一出新账单逾期就「消失」了。出账后还进去的钱先冲上期的欠款。
   CardStatus? status(String accountId, {required String today}) {
+    final cur = _status(accountId, today: today);
+    if (cur == null || cur.state != CardBillState.due) return cur;
+    final prevDay = addDays(cur.statementDate, -1);
+    // 建卡时填的「现在欠多少」只算进建卡那一期：卡建在上一期账单日之后的，上一期账单里没有它（否则新建的卡一律「上期逾期」）
+    final c = cur.account.createdAt.toLocal();
+    final created = _fmt(c.year, c.month, c.day);
+    final prevStatement = lastStatementDate(prevDay, cur.terms.statementDay);
+    final prev = _status(accountId, today: prevDay, initialIsBilled: created.compareTo(prevStatement) <= 0);
+    if (prev == null || prev.state != CardBillState.overdue) return cur;
+    var repaidSince = 0;
+    for (final f in _flows(cur.account)) {
+      if (f.amount > 0 && f.date.compareTo(prevDay) > 0 && f.date.compareTo(today) <= 0) repaidSince += f.amount;
+    }
+    if (prev.remainingMinor - repaidSince <= 0) return cur;
+    return CardStatus(
+      account: cur.account,
+      terms: cur.terms,
+      today: today,
+      owedMinor: cur.owedMinor,
+      overpaidMinor: cur.overpaidMinor,
+      statementDate: cur.statementDate,
+      dueDate: cur.dueDate,
+      nextStatementDate: cur.nextStatementDate,
+      statementMinor: cur.statementMinor,
+      repaidMinor: cur.repaidMinor,
+      repaidByDueMinor: cur.repaidByDueMinor,
+      newChargesMinor: cur.newChargesMinor,
+      minPaymentMinor: cur.minPaymentMinor,
+      lateFeeMinor: prev.lateFeeMinor,
+      interestMinor: prev.interestMinor,
+      state: CardBillState.overdue,
+      overdueSince: prev.dueDate,
+    );
+  }
+
+  CardStatus? _status(String accountId, {required String today, bool initialIsBilled = true}) {
     final a = ledger.account(accountId);
     if (a == null || a.type != AccountType.creditCard) return null;
     final t = terms(accountId);
@@ -292,7 +336,8 @@ class CreditCards {
     final due = dueDateFor(s1, t.dueDay);
 
     final balanceNow = a.initialBalanceMinor + flows.fold<int>(0, (x, f) => x + f.amount);
-    final balanceAtS1 = a.initialBalanceMinor + flows.where((f) => f.date.compareTo(s1) <= 0).fold<int>(0, (x, f) => x + f.amount);
+    // 期初欠款（建卡时填的）默认当已出账；判上一期时由调用方决定它在不在那一期里
+    final balanceAtS1 = (initialIsBilled ? a.initialBalanceMinor : 0) + flows.where((f) => f.date.compareTo(s1) <= 0).fold<int>(0, (x, f) => x + f.amount);
     final stmt = balanceAtS1 < 0 ? -balanceAtS1 : 0;
     var repaid = 0, repaidByDue = 0, newCharges = 0;
     for (final f in flows) {
@@ -342,6 +387,7 @@ class CreditCards {
       lateFeeMinor: fee,
       interestMinor: interest,
       state: state,
+      overdueSince: state == CardBillState.overdue ? due : null,
     );
   }
 

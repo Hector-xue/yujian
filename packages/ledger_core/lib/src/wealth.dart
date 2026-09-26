@@ -5,7 +5,6 @@ import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
 import 'money.dart';
-import 'recurring.dart';
 import 'models/transaction.dart';
 
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
@@ -111,6 +110,7 @@ class WealthMetrics {
   final String currency;
   final int cashMinor; // 手头余额：现金 / 银行卡 / 钱包 / 锁仓账户的余额直接相加（透支成负的钱包也照减）。首页「余额」就是它
   final int liquidMinor; // 流动资产 = max(手头余额, 0)：生存月数 / 应急金目标按它算，不会是负数
+  final int freeLiquidMinor; // 没锁进目标的流动资产 = max(手头余额 − 锁进目标的, 0)：没设锁仓的应急金按它算，心愿里攒的钱不能再算一遍
   final int lockedMinor; // 各目标锁仓里、且算在手头余额里的钱（钱放在投资类账户的真锁仓本来就不在手头余额里，不再扣一次）
   final int fixedDueMinor; // 到发薪日前还要付的固定支出 + 还贷（周期账单里 next_due 在此之前的支出模板、转到贷款账户的转账模板）
   final int cardOwedMinor; // 信用卡待还（刷了就扣，还卡时不再扣）
@@ -142,6 +142,7 @@ class WealthMetrics {
     required this.currency,
     required this.cashMinor,
     required this.liquidMinor,
+    required this.freeLiquidMinor,
     required this.lockedMinor,
     required this.fixedDueMinor,
     required this.cardOwedMinor,
@@ -290,19 +291,22 @@ class Wealth {
     // 到发薪日前要付的：支出模板 + 还贷转账模板，next_due 落在 [today, payday]
     var fixedDue = 0;
     var recurringMonthly = 0; // 每月固定支出 + 还贷（月度化），本月外推时的下限
+    final repay = RepaymentBudget(ledger); // 还贷每期不超过还欠的；还清了不再扣
     for (final r in ledger.recurring.list()) {
       if (!r.isActive) continue;
       if ((r.template['currency'] ?? currency) != currency) continue;
       final isExpense = r.template['type'] == 'expense';
       final isRepay = debts.isRepayment(r);
       if (!isExpense && !isRepay) continue;
+      final to = r.template['to_account_id'] as String?;
+      if (isRepay && (to == null || repay.left(to) <= 0)) continue;
       recurringMonthly += Debts.monthly(r);
       // 到发薪日前每一期都要扣：每周一次的固定支出离发薪还有 25 天就是 3～4 次，不是一次
       final amount = (r.template['amount_minor'] as num?)?.toInt() ?? 0;
       var d = r.nextDue;
       for (var guard = 0; d.compareTo(payday) <= 0 && guard < 400; guard++) {
-        if (d.compareTo(today) >= 0) fixedDue += amount;
-        final n = advanceDate(d, r.frequency, r.interval < 1 ? 1 : r.interval);
+        if (d.compareTo(today) >= 0) fixedDue += isRepay ? repay.take(to!, amount) : amount;
+        final n = r.advance(d);
         if (n.compareTo(d) <= 0) break;
         d = n;
       }
@@ -395,6 +399,7 @@ class Wealth {
       currency: currency,
       cashMinor: cash,
       liquidMinor: liquid,
+      freeLiquidMinor: cash - locked > 0 ? cash - locked : 0,
       lockedMinor: locked,
       fixedDueMinor: fixedDue,
       cardOwedMinor: cardOwed,

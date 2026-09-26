@@ -113,7 +113,25 @@ class AccountsPage extends StatelessWidget {
     try {
       switch (result) {
         case 'archive':
-          app.ledger.archiveAccount(a.id);
+          // 还有钱 / 还有周期账单在用它：先说清楚后果再归档
+          final bal = app.ledger.balance(a.id).minor;
+          final using = app.ledger.recurringUsing(a.id);
+          if (bal != 0 || using.isNotEmpty) {
+            final sure = await showDialog<bool>(
+              context: context,
+              builder: (dlg) => AlertDialog(
+                title: Text('归档「${a.name}」？'),
+                content: Text([
+                  if (bal != 0) '账户里还有 ${fmtMoney(bal, a.currency)}：归档后不再算进余额和净资产。钱没有消失，只是不统计了；卡已经不用了的话，先把钱转走或把余额调成 0。',
+                  if (using.isNotEmpty) '用它的周期账单会一起停掉：${using.map((r) => r.name).join('、')}。恢复账户后到「周期账单」里重新打开。',
+                ].join('\n\n')),
+                actions: [TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(dlg, true), child: const Text('归档'))],
+              ),
+            );
+            if (sure != true || !context.mounted) return;
+          }
+          final paused = app.ledger.archiveAccount(a.id);
+          if (paused > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已归档，停掉了 $paused 条周期账单')));
         case 'unarchive':
           app.ledger.unarchiveAccount(a.id);
         case 'delete':

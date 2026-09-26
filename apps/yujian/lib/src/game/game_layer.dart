@@ -131,7 +131,7 @@ class GameLayer extends ChangeNotifier {
       final today = _today;
       final m = Wealth(ledger).compute(today: today);
       _metrics = m;
-      _goals = [for (final g in ledger.goals.list()) ledger.goals.progress(g, today: today, liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor)];
+      _goals = [for (final g in ledger.goals.list()) ledger.goals.progress(g, today: today, liquidMinor: m.freeLiquidMinor, netWorthMinor: m.netWorthMinor)];
       _weekTasks = ledger.tasks.list(week: thisWeek);
       _taskProgress = {for (final t in _weekTasks) t.id: ledger.tasks.progress(t, today: today)};
       _achievements = ledger.achievements.list();
@@ -391,7 +391,7 @@ class GameLayer extends ChangeNotifier {
         }
         if (t.result == TaskResult.done && t.rewardGoalId != null && t.rewardMinor > 0) {
           final g = ledger.goals.find(t.rewardGoalId!);
-          if (g != null && g.hasVault) await deposit(g, t.rewardMinor, fingerprint: 'task:${t.id}:reward', note: '任务奖励「${t.title}」');
+          if (g != null && g.hasVault) await deposit(g, t.rewardMinor, fingerprint: 'task:${t.id}:reward', note: '任务奖励「${t.title}」', source: Source.recurring);
         }
       }
     }
@@ -599,20 +599,22 @@ class GameLayer extends ChangeNotifier {
     if (from == null) return const [];
     final month = _today.substring(0, 7);
     final inputs = <DraftInput>[];
+    final made = <PaydayAllocation>[]; // 真正起草了的（这期已经存过的跳过，消息里也不该再列）
     for (final a in plan) {
       // 每月定额和「到期定存」共用一个指纹：发薪日先到就在这里存，定存那天自动跳过；反过来也一样，不会一期存两次
       final fp = a.rule.kind == GoalRuleKind.fixed ? GoalStore.fixedFingerprint(a.goal.id, a.rule, _today) : 'goal:${a.goal.id}:payday:$month';
-      if (ledger.hasFingerprint(fp)) continue;
+      if (ledger.hasFingerprint(fp) || a.amountMinor <= 0) continue;
+      made.add(a);
       inputs.add(DraftInput(payload: ledger.goals.depositPayload(a.goal, a.amountMinor, fromAccountId: from, note: '发薪日 → 「${a.goal.name}」${a.short ? '（钱不够，先保前面的目标，只给 ${fmtMoney(a.amountMinor, a.goal.currency)}）' : ''}'), eventFingerprint: fp, fingerprintIsExact: true, confidence: 0.9));
     }
     if (inputs.isEmpty) return const [];
     final drafts = ledger.propose(inputs, source: Source.recurring, actor: Actor.automation, interpreter: 'payday');
-    final total = plan.fold(0, (a, b) => a + b.amountMinor);
+    final total = made.fold(0, (a, b) => a + b.amountMinor);
     final m = metrics;
     final left = incomeMinor - total;
     pendingMessages.add((
       text: '${app.replier.template(PersonaEvent.payday, n: total ~/ 100)}${note != null ? '（$note）' : ''}\n'
-          '${plan.map((a) => '「${a.goal.name}」+${fmtMoney(a.amountMinor, a.goal.currency)}${a.short ? '（想要 ${fmtMoney(a.wantedMinor, a.goal.currency)}，钱不够先保前面的）' : ''}').join('\n')}\n'
+          '${made.map((a) => '「${a.goal.name}」+${fmtMoney(a.amountMinor, a.goal.currency)}${a.short ? '（想要 ${fmtMoney(a.wantedMinor, a.goal.currency)}，钱不够先保前面的）' : ''}').join('\n')}\n'
           '剩下可花 ${fmtMoney(left, 'CNY')}${m != null ? '，到 ${m.payday.substring(5).replaceFirst('-', '/')} 平均每天 ${fmtMoney((left / m.daysToPayday).floor(), 'CNY')}' : ''}。到收件箱一键确认。',
       sticker: '💰',
       meta: '发薪日仪式 · ${drafts.length} 笔转账待确认',

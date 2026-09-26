@@ -6,6 +6,7 @@ import 'models/account.dart';
 import 'models/enums.dart';
 import 'money.dart';
 import 'recurring.dart';
+import 'wealth.dart';
 
 /// 负债的种类，只决定图标和默认名字；账本里不另存字段，用负债账户的 [Account.icon]（emoji）回推。
 enum DebtKind { mortgage, car, online, loan, other }
@@ -77,6 +78,35 @@ class DebtTotals {
   /// 贷款全部还清还要几个月：每笔各还各的，取最晚的那笔（不能拿总余额 ÷ 总月供——小额的先还完，
   /// 剩下那笔的月供不会挪过去）。没有贷款 = 0；有一笔欠着却没设还款 = null（永远还不清，说不出月数）。
   int? get monthsLeft => loanMinor <= 0 ? 0 : (loansWithoutRepayment > 0 ? null : loanMaxMonthsLeft);
+}
+
+/// 还贷每期实际要还多少：不超过这个贷款账户还欠的（扣掉收件箱里已经起草、还没确认的还款），逐期往下扣；还清了 = 0。
+/// 周期项起草、「可花的」、还款计划、日历都用它——分期最后一期只还零头，还清了就不再扣，不会多还。
+class RepaymentBudget {
+  final Ledger ledger;
+  final Map<String, int> _left = {};
+  RepaymentBudget(this.ledger);
+
+  /// 这个贷款账户还能还多少。
+  int left(String accountId) => _left.putIfAbsent(accountId, () {
+        final a = ledger.account(accountId);
+        if (a == null) return 0;
+        final b = ledger.balance(accountId).minor;
+        var owed = b < 0 ? -b : 0;
+        for (final d in pendingRecurring(ledger, currency: a.currency)) {
+          if (d.isRepayment && d.toAccountId == accountId) owed -= d.amountMinor;
+        }
+        return owed > 0 ? owed : 0;
+      });
+
+  /// 这一期要还 [amountMinor]：返回实际还多少（不超过剩下的），并从剩下的里扣掉。
+  int take(String accountId, int amountMinor) {
+    final l = left(accountId);
+    final a = amountMinor < l ? amountMinor : l;
+    final paid = a > 0 ? a : 0;
+    _left[accountId] = l - paid;
+    return paid;
+  }
 }
 
 /// 删一笔负债的结果：账户是真删了（没有还款记录）还是退成归档（有记录，历史不能丢）。

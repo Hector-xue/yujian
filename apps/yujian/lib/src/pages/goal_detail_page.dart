@@ -24,7 +24,7 @@ class GoalDetailPage extends StatelessWidget {
       builder: (context, _) {
         final g = app.ledger.goals.find(goalId);
         if (g == null) return const Scaffold(body: Center(child: Text('目标不存在了')));
-        final p = app.game.progressOf(g.id) ?? app.ledger.goals.progress(g, today: todayLocal(), liquidMinor: app.game.metrics?.liquidMinor, netWorthMinor: app.game.metrics?.netWorthMinor);
+        final p = app.game.progressOf(g.id) ?? app.ledger.goals.progress(g, today: todayLocal(), liquidMinor: app.game.metrics?.freeLiquidMinor, netWorthMinor: app.game.metrics?.netWorthMinor);
         final active = g.status == GoalStatus.active;
         final deposits = g.hasVault ? app.ledger.goals.deposits(g.id, limit: 30) : const <Transaction>[];
         final redemptions = g.hasVault ? app.ledger.goals.redemptions(g.id, limit: 30) : const <Transaction>[];
@@ -157,7 +157,7 @@ class GoalDetailPage extends StatelessWidget {
 
   static String _basis(Goal g, GoalProgress p, Account? vault, String linkedName) => switch (g.kind) {
         GoalKind.wish => '依据：锁仓账户「${vault?.name ?? g.name}」的余额 ÷ 目标额。最近 30 天存入 ${p.paceMinorPerDay == null ? '为 0，算不出速度' : '平均每天 ${fmtMoney(p.paceMinorPerDay!.round(), g.currency)}'}。',
-        GoalKind.emergency => '依据：${g.hasVault ? '锁仓余额' : '流动资产'} ÷ 目标额（创建时按近 3 个月平均月支出 × N 冻结）。',
+        GoalKind.emergency => '依据：${g.hasVault ? '锁仓余额' : '没锁进别的目标的流动资产'} ÷ 目标额（创建时按近 3 个月平均月支出 × N 冻结）。',
         GoalKind.payoff => '依据：「$linkedName」的欠款从建目标时的 ${fmtMoney(g.targetMinor, g.currency)} 降到了多少${p.targetMinor > g.targetMinor ? '（现在欠的比建目标时还多，按现在的 ${fmtMoney(p.targetMinor, g.currency)} 算）' : ''}。',
         GoalKind.milestone => '依据：净资产（全部账户余额之和，信用卡 / 应付为负）÷ 目标额。',
       };

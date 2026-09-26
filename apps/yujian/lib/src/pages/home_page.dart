@@ -78,6 +78,27 @@ class HomePage extends StatelessWidget {
               ),
             ),
           ],
+          // 太久没打开、没自动补的周期账单：说清楚是哪几期，要补就手记
+          if (app.recurringSkipped.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            GlassCard(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.event_busy_outlined, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('这几期太久没打开，没有自动补', style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 2),
+                      Text('${app.recurringSkipped.join('\n')}\n真付过的话手动补记一下。', style: theme.textTheme.bodySmall),
+                    ]),
+                  ),
+                  IconButton(icon: const Icon(Icons.close, size: 18), onPressed: app.dismissRecurringSkipped, tooltip: '知道了'),
+                ]),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           // 下面几块和「最近」一样都是卡片：裸行夹在卡片中间看着不像一套
           if (alerts.isNotEmpty) ...[

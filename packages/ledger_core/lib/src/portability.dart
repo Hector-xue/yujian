@@ -100,6 +100,7 @@ class ImportedRow {
   final String? categoryHint; // 原文里的分类，由上层映射
   final String fingerprint;
   final List<String> problems;
+  final int refundedMinor; // 同一个文件里的退款冲减掉的（见 [netImportedRefunds]）；amountMinor 已经是冲减后的
 
   const ImportedRow({
     required this.line,
@@ -113,7 +114,56 @@ class ImportedRow {
     this.categoryHint,
     required this.fingerprint,
     this.problems = const [],
+    this.refundedMinor = 0,
   });
+
+  ImportedRow _refunded(int minor) => ImportedRow(
+        line: line,
+        type: type,
+        amountMinor: (amountMinor ?? 0) - minor,
+        currency: currency,
+        occurredAt: occurredAt,
+        merchant: merchant,
+        description: description,
+        accountHint: accountHint,
+        categoryHint: categoryHint,
+        fingerprint: fingerprint,
+        problems: problems,
+        refundedMinor: refundedMinor + minor,
+      );
+}
+
+/// 账单里的退款行怎么落：
+/// - [linked] 认为账本里已经有原单的（通知 / 截图 / 以前导入记过的）留着，照常记成退款冲那一笔；
+/// - 否则在同一个文件里找原单（同币种、同商户、在退款之前、剩下的够退），把退款直接冲减到原单上，退款行本身不再单独进来
+///   （草稿里的退款要挂在已记账的原单上，同一批导入的原单还没记账，挂不上，只会卡在收件箱）；
+/// - 两边都找不到的（多是全额退掉、原单账单里标「已全额退款」没导的）放进 [orphans]：原单没记过，退款也不用记。
+/// 冲减到 0 的原单一并去掉。
+({List<ImportedRow> rows, List<ImportedRow> orphans}) netImportedRefunds(List<ImportedRow> rows, {required bool Function(ImportedRow refund) linked}) {
+  final out = [...rows];
+  final orphans = <ImportedRow>[];
+  final drop = <int>{};
+  for (var i = 0; i < out.length; i++) {
+    final r = out[i];
+    if (r.type != 'refund' || r.amountMinor == null || linked(r)) continue;
+    int? best;
+    for (var j = 0; j < out.length; j++) {
+      final o = out[j];
+      if (j == i || drop.contains(j) || o.type != 'expense' || o.currency != r.currency || (o.amountMinor ?? 0) < r.amountMinor!) continue;
+      if ((o.merchant ?? '') != (r.merchant ?? '')) continue;
+      if (o.occurredAt != null && r.occurredAt != null && o.occurredAt!.utc.isAfter(r.occurredAt!.utc)) continue;
+      // 多笔都对得上：取离退款最近的那笔
+      if (best == null || (o.occurredAt != null && out[best].occurredAt != null && o.occurredAt!.utc.isAfter(out[best].occurredAt!.utc))) best = j;
+    }
+    drop.add(i);
+    if (best == null) {
+      orphans.add(r);
+    } else {
+      out[best] = out[best]._refunded(r.amountMinor!);
+      if ((out[best].amountMinor ?? 0) <= 0) drop.add(best);
+    }
+  }
+  return (rows: [for (var i = 0; i < out.length; i++) if (!drop.contains(i)) out[i]], orphans: orphans);
 }
 
 /// 手工列映射（表头认不出时由用户指定；索引为列号）。
@@ -444,7 +494,7 @@ DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccou
       'merchant': r.merchant,
       'description': r.description ?? r.merchant,
       'occurred_at': r.occurredAt?.toIso8601String(),
-      'metadata': {'import_line': r.line, if (r.categoryHint != null) 'category_hint': r.categoryHint, if (r.accountHint != null) 'account_hint': r.accountHint},
+      'metadata': {'import_line': r.line, if (r.categoryHint != null) 'category_hint': r.categoryHint, if (r.accountHint != null) 'account_hint': r.accountHint, if (r.refundedMinor > 0) 'refunded_in_bill': r.refundedMinor},
     },
     confidence: r.problems.isEmpty ? confidence : 0.3,
     eventFingerprint: r.fingerprint,

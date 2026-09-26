@@ -1,6 +1,6 @@
 import 'cards.dart';
+import 'debts.dart';
 import 'ledger.dart';
-import 'recurring.dart';
 import 'wealth.dart';
 
 /// 计划里一笔的种类。
@@ -96,6 +96,7 @@ class RepaymentPlanner {
     }
     // 贷款月供 / 固定支出：周期账单在计划区间里的每一期
     final debts = ledger.debts;
+    final repay = RepaymentBudget(ledger); // 还贷每期不超过还欠的：分期最后一期只还零头，还清了就没有
     for (final r in ledger.recurring.list()) {
       if (!r.isActive || (r.template['currency'] ?? currency) != currency) continue;
       final isRepay = debts.isRepayment(r);
@@ -103,13 +104,17 @@ class RepaymentPlanner {
       if (!isRepay && !isExpense) continue;
       final amount = (r.template['amount_minor'] as num?)?.toInt() ?? 0;
       if (amount <= 0) continue;
+      final to = r.template['to_account_id'] as String?;
+      if (isRepay && to == null) continue;
       var d = r.nextDue;
       var guard = 0;
       while (d.compareTo(until) <= 0 && guard++ < 400) {
         if (d.compareTo(today) >= 0) {
-          raw.add(_Event(d, isRepay ? PlanItemKind.loan : PlanItemKind.fixed, r.name, isRepay ? r.template['to_account_id'] as String? : null, amount, amount));
+          final a = isRepay ? repay.take(to!, amount) : amount;
+          if (a <= 0) break;
+          raw.add(_Event(d, isRepay ? PlanItemKind.loan : PlanItemKind.fixed, r.name, isRepay ? to : null, a, a));
         }
-        final n = advanceDate(d, r.frequency, r.interval < 1 ? 1 : r.interval);
+        final n = r.advance(d);
         if (n.compareTo(d) <= 0) break;
         d = n;
       }
@@ -207,17 +212,24 @@ List<DueMark> dueMarks(Ledger ledger, {required String from, required String to,
     if (n.compareTo(pd) <= 0) break;
     pd = n;
   }
-  // 月供 / 固定支出
+  // 月供 / 固定支出（月供不超过还欠的，还清了就不标）
   final debts = ledger.debts;
+  final repay = RepaymentBudget(ledger);
   for (final r in ledger.recurring.list()) {
     if (!r.isActive || (r.template['currency'] ?? currency) != currency) continue;
     final isRepay = debts.isRepayment(r);
     if (!isRepay && r.template['type'] != 'expense') continue;
     final amount = (r.template['amount_minor'] as num?)?.toInt();
+    final loan = r.template['to_account_id'] as String?;
+    if (isRepay && loan == null) continue;
     var d = r.nextDue;
     for (var guard = 0; d.compareTo(to) <= 0 && guard < 400; guard++) {
-      if (inRange(d)) out.add(DueMark(d, isRepay ? DueMarkKind.loan : DueMarkKind.fixed, r.name, amountMinor: amount, accountId: isRepay ? r.template['to_account_id'] as String? : null));
-      final n = advanceDate(d, r.frequency, r.interval < 1 ? 1 : r.interval);
+      if (d.compareTo(today) >= 0) {
+        final a = isRepay ? repay.take(loan!, amount ?? 0) : amount;
+        if (isRepay && (a ?? 0) <= 0) break;
+        if (inRange(d)) out.add(DueMark(d, isRepay ? DueMarkKind.loan : DueMarkKind.fixed, r.name, amountMinor: a, accountId: isRepay ? loan : null));
+      }
+      final n = r.advance(d);
       if (n.compareTo(d) <= 0) break;
       d = n;
     }

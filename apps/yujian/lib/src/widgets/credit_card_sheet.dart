@@ -21,7 +21,7 @@ String cardBillLine(CardStatus s) {
       final d = s.daysToDue;
       return '还剩 ${fmtMoney(s.remainingMinor, 'CNY')} · ${_md(s.dueDate)} 到期（${d == 0 ? '今天' : '还有 $d 天'}）';
     case CardBillState.overdue:
-      return '已逾期 ${-s.daysToDue} 天 · 违约金 ${fmtMoney(s.lateFeeMinor, 'CNY')} + 利息约 ${fmtMoney(s.interestMinor, 'CNY')}';
+      return '已逾期 ${s.overdueDays} 天 · 违约金 ${fmtMoney(s.lateFeeMinor, 'CNY')} + 利息约 ${fmtMoney(s.interestMinor, 'CNY')}';
   }
 }
 
@@ -121,7 +121,7 @@ class _CardDetail extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             decoration: BoxDecoration(color: y.danger.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(12)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('已逾期 ${-s.daysToDue} 天', style: theme.textTheme.titleSmall?.copyWith(color: y.danger)),
+              Text('已逾期 ${s.overdueDays} 天${s.overdueSince != s.dueDate ? '（${_md(s.overdueSince!)} 那期没还够，欠款滚进了本期）' : ''}', style: theme.textTheme.titleSmall?.copyWith(color: y.danger)),
               const SizedBox(height: 4),
               Text(
                 [

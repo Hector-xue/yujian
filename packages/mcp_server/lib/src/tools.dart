@@ -167,7 +167,7 @@ class LedgerTools {
         return [
           for (final g in ledger.goals.list())
             () {
-              final p = ledger.goals.progress(g, today: day, liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor);
+              final p = ledger.goals.progress(g, today: day, liquidMinor: m.freeLiquidMinor, netWorthMinor: m.netWorthMinor);
               return {...g.toJson(), 'saved': Money(p.savedMinor, g.currency).toDecimalString(), 'target': Money(p.targetMinor, g.currency).toDecimalString(), 'ratio': double.parse(p.ratio.toStringAsFixed(3)), 'eta_days': p.etaDays, 'behind_days': p.behindDays, 'milestone': p.milestone};
             }(),
         ];

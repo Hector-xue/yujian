@@ -394,7 +394,7 @@ class GoalStore {
       case GoalKind.wish:
         saved = savedMinor(g);
       case GoalKind.emergency:
-        // 应急金：锁仓有钱按锁仓，没锁仓按整体流动资产（目标额创建时冻结）
+        // 应急金：锁仓有钱按锁仓，没锁仓按没锁进别的目标的流动资产（调用方传 WealthMetrics.freeLiquidMinor；目标额创建时冻结）
         saved = g.vaultAccountId != null ? savedMinor(g) : (liquidMinor ?? 0);
       case GoalKind.payoff:
         // 「还欠」必须等于这个账户此刻欠多少：信用卡边还边刷，欠款可能涨过建目标时的数——这时按现在的欠款算，
@@ -510,6 +510,7 @@ class GoalStore {
       if (g.vaultAccountId == null) continue;
       final p = progress(g, today: _fmt(ledger.now()));
       if (p.reached) continue;
+      var room = p.remainingMinor; // 同一个目标的几条规则共用还差的额度：「工资 20%」加「每月 500」加起来也不超过目标
       for (final r in g.rules) {
         int wanted;
         if (r.kind == GoalRuleKind.salaryPct) {
@@ -519,11 +520,12 @@ class GoalStore {
         } else {
           continue;
         }
-        wanted = wanted.clamp(0, p.remainingMinor);
+        wanted = wanted.clamp(0, room);
         if (wanted <= 0) continue;
         final amount = wanted.clamp(0, left.clamp(0, maxMinor));
         out.add(PaydayAllocation(goal: g, rule: r, wantedMinor: wanted, amountMinor: amount));
         left -= amount;
+        room -= wanted;
       }
     }
     return out;
