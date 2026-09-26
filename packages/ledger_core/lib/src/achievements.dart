@@ -146,10 +146,7 @@ final achievementDefs = <AchievementDef>[
 Map<String, Object?>? _streak(AchievementContext c, int days) {
   final t = DateTime.parse('${c.today}T00:00:00Z');
   final from = t.subtract(Duration(days: days + 1));
-  final have = <String>{};
-  for (final tx in c.ledger.listTransactions(from: from, limit: 1 << 30)) {
-    have.add(tx.occurredAt.localDate);
-  }
+  final have = c.ledger.recordedDates(from: from); // 只取日期，不把 100 天的交易整笔整笔实例化
   var n = 0;
   for (var d = t; n < days; d = d.subtract(const Duration(days: 1))) {
     if (!have.contains(_fmt(d))) {

@@ -41,6 +41,9 @@ jobs:
           path: apps/yujian/build/web
           retention-days: 3
       - run: flutter build apk --debug
+      # 原生纯逻辑单测（支付页识别解析器）；上一步已经把 Gradle 和依赖都拉好了
+      - run: ./gradlew :app:testDebugUnitTest --no-daemon
+        working-directory: apps/yujian/android
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

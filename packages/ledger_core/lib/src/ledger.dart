@@ -675,6 +675,15 @@ class Ledger implements ValidationContext {
       _db.select('SELECT COUNT(*) AS n FROM transactions WHERE status = ?', [status.db]).first['n'] as int;
 
   /// 最早一笔记录的入库时间（毫秒）；空账本 = null。用作「用了多久」的依据：跟着账本走，换机 / 重装恢复后不会归零。
+  /// [from] 之后有已确认记录的本地日期（yyyy-MM-dd）。只读时间两列，不实例化交易和 posting（连续记账天数这类判定用）。
+  Set<String> recordedDates({required DateTime from}) {
+    final out = <String>{};
+    for (final r in _db.select("SELECT occurred_at_ms, tz_offset_min FROM transactions WHERE status = 'confirmed' AND occurred_at_ms >= ?", [from.toUtc().millisecondsSinceEpoch])) {
+      out.add(OccurredAt.fromMillis(r['occurred_at_ms'] as int, r['tz_offset_min'] as int).localDate);
+    }
+    return out;
+  }
+
   /// 最早一笔已确认交易的发生时间（毫秒）；空账本 = null。「上个月的储蓄率」这类成就要求那个月整月都在记账。
   int? firstOccurredAtMs() {
     final r = _db.select("SELECT MIN(occurred_at_ms) AS t FROM transactions WHERE status = 'confirmed'");
