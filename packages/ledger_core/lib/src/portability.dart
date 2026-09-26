@@ -42,7 +42,8 @@ String _csvCell(String s) => s.contains(RegExp(r'[",\r\n]')) ? '"${s.replaceAll(
 /// 商户名来自通知和截图，不可信。前面垫一个单引号，表格里显示成文本。金额列不走这里。
 String _csvText(String s) => s.isNotEmpty && '=+-@\t\r'.contains(s[0]) ? "'$s" : s;
 
-/// JSON 全量备份：账户、分类、交易（含 posting、作废的也带）、记忆。草稿与审计不进备份。
+/// JSON 全量备份：账户、分类、交易（含 posting、作废的也带）、记忆、收件箱里待确认的草稿。审计不进备份。
+/// 待确认草稿必须带：周期账单起草后 next_due 已经往后推了，不带的话恢复后这几期再也生成不出来。
 Map<String, Object?> exportJson(Ledger ledger) => {
       'format': 'yujian-backup',
       'version': exportFormatVersion,
@@ -59,6 +60,7 @@ Map<String, Object?> exportJson(Ledger ledger) => {
       'tasks': [for (final t in ledger.tasks.list(limit: 1 << 30)) t.toJson()],
       'achievements': [for (final a in ledger.achievements.list()) a.toJson()],
       'profile': ledger.profile.all(),
+      'drafts': [for (final d in ledger.listDrafts(status: DraftStatus.pending, limit: 1 << 30)) d.toJson()],
       'memory': [
         for (final m in ledger.memory.all(limit: 100000))
           {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source},
@@ -84,6 +86,7 @@ int restoreFromJson(Ledger ledger, Map<String, Object?> j) {
     tasks: (j['tasks'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     achievements: (j['achievements'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     profile: ((j['profile'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', '$v')),
+    drafts: (j['drafts'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
   );
 }
 

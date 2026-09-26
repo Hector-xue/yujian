@@ -131,6 +131,17 @@ class Ledger implements ValidationContext {
   }
 
   /// 这个账户有几条 posting（含作废交易的）——有就不能删，只能归档。
+  /// 某账户在 [beforeUtc] 之前（不含）所有已确认交易的分录合计：信用卡只读近几个月明细、更早的合成期初用。
+  int postingSumBefore(String accountId, DateTime beforeUtc) => (_db.select(
+        'SELECT COALESCE(SUM(p.amount_minor), 0) AS s FROM postings p JOIN transactions t ON t.id = p.transaction_id '
+        "WHERE p.account_id = ? AND t.status = 'confirmed' AND t.occurred_at_ms < ?",
+        [accountId, beforeUtc.toUtc().millisecondsSinceEpoch],
+      ).first['s'] as num).toInt();
+
+  /// 数据版本号：这条数据库连接到现在一共改过多少行（SQLite total_changes，只增不减）。
+  /// 任何写入（记账、改、删、同步、恢复）都会让它变；页面上贵的派生数据按它缓存，数据没变就不重算。
+  int get revision => _db.select('SELECT total_changes() AS n').first['n'] as int;
+
   int accountPostingCount(String id) => _db.select('SELECT COUNT(*) AS n FROM postings WHERE account_id = ?', [id]).first['n'] as int;
 
   /// 删账户：只允许删「没有任何交易记录」的账户（有记录就删不了——历史对不上，用 [archiveAccount]）。
@@ -748,6 +759,7 @@ class Ledger implements ValidationContext {
     List<Map<String, Object?>> tasks = const [],
     List<Map<String, Object?>> achievements = const [],
     Map<String, String> profile = const {},
+    List<Map<String, Object?>> drafts = const [],
   }) {
     return _db.transaction(() {
       for (final t in ['postings', 'transactions', 'drafts', 'events', 'memory_map', 'budgets', 'recurring', 'goals', 'tasks', 'achievements', 'profile', 'categories', 'accounts', 'changes']) {
@@ -761,7 +773,7 @@ class Ledger implements ValidationContext {
       for (final a in accounts) {
         _db.execute(
           'INSERT INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [a['id'], a['name'], a['type'], a['currency'], a['initial_balance_minor'] ?? 0, a['institution'], a['icon'], a['is_archived'] == true ? 1 : 0, a['sort_order'] ?? 0, ts, ts],
+          [a['id'], a['name'], a['type'], a['currency'], a['initial_balance_minor'] ?? 0, a['institution'], a['icon'], a['is_archived'] == true ? 1 : 0, a['sort_order'] ?? 0, _parseIsoMs(a['created_at']) ?? ts, ts],
         );
       }
       var n = 0;
@@ -814,6 +826,18 @@ class Ledger implements ValidationContext {
         this.achievements.upsertRaw(a);
       }
       profile.forEach((k, v) => this.profile.upsertRaw({'key': k, 'value': v}));
+      // 收件箱里待确认的草稿（老备份没有这一项）：原样写回，id / 指纹 / 分组都不变，确认时照常入账
+      for (final d in drafts) {
+        if (d['status'] != null && d['status'] != 'pending') continue;
+        _db.execute(
+          'INSERT OR REPLACE INTO drafts(id,group_id,kind,target_transaction_id,source,session_id,event_fingerprint,possible_duplicate_of,payload,interpreter,model_used,confidence,missing_fields,status,committed_transaction_id,created_at,resolved_at) '
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',NULL,?,NULL)",
+          [
+            d['id'], d['group_id'] ?? d['id'], d['kind'] ?? 'create', d['target_transaction_id'], d['source'] ?? 'import', d['session_id'], d['event_fingerprint'], d['possible_duplicate_of'],
+            jsonEncode(d['payload'] ?? const {}), d['interpreter'], d['model_used'], d['confidence'], jsonEncode(d['missing_fields'] ?? const []), _parseIsoMs(d['created_at']) ?? ts,
+          ],
+        );
+      }
       recordFullSnapshotAsChanges();
       return n;
     });
@@ -888,8 +912,8 @@ class Ledger implements ValidationContext {
             break;
           }
           _db.execute(
-            'INSERT OR REPLACE INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM accounts WHERE id = ?),?),?)',
-            [p['id'], p['name'], p['type'], p['currency'], p['initial_balance_minor'] ?? 0, p['institution'], p['icon'], p['is_archived'] == true ? 1 : 0, p['sort_order'] ?? 0, p['id'], ts, ts],
+            'INSERT OR REPLACE INTO accounts(id,name,type,currency,initial_balance_minor,institution,icon,is_archived,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM accounts WHERE id = ?),?,?),?)',
+            [p['id'], p['name'], p['type'], p['currency'], p['initial_balance_minor'] ?? 0, p['institution'], p['icon'], p['is_archived'] == true ? 1 : 0, p['sort_order'] ?? 0, p['id'], _parseIsoMs(p['created_at']), ts, ts],
           );
         case 'category':
           if (c.deleted) {

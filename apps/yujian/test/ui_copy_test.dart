@@ -52,6 +52,16 @@ void main() {
     expect(fmtMd('2027-04-01', today: '2026-09-26'), '2027/4/1');
   });
 
+  test('首页派生数据按数据版本号缓存：没写入就复用，写入后重算', () {
+    state.addCreditCard(name: '卡', terms: const CardTerms(limitMinor: 100000, statementDay: 5, dueDay: 25), owedMinor: 5000);
+    final a = state.cardStatuses();
+    expect(identical(state.cardStatuses(), a), isTrue);
+    expect(identical(state.debtTotals(), state.debtTotals()), isTrue);
+    state.addManual({'type': 'expense', 'amount_minor': 100, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'food', 'occurred_at': OccurredAt.fromLocal(DateTime.now()).toIso8601String()});
+    expect(identical(state.cardStatuses(), a), isFalse);
+    expect(state.cardStatus(a.single.account.id)!.owedMinor, 5000);
+  });
+
   testWidgets('新预算：上限没填就在输入框下面说，不关对话框；名称不填就用范围名', (tester) async {
     await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const BudgetsPage())));
     await tester.pumpAndSettle();

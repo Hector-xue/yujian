@@ -30,6 +30,14 @@ class _DataPageState extends State<DataPage> {
     }
   }
 
+  /// 导出要把整本账过一遍（上万笔要零点几秒）：先把「正在整理」画出来再算，不让按钮点了像没反应
+  Future<void> _export(String name, String Function() build, {String ext = 'csv'}) async {
+    setState(() => status = '正在整理数据…');
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (!mounted) return;
+    await _save(name, build(), ext: ext);
+  }
+
   Future<void> _saveBytes(String name, Uint8List bytes, {required String ext}) async {
     try {
       final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
@@ -86,8 +94,8 @@ class _DataPageState extends State<DataPage> {
         children: [
           Padding(padding: const EdgeInsets.fromLTRB(2, 0, 2, 6), child: Text('导出与备份', style: theme.textTheme.bodySmall)),
           GlassCard(child: Column(children: [
-          item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _save('yujian-$stamp.csv', exportCsv(app.ledger))),
-          item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、记忆全量；恢复时整库替换', () => _save('yujian-backup-$stamp.json', exportJsonString(app.ledger), ext: 'json')),
+          item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _export('yujian-$stamp.csv', () => exportCsv(app.ledger))),
+          item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、收件箱、记忆全量；恢复时整库替换', () => _export('yujian-backup-$stamp.json', () => exportJsonString(app.ledger), ext: 'json')),
           if (sqliteFileSupported)
             item(Icons.storage_outlined, '备份数据库文件（SQLite）', '账本原文件的一致快照，含草稿、审计、预算、周期账单；可直接用 SQLite 工具打开', () async {
               try {
