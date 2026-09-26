@@ -27,7 +27,8 @@ class DebtsPage extends StatelessWidget {
         final debts = app.ledger.debts.list(currency: 'CNY');
         final totals = app.debtTotals();
         final m = app.game.metrics;
-        final income = m?.monthIncomeMinor ?? 0;
+        // 分母用稳定的月收入（近 3 个整月均值 / 近 31 天，和体检同一个口径）：本自然月的收入月初工资没到时是 0 或零头，比例会乱跳
+        final income = m?.incomeRank == null ? 0 : m!.incomeRank!.annualMinor ~/ 12;
         final ratio = income > 0 ? totals.monthlyMinor / income : null;
         final left = totals.monthsLeft;
         return Scaffold(
@@ -70,7 +71,7 @@ class DebtsPage extends StatelessWidget {
                       Row(children: [
                         // 每月还款 = 贷款月供 + 各张卡最近一期要还的（不是只算贷款）
                         Expanded(child: _Stat(label: '每月还款', value: totals.monthlyMinor > 0 ? fmtMoney(totals.monthlyMinor, 'CNY') : '—')),
-                        Expanded(child: _Stat(label: '占本月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
+                        Expanded(child: _Stat(label: '占月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
                         // 预计还清只按贷款推（每笔各还各的，取最晚那笔）；同时有信用卡时标明是「贷款」还清，信用卡按账单还说不出月数
                         Expanded(child: _Stat(label: totals.loanMinor > 0 && totals.cardMinor > 0 ? '贷款还清' : '预计还清', value: totals.loanMinor <= 0 ? (totals.cardMinor > 0 ? '按账单还' : '已还清') : (left == null ? '没设还款' : _monthsLabel(left)))),
                       ]),
