@@ -32,4 +32,24 @@ void main() {
       expect(r.androidSources, [u]);
     });
   });
+
+  group('ReleaseInfo 校验与 32 位', () {
+    tearDown(() => ReleaseInfo.deviceIs64 = true);
+
+    test('sha256 按键解析，格式不对的忽略', () {
+      final r = ReleaseInfo.fromJson({
+        'version': '1.0.0',
+        'android_arm64_url': 'a64',
+        'android_arm64_sha256': 'AB' * 32,
+        'windows_sha256': 'nope',
+      });
+      expect(r.sha256, {'android_arm64_sha256': 'ab' * 32});
+    });
+
+    test('32 位手机下 arm32 包和它的备用线路', () {
+      ReleaseInfo.deviceIs64 = false;
+      final r = ReleaseInfo.fromJson({'version': '1.0.0', 'android_arm64_url': 'a64', 'android_arm32_url': 'a32', 'mirror': {'android_arm32_url': 'm32'}});
+      expect(r.androidSources, ['a32', 'm32']);
+    });
+  });
 }

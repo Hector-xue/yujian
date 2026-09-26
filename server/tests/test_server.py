@@ -86,3 +86,41 @@ def test_ai_proxy_forwards_with_server_key(tmp_path, monkeypatch):
 
 def test_ai_proxy_unconfigured(client):
     assert client.post("/api/v1/ai/chat/completions", json={}, headers=h()).status_code == 503
+
+
+def test_devices_block_and_compact(client):
+    def ch(i, eid="t1"):
+        return {"entity": "transaction", "entity_id": eid, "deleted": False, "payload": {"v": i}, "at": 1000 + i}
+    client.post("/api/v1/sync/push", json={"device_id": "dev-a", "changes": [ch(1), ch(2), ch(3, "t2")]}, headers=h())
+    client.post("/api/v1/sync/push", json={"device_id": "dev-b", "changes": [ch(4)]}, headers=h("dev-b"))
+    devs = {d["device_id"]: d for d in client.get("/api/v1/devices", headers=h()).json()["devices"]}
+    assert devs["dev-a"]["changes"] == 3 and devs["dev-b"]["changes"] == 1 and not devs["dev-a"]["blocked"]
+    # 移出设备：它再推 / 拉都被拒，别的设备照常
+    assert client.post("/api/v1/devices/dev-b/block", headers=h()).json()["blocked"] is True
+    assert client.post("/api/v1/sync/push", json={"device_id": "dev-b", "changes": [ch(5)]}, headers=h("dev-b")).status_code == 403
+    assert client.get("/api/v1/sync/pull", params={"device_id": "dev-b"}, headers=h("dev-b")).status_code == 403
+    assert client.get("/api/v1/sync/pull", params={"device_id": "dev-c"}, headers=h("dev-c")).status_code == 200
+    client.post("/api/v1/devices/dev-b/unblock", headers=h())
+    assert client.get("/api/v1/sync/pull", params={"device_id": "dev-b"}, headers=h("dev-b")).status_code == 200
+    # 压缩：每个实体只留最新一条
+    r = client.post("/api/v1/sync/compact", headers=h()).json()
+    assert r == {"before": 4, "after": 2, "removed": 2}
+    rows = client.get("/api/v1/sync/pull", params={"device_id": "dev-c", "since": 0}, headers=h("dev-c")).json()["changes"]
+    assert {(c["entity_id"], c["payload"]["v"]) for c in rows} == {("t1", 4), ("t2", 3)}
+
+
+def test_ai_proxy_streams_and_reuses_one_client(tmp_path, monkeypatch):
+    def upstream(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"data: {\"x\":1}\n\ndata: [DONE]\n\n")
+    monkeypatch.setenv("YUJIAN_AI_UPSTREAM", "https://api.example.com/v1")
+    shared = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    app = create_app(data_dir=tmp_path, token=TOKEN, upstream_client=shared)
+    with TestClient(app) as c:
+        r = c.post("/api/v1/ai/chat/completions", json={"model": "m", "stream": True}, headers=h())
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+        assert b"[DONE]" in r.content
+        assert app.state.upstream is shared
+
+
+def test_health_reports_version(client):
+    assert client.get("/healthz").json()["version"] == "0.5.0"

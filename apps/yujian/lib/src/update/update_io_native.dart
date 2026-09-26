@@ -46,3 +46,21 @@ Future<String> downloadTo(String url, String filename, void Function(double) onP
 Future<void> installApk(String path) async {
   await const MethodChannel('yujian/update').invokeMethod<void>('installApk', {'path': path});
 }
+
+/// 文件的 SHA-256（小写十六进制），原生侧流式算，不把整个 apk 读进 Dart 内存。
+Future<String?> sha256Of(String path) => const MethodChannel('yujian/update').invokeMethod<String>('sha256', {'path': path});
+
+/// 这台手机能不能装 64 位包；查不到按能（绝大多数手机）。
+Future<bool> is64Bit() async {
+  try {
+    return await const MethodChannel('yujian/update').invokeMethod<bool>('is64Bit') ?? true;
+  } catch (_) {
+    return true;
+  }
+}
+
+Future<void> deleteFile(String path) async {
+  try {
+    await File(path).delete();
+  } catch (_) {}
+}

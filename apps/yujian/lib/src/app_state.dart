@@ -687,7 +687,8 @@ class AppState extends ChangeNotifier {
     final r = await llm.interpret('这是我截图上 OCR 出来的文字，请从中识别交易：\n$text', context());
     final inputs = [
       for (var i = 0; i < r.drafts.length; i++)
-        if (r.drafts[i].payload['kind'] == null) DraftInput(payload: r.drafts[i].payload, confidence: r.drafts[i].confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
+        // 截图文字是外部输入（图里写什么模型就可能照着编），置信和看图那条路一样打 8 折：模型不报置信时默认 0.7 × 0.8，够不到智能模式的门槛
+        if (r.drafts[i].payload['kind'] == null) DraftInput(payload: r.drafts[i].payload, confidence: (r.drafts[i].confidence * 0.8).clamp(0, 0.9), eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
     ];
     if (inputs.isEmpty) {
       _noteScreenshot(e, 'ignored', '文字发给模型也没认出交易', modelUsed: r.modelUsed);
@@ -738,7 +739,8 @@ class AppState extends ChangeNotifier {
     if (!shot.looksLikeTransaction) return (drafts: const <Draft>[], error: '这张图不像交易截图（本机判断，没上传）', modelUsed: null);
     if (!shot.usable) return (drafts: const <Draft>[], error: '像是交易，但本机没认出金额。支付成功页 / 账单详情认得准，排版乱的小票认不出', modelUsed: null);
     final (payload, _) = _localShotPayload(shot, fallback: DateTime.now());
-    final drafts = ledger.propose([DraftInput(payload: payload, confidence: shot.confidence)], source: Source.screenshot, interpreter: 'ocr:local');
+    // 按识别出的文字做指纹：同一张图再识别一次就是「已经记过」，不再起第二条草稿
+    final drafts = ledger.propose([DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shotlocal:${TemplateMatcher.stableHash(shot.text)}', fingerprintIsExact: true)], source: Source.screenshot, interpreter: 'ocr:local');
     if (drafts.isEmpty) return (drafts: const <Draft>[], error: '这张图已经记过', modelUsed: null);
     notifyListeners();
     return (drafts: drafts, error: null, modelUsed: '本机识别');
