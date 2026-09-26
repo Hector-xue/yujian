@@ -289,17 +289,22 @@ class CreditCards {
   /// 上一期过了还款日没还够、到今天还没补上的，出了新账单也还是逾期：欠款滚进了本期账单，可逾期已经发生（违约金、
   /// 利息、征信都是那时候的事）。只看最近一期的话，一出新账单逾期就「消失」了。出账后还进去的钱先冲上期的欠款。
   CardStatus? status(String accountId, {required String today}) {
-    final cur = _status(accountId, today: today);
+    final a = ledger.account(accountId);
+    final t = terms(accountId);
+    if (a == null || a.type != AccountType.creditCard || t == null) return null;
+    // 本期、上期（判上期逾期）共用一份流水：只读最近几个月，更早的合成一个期初数（见 [_flows]）
+    final flows = _flows(a, since: addMonths(lastStatementDate(today, t.statementDay), -3));
+    final cur = _status(accountId, today: today, flows: flows);
     if (cur == null || cur.state != CardBillState.due) return cur;
     final prevDay = addDays(cur.statementDate, -1);
     // 建卡时填的「现在欠多少」只算进建卡那一期：卡建在上一期账单日之后的，上一期账单里没有它（否则新建的卡一律「上期逾期」）
     final c = cur.account.createdAt.toLocal();
     final created = _fmt(c.year, c.month, c.day);
     final prevStatement = lastStatementDate(prevDay, cur.terms.statementDay);
-    final prev = _status(accountId, today: prevDay, initialIsBilled: created.compareTo(prevStatement) <= 0);
+    final prev = _status(accountId, today: prevDay, flows: flows, initialIsBilled: created.compareTo(prevStatement) <= 0);
     if (prev == null || prev.state != CardBillState.overdue) return cur;
     var repaidSince = 0;
-    for (final f in _flows(cur.account)) {
+    for (final f in flows) {
       if (f.amount > 0 && f.date.compareTo(prevDay) > 0 && f.date.compareTo(today) <= 0) repaidSince += f.amount;
     }
     if (prev.remainingMinor - repaidSince <= 0) return cur;
@@ -324,12 +329,11 @@ class CreditCards {
     );
   }
 
-  CardStatus? _status(String accountId, {required String today, bool initialIsBilled = true}) {
+  CardStatus? _status(String accountId, {required String today, required List<_Flow> flows, bool initialIsBilled = true}) {
     final a = ledger.account(accountId);
     if (a == null || a.type != AccountType.creditCard) return null;
     final t = terms(accountId);
     if (t == null) return null;
-    final flows = _flows(a);
     final s1 = lastStatementDate(today, t.statementDay);
     final s0 = addMonths(s1, -1);
     final s2 = addMonths(s1, 1);
@@ -398,7 +402,7 @@ class CreditCards {
     if (s.statementMinor <= 0) return CardProjection(payMinor: pay, interestMinor: 0, lateFeeMinor: 0);
     if (pay >= s.statementMinor && s.terms.mode != CardInterestMode.daily) return CardProjection(payMinor: pay, interestMinor: 0, lateFeeMinor: 0);
     final extra = pay - s.repaidByDueMinor > 0 ? pay - s.repaidByDueMinor : 0; // 还没还的那部分假设在还款日当天还上
-    final flows = _flows(s.account);
+    final flows = _flows(s.account, since: addMonths(s.statementDate, -2));
     final r = _interest(s.account, s.terms, flows,
         s0: addMonths(s.statementDate, -1), s1: s.statementDate, due: s.dueDate, end: s.nextStatementDate, statementMinor: s.statementMinor, extraPayOnDue: extra, today: s.dueDate);
     return CardProjection(payMinor: pay, interestMinor: r.interest, lateFeeMinor: lateFee(s.minPaymentMinor, pay, s.terms) + r.dailyFee);
@@ -483,15 +487,28 @@ class CreditCards {
     return (interest: interest.round(), dailyFee: fee.round());
   }
 
-  List<_Flow> _flows(Account a) {
+  /// 这张卡 [since]（本地日期）起的流水；更早的全部合成一条日期最早的「期初」流水（只要余额，不要明细）。
+  /// 以前每算一次状态都把整张卡几年的流水读一遍，历史越长越慢；账单 / 利息 / 上期逾期最多只看回 3 个月。
+  /// 调用方保证 [since] 不晚于要用到的最早账单日的上一期（status 取本期账单日往前 3 个月）。
+  List<_Flow> _flows(Account a, {required String since}) {
+    final p = _parts(since);
+    // 按本地日期切：UTC 往前多取 2 天，取回来再按交易自己的本地日期分到「期初」或明细
+    final cutoff = DateTime.utc(p.$1, p.$2, p.$3).subtract(const Duration(days: 2));
+    var base = ledger.postingSumBefore(a.id, cutoff);
     final out = <_Flow>[];
-    for (final tx in ledger.listTransactions(accountId: a.id, limit: 1 << 30)) {
-      for (final p in tx.postings) {
-        if (p.accountId == a.id) out.add(_Flow(tx.occurredAt.localDate, p.amountMinor));
+    for (final tx in ledger.listTransactions(accountId: a.id, from: cutoff, limit: 1 << 30)) {
+      final d = tx.occurredAt.localDate;
+      for (final po in tx.postings) {
+        if (po.accountId != a.id) continue;
+        if (d.compareTo(since) < 0) {
+          base += po.amountMinor;
+        } else {
+          out.add(_Flow(d, po.amountMinor));
+        }
       }
     }
     out.sort((x, y) => x.date.compareTo(y.date));
-    return out;
+    return [if (base != 0) _Flow('0000-01-01', base), ...out];
   }
 
   // ------------------------------------------------------------------ 日期

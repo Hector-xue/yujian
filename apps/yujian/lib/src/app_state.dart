@@ -907,7 +907,22 @@ class AppState extends ChangeNotifier {
   List<Anomaly> homeAnomalies() {
     final from = DateTime.now().subtract(const Duration(days: homeAnomalyDays - 1));
     final fromDate = '${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}';
-    return [for (final a in detectAnomalies(ledger, from: fromDate, to: _today())) if (!_anomaliesDismissed.contains(a.tx.id)) a];
+    final all = _cached('anomalies', () => detectAnomalies(ledger, from: fromDate, to: _today()));
+    return [for (final a in all) if (!_anomaliesDismissed.contains(a.tx.id)) a];
+  }
+
+  // 首页 / 负债页每次重建都要的派生数据（信用卡状态、异常、负债合计）按「数据版本号 + 今天」缓存：
+  // 底栏几页常驻，任何一次 notify 都会让它们一起重建，账记多了每次都重算就是一下卡顿；数据没变就直接用上次的
+  final Map<String, (int, String, Object)> _memo = {};
+  T _cached<T extends Object>(String key, T Function() compute) {
+    final rev = ledger.revision;
+    final today = _today();
+    final hit = _memo[key];
+    if (hit != null && hit.$1 == rev && hit.$2 == today) return hit.$3 as T;
+    final v = compute();
+    // 算的过程中如果有写入（极少），版本号已经变了：按算完时的版本记，下次照样会重算
+    _memo[key] = (ledger.revision, today, v);
+    return v;
   }
 
   Future<void> dismissAnomaly(String txId) async {
@@ -1174,12 +1189,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// 设了条款的信用卡此刻的状态（额度 / 本期账单 / 最低还款 / 逾期费用）；负债页和首页「近期到期」用。
-  List<CardStatus> cardStatuses() => ledger.cards.list(today: _today(), currency: 'CNY');
+  List<CardStatus> cardStatuses() => _cached('cards', () => ledger.cards.list(today: _today(), currency: 'CNY'));
 
-  CardStatus? cardStatus(String accountId) => ledger.cards.status(accountId, today: _today());
+  /// 一张卡的状态：从 [cardStatuses] 的缓存里取（负债页每行一张，不再每行各算一遍）；没设条款 = null。
+  CardStatus? cardStatus(String accountId) {
+    for (final c in cardStatuses()) {
+      if (c.account.id == accountId) return c;
+    }
+    final a = ledger.account(accountId);
+    // 不是人民币的卡不在上面的列表里：单独算
+    return a != null && a.currency != 'CNY' ? ledger.cards.status(accountId, today: _today()) : null;
+  }
 
   /// 负债合计（贷款月供 + 各张卡最近一期账单 / 最晚还清那笔）；负债页总览用。
-  DebtTotals debtTotals() => ledger.debts.totals(today: _today(), currency: 'CNY');
+  DebtTotals debtTotals() => _cached('debtTotals', () => ledger.debts.totals(today: _today(), currency: 'CNY'));
 
   /// 新建一张信用卡（账户 + 条款）。
   Account addCreditCard({required String name, required CardTerms terms, int owedMinor = 0}) {
