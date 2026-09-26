@@ -168,12 +168,20 @@ class Wealth {
   /// 手头余额：现金类账户（含归档外的锁仓）余额直接相加，负的也减。首页「余额」和「可花的」同一个起点，
   /// 以前首页把信用卡 / 贷款 / 投资也加进「余额」、可花的却只从正余额的现金类账户算起，于是出现「可花的比余额还多」。
   static int cashOnHand(Ledger ledger, {String currency = 'CNY'}) {
+    final bal = ledger.balanceMinorByAccount();
     var sum = 0;
     for (final a in ledger.listAccounts(includeVault: true)) {
-      if (a.currency == currency && _liquidTypes.contains(a.type)) sum += ledger.balance(a.id).minor;
+      if (a.currency == currency && _liquidTypes.contains(a.type)) sum += bal[a.id] ?? 0;
     }
     return sum;
   }
+
+  // compute 期间的缓存：最近 4 个月的交易取一次、账户一次查全，下面十几处按区间取数都从这里筛，
+  // 不再每次各跑一遍 SQL + 实例化（账本几千笔时这是每次记账后卡顿的大头）。compute 结束就清掉。
+  List<Transaction>? _pool;
+  String _poolFrom = '';
+  String _poolTo = '';
+  Map<String, Account>? _accounts;
 
   /// 收入分类 → 收入线。画像里可覆盖；默认按内置分类。
   static IncomeLine lineOf(String? categoryId, Map<String, String> overrides) {
@@ -190,8 +198,22 @@ class Wealth {
 
   WealthMetrics compute({required String today, String currency = 'CNY'}) {
     final t = _parse(today);
+    _poolFrom = _fmt(DateTime.utc(t.year, t.month - 3, 1));
+    _poolTo = _fmt(DateTime.utc(t.year, t.month + 1, 0));
+    _pool = ledger.listTransactions(from: _parse(_poolFrom).subtract(const Duration(days: 1)), to: _parse(_poolTo).add(const Duration(days: 2)), limit: 1 << 30);
+    _accounts = {for (final a in ledger.listAccounts(includeArchived: true, includeVault: true)) a.id: a};
+    try {
+      return _compute(t, today, currency);
+    } finally {
+      _pool = null;
+      _accounts = null;
+    }
+  }
+
+  WealthMetrics _compute(DateTime t, String today, String currency) {
     final profile = ledger.profile;
     final accounts = ledger.listAccounts(includeVault: true);
+    final bal = ledger.balanceMinorByAccount();
     final foreign = <Account>[];
     var cash = 0;
     var netWorth = 0;
@@ -202,7 +224,7 @@ class Wealth {
         foreign.add(a);
         continue;
       }
-      final b = ledger.balance(a.id).minor;
+      final b = bal[a.id] ?? 0;
       netWorth += b;
       if (b > 0) assets += b;
       // 透支成负数的钱包（常见于自动记账记上了支出、却没填期初余额）也要减：只加正数会把手头的钱算多
@@ -432,8 +454,10 @@ class Wealth {
   List<Transaction> _range({required String from, required String to, String? currency}) {
     final f = _parse(from).subtract(const Duration(days: 1));
     final tt = _parse(to).add(const Duration(days: 2));
+    final pool = _pool;
+    final source = pool != null && from.compareTo(_poolFrom) >= 0 && to.compareTo(_poolTo) <= 0 ? pool : ledger.listTransactions(from: f, to: tt, limit: 1 << 30);
     return [
-      for (final tx in ledger.listTransactions(from: f, to: tt, limit: 1 << 30))
+      for (final tx in source)
         if (tx.occurredAt.localDate.compareTo(from) >= 0 && tx.occurredAt.localDate.compareTo(to) <= 0 && (currency == null || tx.currency == currency)) tx,
     ];
   }
@@ -463,9 +487,9 @@ class Wealth {
     var sum = _expense(from: from, to: to, currency: currency);
     for (final tx in _range(from: from, to: to, currency: currency)) {
       if (tx.type != TransactionType.transfer) continue;
-      final toA = ledger.account(tx.toAccountId ?? '');
+      final toA = _accounts?[tx.toAccountId ?? ''] ?? ledger.account(tx.toAccountId ?? '');
       if (toA == null || toA.type != AccountType.payable) continue;
-      final fromA = ledger.account(tx.accountId);
+      final fromA = _accounts?[tx.accountId] ?? ledger.account(tx.accountId);
       if (fromA != null && !_liquidTypes.contains(fromA.type)) continue;
       sum += tx.amountMinor;
     }

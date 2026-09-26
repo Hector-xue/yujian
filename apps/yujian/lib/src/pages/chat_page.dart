@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -158,6 +159,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    if (_saveTimer != null) unawaited(_writeHistory()); // 还有没落盘的，走之前写掉
     _game?.removeListener(_drainGameMessages);
     _voice.dispose();
     _tts.dispose();
@@ -190,7 +192,18 @@ class _ChatPageState extends State<ChatPage> {
     _maybeGreet();
   }
 
+  // 落盘合并：一轮对话会连着改好几次消息（用户一句、解析卡、回复、成就消息…），每次都把最多 200 条整体序列化写一遍太费；
+  // 0.8 秒内的合成一次，离开页面时立刻写掉。
+  Timer? _saveTimer;
+
   Future<void> _saveHistory() async {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 800), () => unawaited(_writeHistory()));
+  }
+
+  Future<void> _writeHistory() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
     try {
       final p = await SharedPreferences.getInstance();
       final keep = _msgs.length > _historyMax ? _msgs.sublist(_msgs.length - _historyMax) : _msgs;
@@ -286,7 +299,7 @@ class _ChatPageState extends State<ChatPage> {
     );
     if (ok != true || !mounted) return;
     setState(() => _msgs.clear());
-    await _saveHistory();
+    await _writeHistory();
   }
 
   void _jumpToEnd({bool animate = true}) {

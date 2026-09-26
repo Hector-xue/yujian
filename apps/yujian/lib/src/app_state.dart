@@ -191,6 +191,10 @@ class AppState extends ChangeNotifier {
   /// 首次启动：默认分类 + 三个常用账户。
   void bootstrap() {
     ledger.seedDefaultCategories();
+    // 存储维护：变更日志太长就压缩（每个实体只留最新一条），审计里 90 天前的机器流水修剪掉；数量不大时什么都不做
+    try {
+      ledger.maintain();
+    } catch (_) {}
     if (ledger.listAccounts(includeArchived: true).isEmpty) {
       ledger.createAccount(id: 'wechat', name: '微信', type: AccountType.eWallet, currency: 'CNY');
       ledger.createAccount(id: 'alipay', name: '支付宝', type: AccountType.eWallet, currency: 'CNY');
@@ -417,6 +421,10 @@ class AppState extends ChangeNotifier {
     if (c == null) return null;
     try {
       final r = await trackSync('sync', () => c.sync(), countOf: (r) => r.pushed + r.pulled);
+      // 推完拉完，本机变更日志里的旧版本都没用了：压缩（只留每个实体最新一条，LWW 依据不变）
+      try {
+        ledger.changes.compact();
+      } catch (_) {}
       lastSyncNote = '${DateTime.now().toIso8601String().substring(11, 16)} ${r.toString()}';
       notifyListeners();
       return r;

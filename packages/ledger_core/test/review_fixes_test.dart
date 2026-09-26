@@ -183,4 +183,36 @@ void main() {
     expect(ledger.guessRefundOriginal(amountMinor: 3250, currency: 'CNY'), isNull); // 两笔都是 32.5，拿不准
     expect(ledger.guessRefundOriginal(amountMinor: 999999, currency: 'CNY', merchant: '美团'), isNull); // 超过原单
   });
+
+  group('存储维护', () {
+    test('变更日志压缩：每个实体只留最新一条，LWW 依据不变', () {
+      final t = commitNew(pay(100, '2026-09-26T12:00:00+08:00'));
+      for (var i = 0; i < 3; i++) {
+        final d = ledger.propose([DraftInput(kind: DraftKind.update, targetTransactionId: t.id, payload: {'description': '第$i次'})], source: Source.manual).single;
+        ledger.commit(d.id);
+      }
+      final latest = ledger.changes.latestAt('transaction', t.id);
+      final removed = ledger.changes.compact();
+      expect(removed, greaterThanOrEqualTo(3));
+      expect(ledger.changes.latestAt('transaction', t.id), latest);
+      final pending = ledger.changes.pending().where((c) => c.entity == 'transaction').toList();
+      expect(pending.single.payload!['description'], '第2次');
+    });
+
+    test('审计修剪只删机器流水', () {
+      final old = Ledger(ledger.database, clock: () => DateTime.utc(2026, 1, 1));
+      old.recordSyncFailure(ChangeRecord(seq: 1, entity: 'x', entityId: 'y', deleted: false, payload: null, at: 0, origin: 'd', pushed: true), fromDevice: 'd', error: 'e');
+      old.applyRemoteChange(ChangeRecord(seq: 2, entity: 'profile', entityId: 'k', deleted: false, payload: const {'key': 'k', 'value': 'v'}, at: 1, origin: 'd', pushed: true), fromDevice: 'd');
+      expect(ledger.pruneAudit(), 1); // sync.apply 删掉，失败留痕保留
+      expect(ledger.syncFailures(), hasLength(1));
+    });
+
+    test('一次聚合的余额和逐个算的一致', () {
+      commitNew(pay(1234, '2026-09-26T12:00:00+08:00'));
+      final all = ledger.balanceMinorByAccount();
+      for (final a in ledger.listAccounts(includeArchived: true, includeVault: true)) {
+        expect(all[a.id], ledger.balance(a.id).minor);
+      }
+    });
+  });
 }

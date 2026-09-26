@@ -77,8 +77,12 @@ Map<String, Object?>? _savingsCheck(AchievementContext c, double rate) {
 }
 
 Map<String, Object?>? _lineCheck(AchievementContext c, IncomeLine line) {
-  for (final tx in c.ledger.listTransactions(type: TransactionType.income, limit: 1 << 30)) {
-    if (Wealth.lineOf(tx.categoryId, c.ledger.profile.incomeLines) == line) return {'transaction': tx.id, 'amount': tx.amountMinor, 'date': tx.occurredAt.localDate};
+  // 按分类各查一条（以前把全部收入交易都取出来再筛，每次记账后都跑一遍）
+  final overrides = c.ledger.profile.incomeLines;
+  for (final cat in c.ledger.listCategories(kind: CategoryKind.income)) {
+    if (Wealth.lineOf(cat.id, overrides) != line) continue;
+    final hit = c.ledger.listTransactions(type: TransactionType.income, categoryId: cat.id, limit: 1);
+    if (hit.isNotEmpty) return {'transaction': hit.first.id, 'amount': hit.first.amountMinor, 'date': hit.first.occurredAt.localDate};
   }
   return null;
 }

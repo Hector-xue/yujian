@@ -979,6 +979,34 @@ class Ledger implements ValidationContext {
     return out;
   }
 
+  /// 修剪审计日志里只有机器看的流水（同步应用、指纹去重、冲突跳过）：超过 [keepDays] 天的删掉。
+  /// 用户操作、落账、作废、失败留痕（sync.apply_failed）都不动。返回删掉的条数。
+  int pruneAudit({int keepDays = 90}) {
+    final cutoff = _nowMs() - Duration(days: keepDays).inMilliseconds;
+    final n = _db.select("SELECT COUNT(*) AS n FROM audit_log WHERE at < ? AND action IN ('sync.apply', 'draft.dedupe', 'sync.conflict_skipped', 'sync.delete_kept')", [cutoff]).first['n'] as int;
+    if (n > 0) _db.execute("DELETE FROM audit_log WHERE at < ? AND action IN ('sync.apply', 'draft.dedupe', 'sync.conflict_skipped', 'sync.delete_kept')", [cutoff]);
+    return n;
+  }
+
+  /// 本地存储维护（启动时调一次）：变更日志压缩 + 审计流水修剪。便宜的检查，数量不大就什么都不做。
+  ({int changes, int audit}) maintain({int changeThreshold = 5000}) {
+    final c = changes.count > changeThreshold ? changes.compact() : 0;
+    return (changes: c, audit: pruneAudit());
+  }
+
+  /// 所有账户的余额一次算完（一条聚合 SQL，不是每个账户查一次）。
+  Map<String, int> balanceMinorByAccount() {
+    final out = <String, int>{};
+    for (final a in _db.select('SELECT id, initial_balance_minor FROM accounts')) {
+      out[a['id'] as String] = a['initial_balance_minor'] as int;
+    }
+    for (final r in _db.select("SELECT p.account_id AS a, SUM(p.amount_minor) AS s FROM postings p JOIN transactions t ON t.id = p.transaction_id WHERE t.status = 'confirmed' GROUP BY p.account_id")) {
+      final id = r['a'] as String;
+      out[id] = (out[id] ?? 0) + (r['s'] as int);
+    }
+    return out;
+  }
+
   List<AuditEntry> auditLog({int limit = 200}) =>
       _db.select('SELECT * FROM audit_log ORDER BY seq DESC LIMIT ?', [limit]).map(AuditEntry.fromRow).toList();
 
