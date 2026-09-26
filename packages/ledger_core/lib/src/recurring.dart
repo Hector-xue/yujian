@@ -40,7 +40,7 @@ class Recurring {
         id: r['id'] as String,
         name: r['name'] as String,
         template: (jsonDecode(r['template'] as String) as Map).cast<String, Object?>(),
-        frequency: Frequency.values.byName(r['frequency'] as String),
+        frequency: Frequency.values.asNameMap()[r['frequency']] ?? Frequency.monthly, // 未知值（新版本同步来的）不崩
         interval: r['interval'] as int,
         nextDue: r['next_due'] as String,
         reminderDaysBefore: r['reminder_days_before'] as int,
@@ -154,13 +154,30 @@ class RecurringStore {
     final out = <Draft>[];
     _db.transaction(() {
       for (final r in list()) {
-        if (!r.autoCreate) continue;
+        if (!r.autoCreate) {
+          // 只提醒不起草的：日子过了就滚到下一期，否则 next_due 永远停在过去，「即将到期」再也看不到它
+          if (r.nextDue.compareTo(today) < 0) {
+            var d = r.nextDue;
+            while (d.compareTo(today) < 0) {
+              d = advanceDate(d, r.frequency, r.interval);
+            }
+            _db.execute('UPDATE recurring SET next_due = ?, updated_at = ? WHERE id = ?', [d, _nowMs(), r.id]);
+            _changes?.record('recurring', r.id, get(r.id).toJson());
+          }
+          continue;
+        }
         var due = r.nextDue;
         var n = 0;
         final inputs = <DraftInput>[];
         while (due.compareTo(today) <= 0 && n < maxCatchUp) {
           inputs.add(DraftInput(
-            payload: {...r.template, 'occurred_at': '${due}T09:00:00${_offset(tzOffsetMinutes)}', 'description': r.template['description'] ?? r.name},
+            payload: {
+              ...r.template,
+              'occurred_at': '${due}T09:00:00${_offset(tzOffsetMinutes)}',
+              'description': r.template['description'] ?? r.name,
+              // 落账时写进 transactions.recurring_id（「无消费日」这类判定靠它认出周期账单）
+              'metadata': {...?(r.template['metadata'] as Map?)?.cast<String, Object?>(), 'recurring_id': r.id},
+            },
             confidence: 0.9,
             eventFingerprint: 'recurring:${r.id}:$due',
             fingerprintIsExact: true,

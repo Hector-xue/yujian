@@ -134,6 +134,7 @@ class Ledger implements ValidationContext {
     _db.transaction(() {
       _db.execute('UPDATE memory_map SET account_id = NULL WHERE account_id = ?', [id]);
       if (profile.salaryAccountId == id) profile.salaryAccountId = null;
+      if (profile.defaultAccountId == id) profile.defaultAccountId = null;
       if (profile.getString('${CreditCards.keyPrefix}$id') != null) profile.set('${CreditCards.keyPrefix}$id', null); // 信用卡条款跟着账户走
       _db.execute('DELETE FROM accounts WHERE id = ?', [id]);
       _audit(Actor.user, 'account.delete', 'account', id, before: a.toJson(), confirmed: true);
@@ -313,6 +314,11 @@ class Ledger implements ValidationContext {
             dupOf = hit;
           }
         }
+        // 跨来源疑似重复：同一笔钱常被通知、支付页识别、截图、账单导入各抓一次，它们的指纹格式各不相同，
+        // 只比指纹永远撞不上。自动来源的新建草稿再按「方向 + 金额 + 币种 + 前后 10 分钟」找一遍已记的账和待确认的草稿。
+        if (dupOf == null && input.kind == DraftKind.create && _dupCheckedSources.contains(source)) {
+          dupOf = _findNearDuplicate(input.payload, excludeGroup: gid);
+        }
         final missing = _draftProblems(input);
         final did = Ulid.next();
         _db.execute(
@@ -331,6 +337,44 @@ class Ledger implements ValidationContext {
       }
       return out;
     });
+  }
+
+  static const _dupCheckedSources = {Source.notification, Source.screenshot, Source.share, Source.import_};
+  static const nearDuplicateWindow = Duration(minutes: 10);
+
+  /// 金额、方向、币种都一样，发生时间前后 [nearDuplicateWindow] 内的已确认交易（优先）或待确认草稿 id；没有返回 null。
+  String? _findNearDuplicate(Map<String, Object?> p, {String? excludeGroup}) {
+    final type = p['type'];
+    final amount = p['amount_minor'];
+    final currency = p['currency'];
+    final at = p['occurred_at'];
+    if (type is! String || amount is! int || amount <= 0 || currency is! String || at is! String) return null;
+    final OccurredAt when;
+    try {
+      when = OccurredAt.parse(at);
+    } on FormatException {
+      return null;
+    }
+    final w = nearDuplicateWindow.inMilliseconds;
+    final t = _db.select(
+      "SELECT t.id FROM transactions t WHERE t.status = 'confirmed' AND t.type = ? AND t.currency = ? AND t.occurred_at_ms BETWEEN ? AND ? "
+      'AND EXISTS (SELECT 1 FROM postings p WHERE p.transaction_id = t.id AND ABS(p.amount_minor) = ?) ORDER BY ABS(t.occurred_at_ms - ?) LIMIT 1',
+      [type, currency, when.millis - w, when.millis + w, amount, when.millis],
+    );
+    if (t.isNotEmpty) return t.first['id'] as String;
+    // 待确认草稿：只看最近两天建的（收件箱里一般不会压更久），在 Dart 里比 payload
+    final since = _nowMs() - const Duration(days: 2).inMilliseconds;
+    for (final r in _db.select("SELECT id, group_id, payload FROM drafts WHERE status = 'pending' AND kind = 'create' AND created_at >= ?", [since])) {
+      if (excludeGroup != null && r['group_id'] == excludeGroup) continue;
+      final q = (jsonDecode(r['payload'] as String) as Map).cast<String, Object?>();
+      if (q['type'] != type || q['amount_minor'] != amount || q['currency'] != currency || q['occurred_at'] is! String) continue;
+      try {
+        if ((OccurredAt.parse(q['occurred_at'] as String).millis - when.millis).abs() <= w) return r['id'] as String;
+      } on FormatException {
+        continue;
+      }
+    }
+    return null;
   }
 
   /// 某指纹是否已有已确认交易或待处理草稿（目标的定存 / 零头周结用它防重）。
@@ -393,6 +437,18 @@ class Ledger implements ValidationContext {
       if (d.status == DraftStatus.committed) return getTransaction(d.committedTransactionId!);
       if (d.status == DraftStatus.dismissed) throw InvalidStateException('draft $draftId was dismissed');
 
+      // 多设备：周期账单 / 定存 / 任务奖励这类按日子算出来的指纹，每台设备都会各自起草一份（草稿不同步）。
+      // 另一台已经确认、交易同步过来了，这边再确认就是重复——直接认领那笔，不再落第二次账。
+      final fp = d.eventFingerprint;
+      if (d.kind == DraftKind.create && fp != null && _deterministicFp.hasMatch(fp)) {
+        final existing = _db.select("SELECT id FROM transactions WHERE event_fingerprint = ? AND status = 'confirmed' LIMIT 1", [fp]);
+        if (existing.isNotEmpty) {
+          final txId = existing.first['id'] as String;
+          _db.execute("UPDATE drafts SET status = 'committed', committed_transaction_id = ?, resolved_at = ? WHERE id = ?", [txId, _nowMs(), draftId]);
+          _audit(Actor.user, 'draft.commit_existing', 'draft', draftId, after: {'transaction_id': txId, 'fingerprint': fp}, draftId: draftId, confirmed: true);
+          return getTransaction(txId);
+        }
+      }
       final finalPayload = {...d.payload, ...?edits};
       final Transaction tx;
       switch (d.kind) {
@@ -434,6 +490,8 @@ class Ledger implements ValidationContext {
     });
   }
 
+  static final _deterministicFp = RegExp(r'^(recurring|goal|task):');
+
   /// 整组确认（多笔解析）。任一条失败整组回滚，不留半截。
   List<Transaction> commitGroup(String groupId) => _db.transaction(() {
         final drafts = listDrafts(groupId: groupId)..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -463,7 +521,8 @@ class Ledger implements ValidationContext {
       "VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed',?,?,?,?,?,?,?)",
       [
         id, v.type.db, v.occurredAt.millis, v.occurredAt.offsetMinutes, v.currency, v.merchant, v.description,
-        v.categoryId, jsonEncode(v.tags), d.source.db, d.confidence, v.refundOfId, null, d.eventFingerprint,
+        v.categoryId, jsonEncode(v.tags), d.source.db, d.confidence, v.refundOfId,
+        d.source == Source.recurring && v.metadata['recurring_id'] is String ? v.metadata['recurring_id'] : null, d.eventFingerprint,
         jsonEncode(v.metadata), ts, ts,
       ],
     );
@@ -552,6 +611,25 @@ class Ledger implements ValidationContext {
     return r['s'] as int;
   }
 
+  /// 猜一笔退款退的是哪一笔支出：近 [days] 天、同币种、还没退完的支出里，
+  /// 商户对得上的优先（取最近），其次「剩余可退金额正好等于这笔」且只有一笔的；都没把握返回 null（留给用户在收件箱里挑）。
+  String? guessRefundOriginal({required int amountMinor, required String currency, String? merchant, DateTime? at, int days = 90}) {
+    final when = at ?? now();
+    final cands = [
+      for (final t in listTransactions(type: TransactionType.expense, from: when.subtract(Duration(days: days)), to: when.add(const Duration(days: 1)), limit: 2000))
+        if (t.currency == currency && t.amountMinor - refundedMinor(t.id) >= amountMinor) t,
+    ];
+    final m = merchant?.trim();
+    if (m != null && m.isNotEmpty) {
+      for (final t in cands) {
+        final tm = '${t.merchant ?? ''} ${t.description ?? ''}';
+        if (tm.contains(m) || (t.merchant != null && t.merchant!.isNotEmpty && m.contains(t.merchant!))) return t.id;
+      }
+    }
+    final exact = cands.where((t) => t.amountMinor - refundedMinor(t.id) == amountMinor).toList();
+    return exact.length == 1 ? exact.single.id : null;
+  }
+
   List<Transaction> listTransactions({
     DateTime? from,
     DateTime? to,
@@ -597,6 +675,21 @@ class Ledger implements ValidationContext {
       _db.select('SELECT COUNT(*) AS n FROM transactions WHERE status = ?', [status.db]).first['n'] as int;
 
   /// 最早一笔记录的入库时间（毫秒）；空账本 = null。用作「用了多久」的依据：跟着账本走，换机 / 重装恢复后不会归零。
+  /// [from] 之后有已确认记录的本地日期（yyyy-MM-dd）。只读时间两列，不实例化交易和 posting（连续记账天数这类判定用）。
+  Set<String> recordedDates({required DateTime from}) {
+    final out = <String>{};
+    for (final r in _db.select("SELECT occurred_at_ms, tz_offset_min FROM transactions WHERE status = 'confirmed' AND occurred_at_ms >= ?", [from.toUtc().millisecondsSinceEpoch])) {
+      out.add(OccurredAt.fromMillis(r['occurred_at_ms'] as int, r['tz_offset_min'] as int).localDate);
+    }
+    return out;
+  }
+
+  /// 最早一笔已确认交易的发生时间（毫秒）；空账本 = null。「上个月的储蓄率」这类成就要求那个月整月都在记账。
+  int? firstOccurredAtMs() {
+    final r = _db.select("SELECT MIN(occurred_at_ms) AS t FROM transactions WHERE status = 'confirmed'");
+    return r.isEmpty ? null : r.first['t'] as int?;
+  }
+
   int? firstRecordedAtMs() {
     final r = _db.select('SELECT MIN(created_at) AS t FROM transactions');
     return r.isEmpty ? null : r.first['t'] as int?;
@@ -698,7 +791,16 @@ class Ledger implements ValidationContext {
         this.achievements.upsertRaw(a);
       }
       profile.forEach((k, v) => this.profile.upsertRaw({'key': k, 'value': v}));
-      // 恢复后的全量当作本机新变更，下次同步整体推上去
+      recordFullSnapshotAsChanges();
+      return n;
+    });
+  }
+
+
+  /// 把整本账本当前的每个实体都记成一条本机新变更（时间 = 现在）。整库恢复后调用：
+  /// 下次同步整体推上去，其他设备跟着变；拉回来的服务端旧变更按 LWW 比这些旧，全部跳过，不会把刚恢复的内容盖回去。
+  void recordFullSnapshotAsChanges() {
+    _db.transaction(() {
       for (final a in listAccounts(includeArchived: true, includeVault: true)) {
         changes.record('account', a.id, a.toJson());
       }
@@ -710,26 +812,25 @@ class Ledger implements ValidationContext {
           changes.record('transaction', t.id, t.toJson());
         }
       }
-      for (final m in this.memory.all(limit: 1 << 30)) {
+      for (final m in memory.all(limit: 1 << 30)) {
         changes.record('memory', m.key, {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source});
       }
-      for (final r in this.recurring.list(activeOnly: false)) {
+      for (final r in recurring.list(activeOnly: false)) {
         changes.record('recurring', r.id, r.toJson());
       }
-      for (final b in this.budgets.list(activeOnly: false)) {
+      for (final b in budgets.list(activeOnly: false)) {
         changes.record('budget', b.id, BudgetStore.toJson(b));
       }
-      for (final g in this.goals.list(activeOnly: false)) {
+      for (final g in goals.list(activeOnly: false)) {
         changes.record('goal', g.id, g.toJson());
       }
-      for (final t in this.tasks.list(limit: 1 << 30)) {
+      for (final t in tasks.list(limit: 1 << 30)) {
         changes.record('task', t.id, t.toJson());
       }
-      for (final a in this.achievements.list()) {
+      for (final a in achievements.list()) {
         changes.record('achievement', a.key, a.toJson());
       }
-      this.profile.all().forEach((k, v) => changes.record('profile', k, {'key': k, 'value': v}));
-      return n;
+      profile.all().forEach((k, v) => changes.record('profile', k, {'key': k, 'value': v}));
     });
   }
 
@@ -769,6 +870,16 @@ class Ledger implements ValidationContext {
           );
         case 'category':
           if (c.deleted) {
+            // 对方删了，但本机还有交易 / 子分类 / 预算在用（对方没同步到的记录）：保留，别让外键把整轮同步卡死
+            int n(String sql) => _db.select(sql, [c.entityId]).first['n'] as int;
+            final inUse = n('SELECT COUNT(*) AS n FROM transactions WHERE category_id = ?') > 0 ||
+                n('SELECT COUNT(*) AS n FROM categories WHERE parent_id = ?') > 0 ||
+                n('SELECT COUNT(*) AS n FROM budgets WHERE category_id = ?') > 0;
+            if (inUse) {
+              _audit(Actor.automation, 'sync.delete_kept', 'category', c.entityId, after: {'from': fromDevice, 'reason': 'in use locally'});
+              return 'skipped';
+            }
+            _db.execute('UPDATE memory_map SET category_id = NULL WHERE category_id = ?', [c.entityId]);
             _db.execute('DELETE FROM categories WHERE id = ?', [c.entityId]);
           } else {
             _db.execute('INSERT OR REPLACE INTO categories(id,parent_id,kind,name,icon,is_default,sort_order) VALUES (?,?,?,?,?,?,?)',
@@ -812,6 +923,19 @@ class Ledger implements ValidationContext {
       return 'applied';
     });
   }
+
+  /// 一条远端变更应用失败（坏数据 / 本机缺它依赖的账户……）：整条回滚后在这里留痕，同步继续往后走，不卡死在这一条。
+  /// 审计里带着原始载荷，之后能人工看、也能重放。
+  void recordSyncFailure(ChangeRecord c, {required String fromDevice, required Object error}) {
+    _audit(Actor.automation, 'sync.apply_failed', c.entity, c.entityId,
+        after: {'from': fromDevice, 'error': '$error', 'deleted': c.deleted, 'at': c.at, 'payload': c.payload});
+  }
+
+  /// 应用失败过的远端变更（新在前）。
+  List<AuditEntry> syncFailures({int limit = 50}) => _db
+      .select("SELECT * FROM audit_log WHERE action = 'sync.apply_failed' ORDER BY seq DESC LIMIT ?", [limit])
+      .map(AuditEntry.fromRow)
+      .toList();
 
   static int? _parseIsoMs(Object? v) => v is String ? DateTime.tryParse(v)?.toUtc().millisecondsSinceEpoch : null;
 
@@ -862,6 +986,34 @@ class Ledger implements ValidationContext {
       add(_db.select('SELECT * FROM audit_log WHERE draft_id = ?', [did]).map(AuditEntry.fromRow));
     }
     out.sort((a, b) => a.seq.compareTo(b.seq));
+    return out;
+  }
+
+  /// 修剪审计日志里只有机器看的流水（同步应用、指纹去重、冲突跳过）：超过 [keepDays] 天的删掉。
+  /// 用户操作、落账、作废、失败留痕（sync.apply_failed）都不动。返回删掉的条数。
+  int pruneAudit({int keepDays = 90}) {
+    final cutoff = _nowMs() - Duration(days: keepDays).inMilliseconds;
+    final n = _db.select("SELECT COUNT(*) AS n FROM audit_log WHERE at < ? AND action IN ('sync.apply', 'draft.dedupe', 'sync.conflict_skipped', 'sync.delete_kept')", [cutoff]).first['n'] as int;
+    if (n > 0) _db.execute("DELETE FROM audit_log WHERE at < ? AND action IN ('sync.apply', 'draft.dedupe', 'sync.conflict_skipped', 'sync.delete_kept')", [cutoff]);
+    return n;
+  }
+
+  /// 本地存储维护（启动时调一次）：变更日志压缩 + 审计流水修剪。便宜的检查，数量不大就什么都不做。
+  ({int changes, int audit}) maintain({int changeThreshold = 5000}) {
+    final c = changes.count > changeThreshold ? changes.compact() : 0;
+    return (changes: c, audit: pruneAudit());
+  }
+
+  /// 所有账户的余额一次算完（一条聚合 SQL，不是每个账户查一次）。
+  Map<String, int> balanceMinorByAccount() {
+    final out = <String, int>{};
+    for (final a in _db.select('SELECT id, initial_balance_minor FROM accounts')) {
+      out[a['id'] as String] = a['initial_balance_minor'] as int;
+    }
+    for (final r in _db.select("SELECT p.account_id AS a, SUM(p.amount_minor) AS s FROM postings p JOIN transactions t ON t.id = p.transaction_id WHERE t.status = 'confirmed' GROUP BY p.account_id")) {
+      final id = r['a'] as String;
+      out[id] = (out[id] ?? 0) + (r['s'] as int);
+    }
     return out;
   }
 

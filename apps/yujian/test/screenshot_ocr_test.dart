@@ -18,11 +18,11 @@ void main() {
       expect(r.occurredAt, isNull); // 图上没日期
     });
 
-    test('alipay bill detail: labeled amount, merchant label, full date, refund → income', () {
+    test('alipay bill detail: labeled amount, merchant label, full date, refund → refund (not income)', () {
       final r = ScreenshotOcrParser.parse(lines(['账单详情', '退款成功', '收款方 盒马鲜生', '退款金额 ¥18.00', '创建时间 2026-09-18 20:15:33', '支付方式 余额宝']), fallbackTime: shotAt);
       expect(r.usable, isTrue);
       expect(r.amountMinor, 1800);
-      expect(r.direction, 'income');
+      expect(r.direction, 'refund'); // 退款冲减原支出，不算收入
       expect(r.merchant, '盒马鲜生');
       expect(r.accountHint, '支付宝');
       expect(r.occurredAt, DateTime(2026, 9, 18, 20, 15));
@@ -79,7 +79,7 @@ void main() {
 
     test('direction: headline decides before body words', () {
       final refund = ScreenshotOcrParser.parse(lines(['退款成功', '¥18.00', '收款方 盒马鲜生', '支付方式 余额宝'], heights: {1: 90}), fallbackTime: shotAt);
-      expect(refund.direction, 'income');
+      expect(refund.direction, 'refund');
       final recv = ScreenshotOcrParser.parse(lines(['收款成功', '¥66.00', '付款方 王五', '备注 饭钱'], heights: {1: 90}), fallbackTime: shotAt);
       expect(recv.direction, 'income');
       final xfer = ScreenshotOcrParser.parse(lines(['转账成功', '¥500.00', '转入 招商银行 尾号1234'], heights: {1: 90}), fallbackTime: shotAt);
@@ -96,6 +96,15 @@ void main() {
       final r = ScreenshotOcrParser.parse(lines(['支付成功', '¥9.90', '有效期至 2027-01-01 00:00']), fallbackTime: shotAt);
       expect(r.usable, isTrue);
       expect(r.occurredAt, isNull);
+    });
+
+    test('bill list screenshot: one draft per signed amount, time below each amount', () {
+      final wx = ScreenshotOcrParser.parseList(lines(['14:02', '账单', '9月', '扫二维码付款-给张三', '-25.00', '9月19日 11:20', '瑞幸咖啡', '-19.90', '9月18日 08:10', '淘宝-退款', '+45.00', '9月17日 20:00']), fallbackTime: shotAt);
+      expect(wx.map((x) => (x.direction, x.amountMinor, x.merchant)).toList(), [('expense', 2500, '扫二维码付款-给张三'), ('expense', 1990, '瑞幸咖啡'), ('refund', 4500, '淘宝-退款')]);
+      expect(wx[1].occurredAt, DateTime(2026, 9, 18, 8, 10));
+      // 单笔详情页不是列表
+      expect(ScreenshotOcrParser.parseList(lines(['支付成功', '-25.00', '天福便利店', '-3.00']), fallbackTime: shotAt), isEmpty);
+      expect(ScreenshotOcrParser.parseList(lines(['天福便利店', '-25.00']), fallbackTime: shotAt), isEmpty);
     });
   });
 }

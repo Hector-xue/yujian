@@ -24,11 +24,11 @@ String exportCsv(Ledger ledger) {
       t.type.db,
       Money(t.amountMinor, t.currency).toDecimalString(),
       t.currency,
-      t.categoryId == null ? '' : (ledger.category(t.categoryId!)?.name ?? t.categoryId!),
-      ledger.account(t.accountId)?.name ?? t.accountId,
-      t.toAccountId == null ? '' : (ledger.account(t.toAccountId!)?.name ?? t.toAccountId!),
-      t.merchant ?? '',
-      t.description ?? '',
+      _csvText(t.categoryId == null ? '' : (ledger.category(t.categoryId!)?.name ?? t.categoryId!)),
+      _csvText(ledger.account(t.accountId)?.name ?? t.accountId),
+      _csvText(t.toAccountId == null ? '' : (ledger.account(t.toAccountId!)?.name ?? t.toAccountId!)),
+      _csvText(t.merchant ?? ''),
+      _csvText(t.description ?? ''),
       t.source.db,
       t.status.db,
     ].map(_csvCell).join(','));
@@ -36,7 +36,11 @@ String exportCsv(Ledger ledger) {
   return b.toString();
 }
 
-String _csvCell(String s) => s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+String _csvCell(String s) => s.contains(RegExp(r'[",\r\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+
+/// 文本列（商户 / 说明 / 分类名 / 账户名）防 CSV 公式注入：以 = + - @ 开头的，Excel / WPS 打开会当公式执行，
+/// 商户名来自通知和截图，不可信。前面垫一个单引号，表格里显示成文本。金额列不走这里。
+String _csvText(String s) => s.isNotEmpty && '=+-@\t\r'.contains(s[0]) ? "'$s" : s;
 
 /// JSON 全量备份：账户、分类、交易（含 posting、作废的也带）、记忆。草稿与审计不进备份。
 Map<String, Object?> exportJson(Ledger ledger) => {
@@ -86,7 +90,7 @@ int restoreFromJson(Ledger ledger, Map<String, Object?> j) {
 /// 账单 CSV 解析结果的一行（已归一，还没变成草稿）。
 class ImportedRow {
   final int line;
-  final String type; // expense | income | transfer | unknown
+  final String type; // expense | income | transfer | refund | unknown
   final int? amountMinor;
   final String currency;
   final OccurredAt? occurredAt;
@@ -122,15 +126,16 @@ class ColumnMapping {
   final int? account;
   final int? category;
   final int? status;
+  final int? orderId; // 交易单号列：有就用它当去重指纹（同一分钟两杯同价咖啡不会被当成一笔）
   final int headerRow; // 表头所在行（0 起），数据从下一行开始
-  const ColumnMapping({required this.date, required this.amount, this.inOut, this.merchant, this.description, this.account, this.category, this.status, this.headerRow = 0});
+  const ColumnMapping({required this.date, required this.amount, this.inOut, this.merchant, this.description, this.account, this.category, this.status, this.orderId, this.headerRow = 0});
 }
 
 /// 通用账单 CSV 解析：自动找表头行（含"金额"或 amount），按同义词认列。
 /// 覆盖微信、支付宝账单导出，以及余见自己导出的 CSV；其他表只要有日期+金额也能读。
 List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
-  final lines = const LineSplitter().convert(text.replaceFirst('\uFEFF', ''));
-  return parseBillTable([for (final l in lines) parseCsvLine(l)], defaultCurrency: defaultCurrency, tzOffsetMinutes: tzOffsetMinutes, mapping: mapping);
+  // 先按 CSV 规则整体拆（引号里的换行属于同一个格子，支付宝的商品说明里就有），再交给表格解析
+  return parseBillTable(parseCsv(text.replaceFirst('\uFEFF', '')), defaultCurrency: defaultCurrency, tzOffsetMinutes: tzOffsetMinutes, mapping: mapping);
 }
 
 /// 找表头行：含"金额/amount"且含"时间/日期/date"的第一行。找不到返回 -1。
@@ -148,7 +153,7 @@ int findHeaderRow(List<List<String>> rows) {
 List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
   int headerIdx;
   List<String> header;
-  int? cDate, cAmount, cInOut, cCounter, cGoods, cPay, cCat, cStatus, cCurrency;
+  int? cDate, cAmount, cInOut, cCounter, cGoods, cPay, cCat, cStatus, cCurrency, cOrder;
   var cTime = -1;
   if (mapping != null) {
     headerIdx = mapping.headerRow;
@@ -161,6 +166,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
     cPay = mapping.account;
     cCat = mapping.category;
     cStatus = mapping.status;
+    cOrder = mapping.orderId;
   } else {
     headerIdx = findHeaderRow(rows);
     if (headerIdx < 0) throw const FormatException('没找到表头（需要有"时间/日期"和"金额"列）');
@@ -189,6 +195,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
     cCat = col(['交易分类', '分类', 'category', '类别']);
     cStatus = col(['当前状态', '交易状态', 'status']);
     cCurrency = col(['币种', 'currency']);
+    cOrder = col(['交易单号', '交易订单号', '交易号', '订单号', '流水号', 'id']);
     cTime = header.indexWhere((h) => h.toLowerCase() == 'time');
     if (cDate == null || cAmount == null) throw const FormatException('表头缺少时间或金额列');
   }
@@ -196,6 +203,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
   final amountCol = cAmount;
 
   final out = <ImportedRow>[];
+  final seen = <String, int>{}; // 没有单号时，同一文件里完全相同的行按出现次序区分（再导同一个文件仍能对上）
   for (var i = headerIdx + 1; i < rows.length; i++) {
     final cells = rows[i];
     if (cells.every((c) => c.trim().isEmpty)) continue;
@@ -225,11 +233,16 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
       type = 'income';
     } else if (RegExp('转账|transfer').hasMatch(inOut)) {
       type = 'transfer';
-    } else if (RegExp('不计收支|/').hasMatch(inOut) || inOut.isEmpty) {
+    } else if (RegExp('不计收支').hasMatch(inOut)) {
+      // 零钱通 / 余额宝转入转出、还信用卡、理财申购：钱在自己账户之间挪，不是花掉。按转账起草，确认前补转入账户
+      type = 'transfer';
+      problems.add('不计收支：多为自己账户之间挪钱，确认前补上转入账户');
+    } else if (RegExp('/').hasMatch(inOut) || inOut.isEmpty) {
       type = amtText.startsWith('-') ? 'expense' : (amtText.startsWith('+') ? 'income' : 'unknown');
     }
     if (type == 'unknown') problems.add('分不清收支');
-    if (type == 'income' && RegExp('退款').hasMatch(inOut)) type = 'refund_like';
+    // 退款：冲减原来那笔支出，不算收入（算成收入会虚增收入和储蓄率）
+    if (type == 'income' && RegExp('退款').hasMatch(cells.join(' '))) type = 'refund';
 
     OccurredAt? when;
     final dateText = cell(dateCol) + (cTime >= 0 && cTime != dateCol ? ' ${cell(cTime)}' : '');
@@ -241,10 +254,19 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
 
     final merchant = cell(cCounter);
     final goods = cell(cGoods);
-    final fp = 'import:${_hash('$dateText|$amtText|$merchant|$goods')}';
+    final order = cell(cOrder).replaceAll(RegExp(r'[\s\t]'), '');
+    String fp;
+    if (order.isNotEmpty && order != '/') {
+      fp = 'import:order:$order';
+    } else {
+      final base = 'import:${_hash('$dateText|$amtText|$merchant|$goods')}';
+      final n = (seen[base] ?? 0) + 1;
+      seen[base] = n;
+      fp = n == 1 ? base : '$base#$n';
+    }
     out.add(ImportedRow(
       line: i + 1,
-      type: type == 'refund_like' ? 'income' : type,
+      type: type,
       amountMinor: amount,
       currency: Currency.isKnown(currency) ? currency : defaultCurrency,
       occurredAt: when,
@@ -334,6 +356,47 @@ String _hash(String s) {
   return '${a.toRadixString(16).padLeft(8, '0')}${b.toRadixString(16).padLeft(8, '0')}';
 }
 
+/// RFC4180 整篇解析：引号、转义引号、逗号，以及引号里的换行（属于同一个格子）。
+List<List<String>> parseCsv(String text) {
+  final rows = <List<String>>[];
+  var row = <String>[];
+  final b = StringBuffer();
+  var inQ = false;
+  for (var i = 0; i < text.length; i++) {
+    final c = text[i];
+    if (inQ) {
+      if (c == '"') {
+        if (i + 1 < text.length && text[i + 1] == '"') {
+          b.write('"');
+          i++;
+        } else {
+          inQ = false;
+        }
+      } else {
+        b.write(c);
+      }
+    } else if (c == '"') {
+      inQ = true;
+    } else if (c == ',') {
+      row.add(b.toString());
+      b.clear();
+    } else if (c == '\n' || c == '\r') {
+      if (c == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;
+      row.add(b.toString());
+      b.clear();
+      rows.add(row);
+      row = <String>[];
+    } else {
+      b.write(c);
+    }
+  }
+  if (b.isNotEmpty || row.isNotEmpty) {
+    row.add(b.toString());
+    rows.add(row);
+  }
+  return rows;
+}
+
 /// RFC4180 风格单行解析（引号、转义引号、逗号）。
 List<String> parseCsvLine(String line) {
   final out = <String>[];
@@ -366,8 +429,9 @@ List<String> parseCsvLine(String line) {
 }
 
 /// 把解析行变成 DraftInput（账户/分类 id 由上层映射后传入）。
-DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccountId, String? categoryId, double confidence = 0.6}) {
-  final type = r.type == 'unknown' ? 'expense' : r.type;
+/// 分不清收支的行不替用户猜成支出：类型留空，收件箱里补。退款按 [refundOfId] 指向原单（没猜到也留空让用户挑）。
+DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccountId, String? categoryId, String? refundOfId, double confidence = 0.6}) {
+  final type = r.type == 'unknown' ? null : r.type;
   return DraftInput(
     payload: {
       'type': type,
@@ -376,6 +440,7 @@ DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccou
       'account_id': accountId,
       if (type == 'transfer') 'to_account_id': toAccountId,
       if (type == 'expense' || type == 'income') 'category_id': categoryId,
+      if (type == 'refund') 'refund_of_id': refundOfId,
       'merchant': r.merchant,
       'description': r.description ?? r.merchant,
       'occurred_at': r.occurredAt?.toIso8601String(),

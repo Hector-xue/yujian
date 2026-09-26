@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- 模型 / 同步走网络；语音输入要麦克风（系统识别服务可能走云端） -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
@@ -8,10 +9,16 @@
     <!-- 截图自动记账：读相册里新出现的截图（用户在「自动记账」里打开后才申请） -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <!-- 账本、设置、密钥都不进系统备份（Google 云备份 / adb backup / 厂商换机迁移）：本地优先的承诺不能被系统备份绕过去；
+         换机请用 App 里的「数据 → 导出 / 备份」。Android 12+ 的换机迁移不看 allowBackup，得靠 dataExtractionRules 排除 -->
     <application
         android:label="余见"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:replace="android:allowBackup">
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -184,7 +184,7 @@ class GoalDetailPage extends StatelessWidget {
   Future<void> _depositSheet(BuildContext context, Goal g) async {
     final app = AppScope.of(context);
     final amount = TextEditingController();
-    String? from = app.ledger.profile.salaryAccountId ?? app.accounts.first.id;
+    String? from = app.ledger.profile.salaryAccountId ?? app.defaultAccountId;
     final r = await showModalBottomSheet<(int, String)>(
       context: context,
       isScrollControlled: true,

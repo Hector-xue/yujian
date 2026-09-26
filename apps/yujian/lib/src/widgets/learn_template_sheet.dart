@@ -232,6 +232,7 @@ class _LearnSheetState extends State<_LearnSheet> {
             segments: const [
               ButtonSegment(value: 'expense', label: Text('支出')),
               ButtonSegment(value: 'income', label: Text('收入')),
+              ButtonSegment(value: 'refund', label: Text('退款')),
               ButtonSegment(value: 'transfer', label: Text('转账')),
             ],
             selected: {_direction},
@@ -267,7 +268,7 @@ class _LearnSheetState extends State<_LearnSheet> {
                   _problem ??
                       (p == null || !p.usable
                           ? '还认不出来'
-                          : '会记成：${p.direction == 'income' ? '收入' : p.direction == 'transfer' ? '转账' : '支出'} ${fmtMoney(p.amountMinor!, p.currency)}'
+                          : '会记成：${p.direction == 'income' ? '收入' : p.direction == 'transfer' ? '转账' : p.direction == 'refund' ? '退款' : '支出'} ${fmtMoney(p.amountMinor!, p.currency)}'
                               '${p.merchant != null ? ' · ${p.merchant}' : ''}${p.accountHint != null ? ' · ${p.accountHint}' : ''}'),
                   style: theme.textTheme.bodyMedium,
                 ),

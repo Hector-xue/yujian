@@ -21,6 +21,8 @@ class Settings {
   final String? visionModel; // 空 = 用 model
   final String? syncUrl;
   final String? syncToken;
+  /// 同步加密口令：设了就端到端加密同步内容（服务端只见密文）；所有设备填同一个。存在系统安全存储里。
+  final String? syncPassphrase;
   final String? backupPassphrase;
   final List<Map<String, Object?>> userTemplates; // 用户通知模板（notification_templates JSON）
   final List<Map<String, Object?>> customPersonas; // 自定义人格包 JSON（表单建的带 profile，导入的没有）
@@ -48,7 +50,7 @@ class Settings {
   final String omniVoice; // 多模态模型自带语音的音色（Qwen-Omni：Cherry / Serena / Ethan / Chelsie）
   final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
   final double backgroundOpacity; // 背景图可见度 0–1
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.darkThemeId = '', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.syncPassphrase, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.darkThemeId = '', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -87,7 +89,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? darkThemeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? syncPassphrase, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? darkThemeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -100,6 +102,7 @@ class Settings {
         visionModel: visionModel ?? this.visionModel,
         syncUrl: syncUrl ?? this.syncUrl,
         syncToken: syncToken ?? this.syncToken,
+        syncPassphrase: syncPassphrase ?? this.syncPassphrase,
         backupPassphrase: backupPassphrase ?? this.backupPassphrase,
         userTemplates: userTemplates ?? this.userTemplates,
         customPersonas: customPersonas ?? this.customPersonas,
@@ -146,6 +149,7 @@ class PlatformSettingsStore implements SettingsStore {
     final p = await SharedPreferences.getInstance();
     String? key;
     String? syncToken;
+    String? syncPassphrase;
     String? passphrase;
     String? doubaoKey;
     String? doubaoAccess;
@@ -153,6 +157,7 @@ class PlatformSettingsStore implements SettingsStore {
     try {
       key = await _secure.read(key: 'llm_api_key');
       syncToken = await _secure.read(key: 'sync_token');
+      syncPassphrase = await _secure.read(key: 'sync_passphrase');
       passphrase = await _secure.read(key: 'backup_passphrase');
       doubaoKey = await _secure.read(key: 'doubao_api_key');
       doubaoAccess = await _secure.read(key: 'doubao_access_key');
@@ -173,6 +178,7 @@ class PlatformSettingsStore implements SettingsStore {
       visionModel: p.getString('llm_vision_model'),
       syncUrl: p.getString('sync_url'),
       syncToken: syncToken,
+      syncPassphrase: _emptyToNull(syncPassphrase),
       backupPassphrase: passphrase,
       userTemplates: _jsonList(p.getString('user_templates')),
       customPersonas: _customPersonas(p),
@@ -242,7 +248,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setString('minimax_model', s.minimaxModel);
     await p.setString('omni_voice', s.omniVoice);
     try {
-      for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'backup_passphrase': s.backupPassphrase, 'doubao_api_key': s.doubaoApiKey, 'doubao_access_key': s.doubaoAccessKey, 'minimax_api_key': s.minimaxApiKey}.entries) {
+      for (final e in {'llm_api_key': s.apiKey, 'sync_token': s.syncToken, 'sync_passphrase': s.syncPassphrase, 'backup_passphrase': s.backupPassphrase, 'doubao_api_key': s.doubaoApiKey, 'doubao_access_key': s.doubaoAccessKey, 'minimax_api_key': s.minimaxApiKey}.entries) {
         if (e.value == null || e.value!.isEmpty) {
           await _secure.delete(key: e.key);
         } else {

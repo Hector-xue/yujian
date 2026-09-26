@@ -47,6 +47,8 @@ Map<String, Object?>? _milestoneCheck(AchievementContext c, int pct) {
 }
 
 Map<String, Object?>? _emergencyCheck(AchievementContext c, double months) {
+  // 成就解锁了就不收回：月支出基线得是真数（历史整月均值 / 手填），第一个月按收入、按几天外推的估算太抖，不拿来发成就
+  if (c.metrics.spendBasis != SpendBasis.history && c.metrics.spendBasis != SpendBasis.manual) return null;
   final r = c.metrics.runwayMonths;
   if (r != null && r >= months) return {'runway_months': double.parse(r.toStringAsFixed(1)), 'liquid': c.metrics.liquidMinor, 'monthly_spend': c.metrics.monthlySpendAvgMinor};
   return null;
@@ -57,6 +59,9 @@ Map<String, Object?>? _savingsCheck(AchievementContext c, double rate) {
   final t = DateTime.parse('${c.today}T00:00:00Z');
   final m = DateTime.utc(t.year, t.month - 1, 1);
   final last = DateTime.utc(m.year, m.month + 1, 0);
+  // 那个月得是整月都在记账（最早一笔记录在月初之前或当天）：月中才开始记的，只记了一部分支出，储蓄率虚高
+  final first = c.ledger.firstOccurredAtMs();
+  if (first == null || first > m.add(const Duration(days: 1)).millisecondsSinceEpoch) return null;
   var income = 0;
   var expense = 0;
   for (final tx in c.ledger.listTransactions(from: m.subtract(const Duration(days: 1)), to: last.add(const Duration(days: 2)), limit: 1 << 30)) {
@@ -72,8 +77,12 @@ Map<String, Object?>? _savingsCheck(AchievementContext c, double rate) {
 }
 
 Map<String, Object?>? _lineCheck(AchievementContext c, IncomeLine line) {
-  for (final tx in c.ledger.listTransactions(type: TransactionType.income, limit: 1 << 30)) {
-    if (Wealth.lineOf(tx.categoryId, c.ledger.profile.incomeLines) == line) return {'transaction': tx.id, 'amount': tx.amountMinor, 'date': tx.occurredAt.localDate};
+  // 按分类各查一条（以前把全部收入交易都取出来再筛，每次记账后都跑一遍）
+  final overrides = c.ledger.profile.incomeLines;
+  for (final cat in c.ledger.listCategories(kind: CategoryKind.income)) {
+    if (Wealth.lineOf(cat.id, overrides) != line) continue;
+    final hit = c.ledger.listTransactions(type: TransactionType.income, categoryId: cat.id, limit: 1);
+    if (hit.isNotEmpty) return {'transaction': hit.first.id, 'amount': hit.first.amountMinor, 'date': hit.first.occurredAt.localDate};
   }
   return null;
 }
@@ -137,10 +146,7 @@ final achievementDefs = <AchievementDef>[
 Map<String, Object?>? _streak(AchievementContext c, int days) {
   final t = DateTime.parse('${c.today}T00:00:00Z');
   final from = t.subtract(Duration(days: days + 1));
-  final have = <String>{};
-  for (final tx in c.ledger.listTransactions(from: from, limit: 1 << 30)) {
-    have.add(tx.occurredAt.localDate);
-  }
+  final have = c.ledger.recordedDates(from: from); // 只取日期，不把 100 天的交易整笔整笔实例化
   var n = 0;
   for (var d = t; n < days; d = d.subtract(const Duration(days: 1))) {
     if (!have.contains(_fmt(d))) {

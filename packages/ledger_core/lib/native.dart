@@ -9,6 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 import 'src/db/database.dart';
 import 'src/db/schema.dart';
+import 'src/ledger.dart';
 
 extension LedgerDatabaseNative on LedgerDatabase {
   static LedgerDatabase open(String path) => LedgerDatabase.wrap(sqlite3.open(path));
@@ -57,6 +58,9 @@ Future<int> restoreDatabaseBytes(LedgerDatabase ledgerDb, Uint8List bytes) async
   ledgerDb.migrate();
   ledgerDb.db.execute('DELETE FROM changes');
   ledgerDb.db.execute('DELETE FROM sync_state');
+  // 恢复出来的内容记成本机新变更：下次同步推上去，其他设备跟着变；服务端历史（含本机旧身份推的）按 LWW 都比它旧，
+  // 拉回来全部跳过——以前不记，从头拉取会把刚恢复的内容用服务端最新状态悄悄盖回去
+  Ledger(ledgerDb).recordFullSnapshotAsChanges();
   return ledgerDb.db.select("SELECT COUNT(*) AS n FROM transactions WHERE status = 'confirmed'").first['n'] as int;
 }
 

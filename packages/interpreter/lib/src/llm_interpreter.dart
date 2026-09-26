@@ -39,7 +39,7 @@ class LLMInterpreter implements Interpreter {
     final expCats = ctx.categories.where((c) => c.kind == 'expense').map((c) => '${c.id}=${c.name}').join(', ');
     final incCats = ctx.categories.where((c) => c.kind == 'income').map((c) => '${c.id}=${c.name}').join(', ');
     final memory = ctx.merchantMap.entries.take(50).map((e) => '- ${e.key} → ${e.value.categoryId ?? ''}${e.value.accountId != null ? ' / ${e.value.accountId}' : ''}').join('\n');
-    final recent = ctx.recentTransactions.take(10).map((t) => '- ${t.id}: ${t.localDate} ${Money(t.amountMinor, t.currency)} ${t.categoryId ?? ''} ${t.description ?? ''}').join('\n');
+    final recent = ctx.recentTransactions.take(10).map((t) => '- ${t.id}: ${t.localDate} ${t.type ?? ''} ${Money(t.amountMinor, t.currency)} ${t.categoryId ?? ''} ${t.description ?? ''}').join('\n');
     final hints = ctx.categories
         .where((c) => builtinCategoryKeywords.containsKey(c.id))
         .map((c) => '${c.id}(${c.name}): ${builtinCategoryKeywords[c.id]!.take(8).join('/')}')
@@ -131,6 +131,14 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
       return null;
     }
 
+    int? minorFromMinor(Object? v) {
+      if (v is int) return v;
+      if (v is num && v == v.roundToDouble()) return v.toInt();
+      if (v is String) return int.tryParse(v.trim());
+      if (v != null) notes.add('amount_minor unparsable: $v');
+      return null;
+    }
+
     String? when(Object? v) {
       if (v is! String || v.isEmpty) return null;
       try {
@@ -148,7 +156,9 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
         final t = raw.cast<String, Object?>();
         final type = (t['type'] as String?) ?? 'expense';
         final currency = ((t['currency'] as String?) ?? ctx.defaultCurrency).toUpperCase();
-        final amount = minor(t['amount_minor'] ?? t['amount'], Currency.isKnown(currency) ? currency : ctx.defaultCurrency);
+        // 提示词要的是十进制字符串 amount；模型有时照着上下文回 amount_minor（最小单位整数），那就原样当分用，不能再乘 100
+        final cur = Currency.isKnown(currency) ? currency : ctx.defaultCurrency;
+        final amount = t['amount'] != null ? minor(t['amount'], cur) : minorFromMinor(t['amount_minor']);
         final split = t['split'];
         final payload = <String, Object?>{
           'type': type,
@@ -221,8 +231,9 @@ ${memory.isEmpty ? '' : '用户习惯（商户→分类/账户）：\n$memory\n'
             case 'category_id':
               patch[e.key] = catId(e.value);
             case 'amount':
-            case 'amount_minor':
               patch['amount_minor'] = minor(e.value, ctx.defaultCurrency);
+            case 'amount_minor':
+              patch['amount_minor'] = pj.containsKey('amount') ? patch['amount_minor'] : minorFromMinor(e.value);
             case 'occurred_at':
               patch[e.key] = when(e.value);
             default:

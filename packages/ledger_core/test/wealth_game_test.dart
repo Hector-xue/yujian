@@ -124,14 +124,18 @@ void main() {
     test('rules: fixed due once per period with fingerprint, roundup settles weekly as one deposit, payday plan honors priority and shortfall', () {
       final a = ledger.goals.create(kind: GoalKind.wish, name: 'A', targetMinor: 1000000, rules: const [GoalRule(kind: GoalRuleKind.salaryPct, pct: 20), GoalRule(kind: GoalRuleKind.fixed, amountMinor: 50000, every: 'monthly', day: 10)]);
       final b = ledger.goals.create(kind: GoalKind.wish, name: 'B', targetMinor: 1000000, rules: const [GoalRule(kind: GoalRuleKind.salaryPct, pct: 30), GoalRule(kind: GoalRuleKind.roundup, roundTo: 1000)]);
-      // 定额：不是 10 号不到期
-      expect(ledger.goals.dueFixed(today: '2026-09-09'), isEmpty);
-      final due = ledger.goals.dueFixed(today: '2026-09-10');
+      // 目标 9/20 才建：9/10 那期不倒扣
+      expect(ledger.goals.dueFixed(today: '2026-09-20'), isEmpty);
+      // 定额：不到 10 号不到期
+      expect(ledger.goals.dueFixed(today: '2026-10-09'), isEmpty);
+      final due = ledger.goals.dueFixed(today: '2026-10-10');
       expect(due.single.amountMinor, 50000);
-      expect(due.single.fingerprint, 'goal:${a.id}:fixed:2026-09');
+      expect(due.single.fingerprint, 'goal:${a.id}:fixed:2026-10');
+      // 10 号没打开 App：当月之后哪天打开都补上
+      expect(ledger.goals.dueFixed(today: '2026-10-23').single.fingerprint, 'goal:${a.id}:fixed:2026-10');
       // 存了这期之后同月不再到期
       add(ledger.goals.depositPayload(a, 50000, fromAccountId: wechat.id), fingerprint: due.single.fingerprint);
-      expect(ledger.goals.dueFixed(today: '2026-09-10'), isEmpty);
+      expect(ledger.goals.dueFixed(today: '2026-10-23'), isEmpty);
       // 零头：上周（9/14–9/20）支出 28 + 36.5 + 100 → 零头 2 + 3.5 + 0 = 5.5
       add(expense(2800, '2026-09-14'));
       add(expense(3650, '2026-09-16'));
@@ -487,7 +491,7 @@ void main() {
       expect(ledger.tasks.progress(cap, today: '2026-09-23').onTrack, isFalse); // 350 > 300
       expect(ledger.tasks.progress(cnt, today: '2026-09-23').current, 1);
       final n = ledger.tasks.progress(nsd, today: '2026-09-25');
-      expect(n.current, 2); // 21、24（房租不算）
+      expect(n.current, 3); // 21、24（房租是周期账单，不算破功）、25（存钱是转账不是花钱）
       expect(n.achieved, isTrue);
       expect(ledger.tasks.progress(dep, today: '2026-09-25').achieved, isTrue);
 

@@ -71,4 +71,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // 本机 OCR：中文模型打进 APK（离线、不依赖 Google 服务），截图自动记账的「仅本地」档
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    // 纯逻辑单测（支付页识别解析器）：CI 里 ./gradlew :app:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

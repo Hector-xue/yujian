@@ -18,7 +18,12 @@ class ReleaseInfo {
   final String? web;
   final String page;
   final Map<String, String> mirror;
-  const ReleaseInfo({required this.version, required this.notes, this.androidArm64, this.androidArm32, this.windows, this.linux, this.web, required this.page, this.mirror = const {}});
+  /// 各安装包的 SHA-256（小写十六进制），键同 *_url 换成 *_sha256；有就下载后对账，对不上丢弃换线路。
+  final Map<String, String> sha256;
+  const ReleaseInfo({required this.version, required this.notes, this.androidArm64, this.androidArm32, this.windows, this.linux, this.web, required this.page, this.mirror = const {}, this.sha256 = const {}});
+
+  /// 这台手机能不能装 64 位包（[Updater.check] 时从原生侧问一次）。32 位手机下 arm64 包装不上，要给 arm32 的。
+  static bool deviceIs64 = true;
 
   factory ReleaseInfo.fromJson(Map<String, Object?> j) => ReleaseInfo(
         version: j['version'] as String,
@@ -33,7 +38,28 @@ class ReleaseInfo {
           for (final e in ((j['mirror'] as Map?) ?? const {}).entries)
             if (e.value is String && (e.value as String).isNotEmpty) e.key as String: e.value as String,
         },
+        sha256: {
+          for (final e in j.entries)
+            if (e.key.endsWith('_sha256') && e.value is String && RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(e.value as String)) e.key: (e.value as String).toLowerCase(),
+        },
       );
+
+  /// 当前这台 Android 该下哪种包的键（arm64 / arm32）。
+  static String get _androidKey => deviceIs64 ? 'android_arm64_url' : 'android_arm32_url';
+
+  String? get _androidUrl => deviceIs64 ? androidArm64 : androidArm32;
+
+  /// 当前平台直装包应有的 SHA-256；version.json 没给 = null（不校验，老版本 json 兼容）。
+  String? get expectedSha256ForThisPlatform {
+    if (kIsWeb) return null;
+    final key = switch (defaultTargetPlatform) {
+      TargetPlatform.android => _androidKey,
+      TargetPlatform.windows => 'windows_url',
+      TargetPlatform.linux => 'linux_url',
+      _ => null,
+    };
+    return key == null ? null : sha256[key.replaceFirst('_url', '_sha256')];
+  }
 
   bool get isNewer => compareVersions(version, appVersion) > 0;
 
@@ -41,7 +67,7 @@ class ReleaseInfo {
   String? get downloadForThisPlatform {
     if (kIsWeb) return null;
     return switch (defaultTargetPlatform) {
-      TargetPlatform.android => androidArm64,
+      TargetPlatform.android => _androidUrl,
       TargetPlatform.windows => windows,
       TargetPlatform.linux => linux,
       _ => null,
@@ -52,7 +78,7 @@ class ReleaseInfo {
   String? get mirrorForThisPlatform {
     if (kIsWeb) return null;
     final key = switch (defaultTargetPlatform) {
-      TargetPlatform.android => 'android_arm64_url',
+      TargetPlatform.android => _androidKey,
       TargetPlatform.windows => 'windows_url',
       TargetPlatform.linux => 'linux_url',
       _ => null,
@@ -62,7 +88,7 @@ class ReleaseInfo {
   }
 
   /// App 内安装包的下载顺序：主线路在前，备用在后（去重去空）。
-  List<String> get androidSources => {?androidArm64, ?mirror['android_arm64_url']}.toList();
+  List<String> get androidSources => {?_androidUrl, ?mirror[_androidKey]}.toList();
 }
 
 /// "0.4.1" vs "0.10.0" 按段比较；带后缀（-beta）的段按数字前缀算。
@@ -81,6 +107,7 @@ class Updater {
 
   static Future<ReleaseInfo?> check({http.Client? client}) async {
     final c = client ?? http.Client();
+    if (io.isAndroid) ReleaseInfo.deviceIs64 = await io.is64Bit();
     try {
       final r = await c.get(Uri.parse('$endpoint?t=${DateTime.now().millisecondsSinceEpoch ~/ 3600000}')).timeout(const Duration(seconds: 10));
       if (r.statusCode != 200) return null;
@@ -109,7 +136,20 @@ class Updater {
     Object? last;
     for (var i = 0; i < sources.length && path == null; i++) {
       final url = sources[i];
-      Future<String> go() => io.downloadTo(url, 'yujian-${r.version}.apk', onProgress, cancelled: skip);
+      Future<String> go() async {
+        final p = await io.downloadTo(url, 'yujian-${r.version}.apk', onProgress, cancelled: skip);
+        // 和 version.json 里的 SHA-256 对账：下坏了 / 线路被动了手脚都在这里拦下，不交给安装器
+        final want = r.expectedSha256ForThisPlatform;
+        if (want != null) {
+          final got = await io.sha256Of(p);
+          if (got != null && got.toLowerCase() != want) {
+            await io.deleteFile(p);
+            throw Exception('安装包校验没通过（SHA-256 对不上），已丢弃');
+          }
+        }
+        return p;
+      }
+
       try {
         path = await (attempt == null ? go() : attempt(url, go));
       } catch (e) {

@@ -141,7 +141,13 @@ class NetEvent {
         switch (purpose) {
           case 'push':
           case 'sync':
-            return '同步：把本机账本的变更（$count 条，明文，走 HTTPS）推到你自己填的同步服务器 $where，并拉回其他设备的变更。不填同步地址就永远不会发生。';
+            return '同步：把本机账本的变更（$count 条）推到你自己填的同步服务器 $where，并拉回其他设备的变更。没设同步加密口令时是明文（走 HTTPS），设了就只有密文，服务器看不到金额和商户。不填同步地址就永远不会发生。';
+          case 'rebuild':
+            return '用本机账本重建同步服务器 $where 上的数据：先清空服务器上的变更日志，再把整本账本（设了同步加密口令就是密文）推上去。';
+          case 'compact':
+            return '让同步服务器 $where 压缩变更日志（每条记录只留最新版本）。只发了这个指令，没有账本数据。';
+          case 'devices':
+            return '查看 / 移出 / 恢复同步服务器 $where 上的设备。只有设备编号，没有账本数据。';
           case 'backup':
             return '把整本账本用你的口令加密（AES-GCM）后上传到 $where（$kb）。没有口令谁也解不开，包括服务器。';
           case 'restore':

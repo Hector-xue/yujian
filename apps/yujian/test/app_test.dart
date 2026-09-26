@@ -350,10 +350,16 @@ void main() {
       expect(await st.ingestScreenshots([shot(1)]), 1);
       expect(st.ledger.listTransactions().single.amountMinor, 3650);
       expect(st.screenshotLog.first.outcome, 'recorded');
+      // 另一张截图认出完全相同的一笔（同金额、同一时刻）：多半是同一笔截了两次 → 标疑似重复，静默模式也不自动入账
+      src.images['content://shot/2'] = Uint8List.fromList([2]);
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/2': payJson}));
+      expect(await st.ingestScreenshots([shot(2)]), 1);
+      expect(st.ledger.listTransactions().length, 1);
+      expect(st.inbox.single.possibleDuplicateOf, st.ledger.listTransactions().single.id);
       // 实时流：原生说「有新的」，Dart 自己去 drain
       await st.startScreenshots();
       src.images['content://shot/3'] = Uint8List.fromList([3]);
-      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/3': payJson}));
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/3': payJson.replaceFirst('36.50', '12.00')}));
       src.push(shot(3));
       await Future<void>.delayed(Duration.zero);
       await st.drainScreenshots(); // 排在流触发的那批后面，等它跑完

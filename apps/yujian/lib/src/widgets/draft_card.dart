@@ -159,7 +159,8 @@ class _DraftRow extends StatelessWidget {
         'amount_minor' => '金额',
         'occurred_at' => '时间',
         'currency' => '币种',
-        'refund_of_id' => '原交易',
+        'refund_of_id' => '退的是哪一笔',
+        'type' => '收支类型',
         'description' => '说明',
         _ => f,
       };

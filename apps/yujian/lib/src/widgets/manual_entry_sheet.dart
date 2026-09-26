@@ -101,8 +101,8 @@ class _FormState extends State<_Form> {
     }
     final cats = _cats!;
     final accs = _accs ??= app.ledger.listAccounts();
+    accountId ??= app.defaultAccountId ?? (accs.isEmpty ? null : accs.first.id);
     final currency = accs.isEmpty ? 'CNY' : (accs.firstWhere((a) => a.id == accountId, orElse: () => accs.first).currency);
-    accountId ??= accs.isEmpty ? null : accs.first.id;
     if (categoryId != null && !cats.any((c) => c.id == categoryId)) categoryId = null;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),

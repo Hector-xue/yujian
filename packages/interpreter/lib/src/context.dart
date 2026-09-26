@@ -24,6 +24,7 @@ class RecentTransaction {
   final String localDate;
   final String? categoryId;
   final String? description;
+  final String? type; // expense | income | transfer | refund | adjustment；改分类时按它决定在支出还是收入分类里找
   const RecentTransaction({
     required this.id,
     required this.amountMinor,
@@ -31,6 +32,7 @@ class RecentTransaction {
     required this.localDate,
     this.categoryId,
     this.description,
+    this.type,
   });
 }
 

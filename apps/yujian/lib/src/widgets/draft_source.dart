@@ -63,6 +63,7 @@ DraftOrigin describeDraftOrigin(AppState app, Draft d) {
           if (added != null && added > 0) ('截图时间', fmtExactTime(DateTime.fromMillisecondsSinceEpoch(added))),
           ('认法', switch (how) {
             'ocr:local' => '本机 OCR + 规则，图和字都没出手机',
+            'ocr:list' => '本机 OCR 认出一屏账单列表里的这一笔（商户、时间按版式推的，确认前看一眼），图和字都没出手机',
             'ocr:text' => '本机 OCR，文字打码后交给模型${model == null ? '' : '（$model）'}',
             'vision:auto' => '原图交给看图模型${model == null ? '' : '（$model）'}',
             _ => how,
@@ -150,15 +151,18 @@ Future<void> showDraftOrigin(BuildContext context, Draft d) {
   final app = AppScope.of(context);
   final o = describeDraftOrigin(app, d);
   Transaction? dup;
+  Draft? dupDraft;
   if (d.possibleDuplicateOf != null) {
     try {
       dup = app.ledger.transaction(d.possibleDuplicateOf!);
+      if (dup == null) dupDraft = app.ledger.getDraft(d.possibleDuplicateOf!);
     } catch (_) {}
   }
   final rows = <(String, String)>[
     ('进入收件箱', fmtExactTime(d.createdAt)),
     ...o.details,
-    if (dup != null) ('疑似重复', '和 ${dup.occurredAt.localDate} 的「${dup.description ?? app.categoryName(dup.categoryId)}」金额、时间很接近'),
+    if (dup != null) ('疑似重复', '和 ${dup.occurredAt.localDate} 的「${dup.description ?? app.categoryName(dup.categoryId)}」金额、时间很接近（多半是同一笔被两条路各抓了一次）'),
+    if (dupDraft != null) ('疑似重复', '收件箱里还有一条「${describeDraftOrigin(app, dupDraft).label}」进来的，金额一样、时间只差几分钟（多半是同一笔被两条路各抓了一次，留一条就行）'),
   ];
   return showModalBottomSheet<void>(
     context: context,
