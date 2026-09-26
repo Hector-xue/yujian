@@ -436,6 +436,18 @@ class Ledger implements ValidationContext {
       if (d.status == DraftStatus.committed) return getTransaction(d.committedTransactionId!);
       if (d.status == DraftStatus.dismissed) throw InvalidStateException('draft $draftId was dismissed');
 
+      // 多设备：周期账单 / 定存 / 任务奖励这类按日子算出来的指纹，每台设备都会各自起草一份（草稿不同步）。
+      // 另一台已经确认、交易同步过来了，这边再确认就是重复——直接认领那笔，不再落第二次账。
+      final fp = d.eventFingerprint;
+      if (d.kind == DraftKind.create && fp != null && _deterministicFp.hasMatch(fp)) {
+        final existing = _db.select("SELECT id FROM transactions WHERE event_fingerprint = ? AND status = 'confirmed' LIMIT 1", [fp]);
+        if (existing.isNotEmpty) {
+          final txId = existing.first['id'] as String;
+          _db.execute("UPDATE drafts SET status = 'committed', committed_transaction_id = ?, resolved_at = ? WHERE id = ?", [txId, _nowMs(), draftId]);
+          _audit(Actor.user, 'draft.commit_existing', 'draft', draftId, after: {'transaction_id': txId, 'fingerprint': fp}, draftId: draftId, confirmed: true);
+          return getTransaction(txId);
+        }
+      }
       final finalPayload = {...d.payload, ...?edits};
       final Transaction tx;
       switch (d.kind) {
@@ -477,6 +489,8 @@ class Ledger implements ValidationContext {
     });
   }
 
+  static final _deterministicFp = RegExp(r'^(recurring|goal|task):');
+
   /// 整组确认（多笔解析）。任一条失败整组回滚，不留半截。
   List<Transaction> commitGroup(String groupId) => _db.transaction(() {
         final drafts = listDrafts(groupId: groupId)..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -506,7 +520,8 @@ class Ledger implements ValidationContext {
       "VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed',?,?,?,?,?,?,?)",
       [
         id, v.type.db, v.occurredAt.millis, v.occurredAt.offsetMinutes, v.currency, v.merchant, v.description,
-        v.categoryId, jsonEncode(v.tags), d.source.db, d.confidence, v.refundOfId, null, d.eventFingerprint,
+        v.categoryId, jsonEncode(v.tags), d.source.db, d.confidence, v.refundOfId,
+        d.source == Source.recurring && v.metadata['recurring_id'] is String ? v.metadata['recurring_id'] : null, d.eventFingerprint,
         jsonEncode(v.metadata), ts, ts,
       ],
     );
@@ -640,6 +655,12 @@ class Ledger implements ValidationContext {
       _db.select('SELECT COUNT(*) AS n FROM transactions WHERE status = ?', [status.db]).first['n'] as int;
 
   /// 最早一笔记录的入库时间（毫秒）；空账本 = null。用作「用了多久」的依据：跟着账本走，换机 / 重装恢复后不会归零。
+  /// 最早一笔已确认交易的发生时间（毫秒）；空账本 = null。「上个月的储蓄率」这类成就要求那个月整月都在记账。
+  int? firstOccurredAtMs() {
+    final r = _db.select("SELECT MIN(occurred_at_ms) AS t FROM transactions WHERE status = 'confirmed'");
+    return r.isEmpty ? null : r.first['t'] as int?;
+  }
+
   int? firstRecordedAtMs() {
     final r = _db.select('SELECT MIN(created_at) AS t FROM transactions');
     return r.isEmpty ? null : r.first['t'] as int?;

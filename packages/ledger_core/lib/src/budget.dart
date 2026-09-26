@@ -40,7 +40,7 @@ class Budget {
         categoryId: r['category_id'] as String?,
         amountMinor: r['amount_minor'] as int,
         currency: r['currency'] as String,
-        period: BudgetPeriod.values.byName(r['period'] as String),
+        period: BudgetPeriod.values.asNameMap()[r['period']] ?? BudgetPeriod.monthly,
         startDate: r['start_date'] as String,
         endDate: r['end_date'] as String?,
         alertThreshold: (r['alert_threshold'] as num).toDouble(),

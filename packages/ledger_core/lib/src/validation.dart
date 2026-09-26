@@ -139,6 +139,11 @@ Analysis analyzeCreatePayload(Map<String, Object?> p, ValidationContext ctx, {St
     }
   }
 
+  // 修改一笔已有交易时：原来就记在某个已归档账户上的，保持不变可以（改分类 / 备注不该被「账户已归档」挡住）；
+  // 只有新挪到一个已归档账户上才拒绝。
+  final self = selfId == null ? null : ctx.transaction(selfId);
+  bool keptArchived(Object? id) => self != null && id is String && (id == self.accountId || id == self.toAccountId);
+
   // account
   Account? account;
   final accRaw = p['account_id'];
@@ -148,7 +153,7 @@ Analysis analyzeCreatePayload(Map<String, Object?> p, ValidationContext ctx, {St
     account = ctx.account(accRaw);
     if (account == null) {
       missing.add('account_id');
-    } else if (account.isArchived) {
+    } else if (account.isArchived && !keptArchived(accRaw)) {
       errors.add(ValidationException('account_id', 'account is archived'));
     } else if (currency != null && account.currency != currency) {
       errors.add(ValidationException('account_id', 'account currency ${account.currency} != $currency'));
@@ -165,7 +170,7 @@ Analysis analyzeCreatePayload(Map<String, Object?> p, ValidationContext ctx, {St
       toAccount = ctx.account(toRaw);
       if (toAccount == null) {
         missing.add('to_account_id');
-      } else if (toAccount.isArchived) {
+      } else if (toAccount.isArchived && !keptArchived(toRaw)) {
         errors.add(ValidationException('to_account_id', 'account is archived'));
       } else if (toRaw == accRaw) {
         errors.add(ValidationException('to_account_id', 'transfer needs two different accounts'));

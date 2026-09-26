@@ -95,7 +95,7 @@ class Goal {
 
   factory Goal.fromRow(Map<String, Object?> r) => Goal(
         id: r['id'] as String,
-        kind: GoalKind.values.byName(r['kind'] as String),
+        kind: GoalKind.values.asNameMap()[r['kind']] ?? GoalKind.wish, // 未知值（新版本同步来的）不崩
         name: r['name'] as String,
         emoji: r['emoji'] as String?,
         cover: r['cover'] as String?,
@@ -105,8 +105,9 @@ class Goal {
         vaultAccountId: r['vault_account_id'] as String?,
         linkedAccountId: r['linked_account_id'] as String?,
         priority: r['priority'] as int,
-        status: GoalStatus.values.byName(r['status'] as String),
-        rules: [for (final j in (jsonDecode((r['rules'] as String?) ?? '[]') as List)) GoalRule.fromJson((j as Map).cast<String, Object?>())],
+        status: GoalStatus.values.asNameMap()[r['status']] ?? GoalStatus.active,
+        // 认不出的规则种类（新版本加的）跳过，不猜它是定额还是比例——猜错了会替用户存钱
+        rules: [for (final j in (jsonDecode((r['rules'] as String?) ?? '[]') as List)) if (GoalRuleKind.values.asNameMap().containsKey((j as Map)['kind'])) GoalRule.fromJson(j.cast<String, Object?>())],
         doneAt: r['done_at'] as int?,
         createdAt: r['created_at'] as int,
         updatedAt: r['updated_at'] as int,
@@ -484,7 +485,8 @@ class GoalStore {
     var left = total;
     final entries = bySource.entries.toList();
     for (var i = 0; i < entries.length; i++) {
-      final amount = i == entries.length - 1 ? left : (total * entries[i].value / sum).round();
+      // 前面的向下取整、最后一笔拿余数：加起来正好等于锁仓余额（四舍五入会多退 1 分，把锁仓退成负数）
+      final amount = i == entries.length - 1 ? left : (total * entries[i].value ~/ sum);
       if (amount > 0) out.add(back(entries[i].key, amount));
       left -= amount;
     }

@@ -1,9 +1,11 @@
 import 'benchmark.dart';
 import 'debts.dart';
+import 'goals.dart';
 import 'ledger.dart';
 import 'models/account.dart';
 import 'models/enums.dart';
 import 'money.dart';
+import 'recurring.dart';
 import 'models/transaction.dart';
 
 /// 收入线：主线（工资 / 奖金）、副本（兼职 / 礼金 / 外快）、挂机（利息 / 分红 / 理财收益）。
@@ -207,9 +209,11 @@ class Wealth {
       if (_liquidTypes.contains(a.type)) cash += b;
       if (a.type == AccountType.creditCard && b < 0) cardOwed += -b;
     }
+    // 锁仓：虚拟锁仓里还有钱就算锁着（不管目标是进行中还是已达成 / 已完成没释放干净）；真锁仓是用户自己的账户，只在目标进行中才锁
     var locked = 0;
-    for (final g in ledger.goals.list()) {
-      if (g.currency == currency) locked += ledger.goals.savedMinor(g);
+    for (final g in ledger.goals.list(activeOnly: false)) {
+      if (g.currency != currency || g.status == GoalStatus.archived) continue;
+      if (g.isVirtualVault || g.status == GoalStatus.active) locked += ledger.goals.savedMinor(g);
     }
     final debts = ledger.debts;
     final debtTotals = debts.totals(currency: currency);
@@ -229,8 +233,28 @@ class Wealth {
       final isRepay = debts.isRepayment(r);
       if (!isExpense && !isRepay) continue;
       recurringMonthly += Debts.monthly(r);
-      if (r.nextDue.compareTo(today) < 0 || r.nextDue.compareTo(payday) > 0) continue;
-      fixedDue += ((r.template['amount_minor'] as num?)?.toInt() ?? 0);
+      // 到发薪日前每一期都要扣：每周一次的固定支出离发薪还有 25 天就是 3～4 次，不是一次
+      final amount = (r.template['amount_minor'] as num?)?.toInt() ?? 0;
+      var d = r.nextDue;
+      for (var guard = 0; d.compareTo(payday) <= 0 && guard < 400; guard++) {
+        if (d.compareTo(today) >= 0) fixedDue += amount;
+        final n = advanceDate(d, r.frequency, r.interval < 1 ? 1 : r.interval);
+        if (n.compareTo(d) <= 0) break;
+        d = n;
+      }
+    }
+    // 已经到期生成了草稿、但还躺在收件箱没确认的周期账单：钱还没从余额里扣，next_due 却已经往后推了，两边都算不到它
+    for (final dr in ledger.listDrafts(status: DraftStatus.pending, limit: 1000)) {
+      if (dr.source != Source.recurring || dr.kind != DraftKind.create) continue;
+      final p = dr.payload;
+      if ((p['currency'] ?? currency) != currency) continue;
+      final at = p['occurred_at'];
+      if (at is String && at.length >= 10 && at.substring(0, 10).compareTo(payday) > 0) continue;
+      final isExpense = p['type'] == 'expense';
+      final to = p['to_account_id'];
+      final isRepay = p['type'] == 'transfer' && to is String && ledger.account(to)?.type == AccountType.payable;
+      if (!isExpense && !isRepay) continue;
+      fixedDue += (p['amount_minor'] as num?)?.toInt() ?? 0;
     }
     final liquid = cash > 0 ? cash : 0;
     final disposable = cash - locked - fixedDue - cardOwed;
@@ -364,19 +388,33 @@ class Wealth {
     return (_fmt(c), source);
   }
 
-  /// 从收入记录推发薪日：最近 3 个月每月最大的一笔收入（工资 / 奖金分类优先），日子取众数。
+  /// 今天是不是发薪日（画像填的日子，没填按推断；大于当月天数的按月底）。
+  /// 注意 [nextPayday] 永远返回「今天之后」的下一个，不能拿它和今天比（以前这么比，发薪日仪式从来没触发过）。
+  bool isPayday({required String today}) {
+    final day = ledger.profile.payday ?? inferPaydayDay(today: today);
+    if (day == null) return false;
+    final t = _parse(today);
+    final last = DateTime.utc(t.year, t.month + 1, 0).day;
+    return t.day == (day > last ? last : day);
+  }
+
+  /// 从收入记录推发薪日：每个月取一笔代表——有工资 / 奖金就取其中最大的，没有才取最大的一笔收入——日子取众数。
+  /// 顺序是上月、上上月、再往前一月，最后才是本月（本月只在已经有工资 / 奖金时才参与：工资还没到的话，
+  /// 本月别的收入会把日子带偏）；平票取排在前面的，也就是最近的整月。
   int? inferPaydayDay({required String today}) {
     final t = _parse(today);
     final days = <int>[];
-    for (var i = 0; i < 3; i++) {
+    for (final i in const [1, 2, 3, 0]) {
       final m = DateTime.utc(t.year, t.month - i, 1);
       final last = DateTime.utc(m.year, m.month + 1, 0);
-      Transaction? best;
+      Transaction? salary;
+      Transaction? any;
       for (final tx in _range(from: _fmt(m), to: _fmt(last))) {
         if (tx.type != TransactionType.income) continue;
-        final salaryish = tx.categoryId == 'salary' || tx.categoryId == 'bonus';
-        if (best == null || (salaryish && !(best.categoryId == 'salary' || best.categoryId == 'bonus')) || tx.amountMinor > best.amountMinor) best = tx;
+        if ((tx.categoryId == 'salary' || tx.categoryId == 'bonus') && (salary == null || tx.amountMinor > salary.amountMinor)) salary = tx;
+        if (any == null || tx.amountMinor > any.amountMinor) any = tx;
       }
+      final best = salary ?? (i == 0 ? null : any);
       if (best != null) days.add(int.parse(best.occurredAt.localDate.substring(8, 10)));
     }
     if (days.isEmpty) return null;
@@ -384,8 +422,11 @@ class Wealth {
     for (final d in days) {
       counts[d] = (counts[d] ?? 0) + 1;
     }
-    final sorted = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    return sorted.first.key;
+    var pick = days.first;
+    for (final d in days) {
+      if (counts[d]! > counts[pick]!) pick = d; // 严格大于：平票保留更早出现（更近的整月）的那个
+    }
+    return pick;
   }
 
   List<Transaction> _range({required String from, required String to, String? currency}) {

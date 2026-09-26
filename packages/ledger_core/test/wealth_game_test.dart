@@ -491,7 +491,7 @@ void main() {
       expect(ledger.tasks.progress(cap, today: '2026-09-23').onTrack, isFalse); // 350 > 300
       expect(ledger.tasks.progress(cnt, today: '2026-09-23').current, 1);
       final n = ledger.tasks.progress(nsd, today: '2026-09-25');
-      expect(n.current, 2); // 21、24（房租不算）
+      expect(n.current, 3); // 21、24（房租是周期账单，不算破功）、25（存钱是转账不是花钱）
       expect(n.achieved, isTrue);
       expect(ledger.tasks.progress(dep, today: '2026-09-25').achieved, isTrue);
 

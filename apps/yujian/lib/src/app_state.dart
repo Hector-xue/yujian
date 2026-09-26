@@ -1031,24 +1031,31 @@ class AppState extends ChangeNotifier {
   }
 
   /// 作废 = 建一条 void 草稿并立即确认（用户已在对话框里确认过原因）。
+  /// 起草和确认在同一个事务里：确认失败（校验不过、有退款挡着……）整体回滚，收件箱里不会留下一条垃圾草稿。
   void voidTransaction(String id, String reason) {
-    final d = ledger.propose([DraftInput(kind: DraftKind.void_, targetTransactionId: id, payload: {'reason': reason})], source: Source.manual, actor: Actor.user).single;
-    ledger.commit(d.id);
+    ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(kind: DraftKind.void_, targetTransactionId: id, payload: {'reason': reason})], source: Source.manual, actor: Actor.user).single;
+      ledger.commit(d.id);
+    });
     notifyListeners();
   }
 
   /// 修改 = update 草稿 + 立即确认（编辑表单本身就是确认动作）。
   Transaction updateTransaction(String id, Map<String, Object?> patch) {
-    final d = ledger.propose([DraftInput(kind: DraftKind.update, targetTransactionId: id, payload: patch)], source: Source.manual, actor: Actor.user).single;
-    final t = ledger.commit(d.id);
+    final t = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(kind: DraftKind.update, targetTransactionId: id, payload: patch)], source: Source.manual, actor: Actor.user).single;
+      return ledger.commit(d.id);
+    });
     notifyListeners();
     return t;
   }
 
   /// 手动记账 = create 草稿 + 立即确认。
   Transaction addManual(Map<String, Object?> payload) {
-    final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
-    final t = ledger.commit(d.id);
+    final t = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
+      return ledger.commit(d.id);
+    });
     notifyListeners();
     unawaited(game.onIncomeCommitted(t)); // 手动记的工资也触发发薪日仪式
     return t;

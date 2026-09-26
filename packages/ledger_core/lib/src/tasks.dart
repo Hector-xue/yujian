@@ -50,10 +50,10 @@ class WeeklyTask {
   factory WeeklyTask.fromRow(Map<String, Object?> r) => WeeklyTask(
         id: r['id'] as String,
         week: r['week'] as String,
-        kind: TaskKind.values.byName(r['kind'] as String),
+        kind: TaskKind.values.byName(r['kind'] as String), // 未知种类在 list() 里就筛掉了
         params: (jsonDecode(r['params'] as String) as Map).cast<String, Object?>(),
         title: r['title'] as String,
-        result: TaskResult.values.byName(r['result'] as String),
+        result: TaskResult.values.asNameMap()[r['result']] ?? TaskResult.pending,
         rewardGoalId: r['reward_goal_id'] as String?,
         rewardMinor: r['reward_minor'] as int,
         source: r['source'] as String,
@@ -132,6 +132,7 @@ class TaskStore {
 
   List<WeeklyTask> list({String? week, int limit = 200}) => _db
       .select('SELECT * FROM tasks ${week == null ? '' : 'WHERE week = ?'} ORDER BY week DESC, created_at LIMIT ?', [if (week != null) week, limit])
+      .where((r) => TaskKind.values.asNameMap().containsKey(r['kind'])) // 新版本同步来的任务种类老版本判定不了：不显示，也不结算
       .map(WeeklyTask.fromRow)
       .toList();
 
@@ -183,7 +184,8 @@ class TaskStore {
           days.add(_fmt(d));
         }
         for (final x in txs) {
-          if (x.type == TransactionType.expense && x.recurringId == null) days.remove(x.occurredAt.localDate);
+          // 周期账单（房租、订阅）自动扣的不算破功：认 recurring_id，老数据没有这个字段的按来源认
+          if (x.type == TransactionType.expense && x.recurringId == null && x.source != Source.recurring) days.remove(x.occurredAt.localDate);
         }
         final remainingDays = sunday.difference(end).inDays;
         return TaskProgress(task: t, current: days.length, limit: min, onTrack: days.length + remainingDays >= min, achieved: days.length >= min, detail: '${days.length} / $min 天没花钱');
