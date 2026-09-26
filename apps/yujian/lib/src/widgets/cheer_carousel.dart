@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
+import '../app_state.dart';
 import '../game/cheer.dart';
 import '../theme.dart';
 
@@ -63,10 +64,21 @@ class _CheerCarouselState extends State<CheerCarousel> {
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
             layoutBuilder: (current, previous) => Stack(alignment: Alignment.topLeft, children: [...previous, ?current]),
-            child: Text(line, key: ValueKey(line), style: theme.textTheme.bodySmall?.copyWith(color: color), maxLines: 2, overflow: TextOverflow.ellipsis),
+            // 会变的这句用人格的主题色（换人格跟着换）；上面那行收入排位不变色
+            child: Text(line, key: ValueKey(line), style: theme.textTheme.bodySmall?.copyWith(color: personaLineColor(context)), maxLines: 2, overflow: TextOverflow.ellipsis),
           ),
         ]),
       ),
     );
   }
+}
+
+/// 人格主题色，按当前深浅色调到看得清：浅色主题里太浅的（自定义人格可能选了浅黄）压暗，深色主题里太深的提亮。
+Color personaLineColor(BuildContext context) {
+  final base = Color(0xFF000000 | AppScope.of(context).persona.accent);
+  final lum = base.computeLuminance();
+  if (Theme.of(context).brightness == Brightness.dark) {
+    return lum < 0.35 ? Color.lerp(base, const Color(0xFFFFFFFF), 0.4)! : base;
+  }
+  return lum > 0.45 ? Color.lerp(base, const Color(0xFF000000), 0.45)! : base;
 }
