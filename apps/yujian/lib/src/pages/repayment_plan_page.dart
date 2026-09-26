@@ -12,7 +12,18 @@ import 'debts_page.dart';
 class RepaymentPlanPage extends StatelessWidget {
   const RepaymentPlanPage({super.key});
 
-  static String _md(String d) => '${int.parse(d.substring(5, 7))}/${int.parse(d.substring(8, 10))}';
+  /// 「最少要还」由哪几类组成：只列真有的（以前写死「月供 + 各卡最低」，发薪前只有房租时也这么写）。
+  static String _minParts(RepaymentPlan p) {
+    final kinds = {for (final i in p.items) if (!i.isIncome && i.date.compareTo(p.payday) <= 0) i.kind};
+    final parts = [
+      if (kinds.contains(PlanItemKind.fixed)) '固定支出',
+      if (kinds.contains(PlanItemKind.loan)) '月供',
+      if (kinds.contains(PlanItemKind.card)) '各卡最低还款',
+    ];
+    return parts.isEmpty ? '' : '（${parts.join(' + ')}）';
+  }
+
+  static String _md(String d) => fmtMd(d);
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +49,7 @@ class RepaymentPlanPage extends StatelessWidget {
                     Text(fmtMoney(p.dueBeforePaydayFullMinor, 'CNY'), style: theme.textTheme.headlineMedium?.copyWith(fontSize: 32, color: p.shortfallMinor > 0 ? y.danger : null, fontFeatures: const [FontFeature.tabularFigures()])),
                     Text(
                       [
-                        '最少要还 ${fmtMoney(p.dueBeforePaydayMinMinor, 'CNY')}（月供 + 各卡最低）',
+                        '最少要还 ${fmtMoney(p.dueBeforePaydayMinMinor, 'CNY')}${_minParts(p)}',
                         '手头能用 ${fmtMoney(p.startCashMinor, 'CNY')}（现金余额 − 锁进目标的）',
                         if (p.monthlyIncomeMinor > 0) '每个发薪日按 ${fmtMoney(p.monthlyIncomeMinor, 'CNY')} 到账估' else '还没有收入记录：发薪日没算进账',
                       ].join('\n'),
@@ -132,7 +143,7 @@ class _PlanRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('${i.isIncome ? '+' : '−'}${fmtMoney(i.payMinor, 'CNY')}', style: theme.textTheme.titleSmall?.copyWith(color: amountColor, fontFeatures: const [FontFeature.tabularFigures()])),
+            Text('${i.isIncome ? '+' : '-'}${fmtMoney(i.payMinor, 'CNY')}', style: theme.textTheme.titleSmall?.copyWith(color: amountColor, fontFeatures: const [FontFeature.tabularFigures()])),
             Text('剩 ${fmtMoney(i.balanceAfterMinor, 'CNY')}', style: theme.textTheme.bodySmall?.copyWith(color: i.short ? y.danger : y.muted, fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
         ]),

@@ -29,6 +29,7 @@ import 'budgets_page.dart';
 import 'calendar_page.dart';
 import 'goals_page.dart';
 import 'stats_page.dart';
+import '../errors_zh.dart';
 
 sealed class _Msg {
   Map<String, Object?> toJson();
@@ -272,7 +273,7 @@ class _ChatPageState extends State<ChatPage> {
     } on ProviderException catch (e) {
       r = CompanionReply(text: '${app.replier.template(PersonaEvent.modelUnavailable)}（${e.message}）');
     } catch (e) {
-      r = CompanionReply(text: '${app.replier.template(PersonaEvent.modelUnavailable)}（$e）');
+      r = CompanionReply(text: '${app.replier.template(PersonaEvent.modelUnavailable)}（${friendlyError(e)}）');
     }
     if (!mounted) return;
     final learned = await app.memory.addAll(r.remember);
@@ -319,7 +320,7 @@ class _ChatPageState extends State<ChatPage> {
       builder: (d) => AlertDialog(
         title: const Text('给它起个名字'),
         content: TextField(controller: ctl, autofocus: true, decoration: InputDecoration(hintText: app.persona.name, helperText: '留空就用人格名'), onSubmitted: (x) => Navigator.pop(d, x)),
-        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: const Text('好'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: const Text('保存'))],
       ),
     );
     if (v == null || !mounted) return;
@@ -352,7 +353,7 @@ class _ChatPageState extends State<ChatPage> {
         if (text != null) _voiceFinal(text);
       } catch (e) {
         _setPhase(VoicePhase.idle);
-        _notice('识别出错：$e');
+        _notice('识别出错：${friendlyError(e)}');
       }
       return;
     }
@@ -595,7 +596,8 @@ class _ChatPageState extends State<ChatPage> {
       } else if (r.drafts.isNotEmpty) {
         _msgs.add(_DraftMsg(r.drafts.first.groupId, meta));
       }
-      _msgs.add(_TextMsg(reply));
+      // 人格回复是空的（极简助手：记账卡片本身已经说清楚了）就不再加一句「1 笔待确认」
+      if (reply.trim().isNotEmpty) _msgs.add(_TextMsg(reply));
       final sug = app.game.takeSuggestion();
       if (sug != null) _msgs.add(_GoalMsg(name: sug.name, amountMinor: sug.amountMinor));
       if (stickerEvent != null) _maybeSticker(app, stickerEvent);
@@ -614,7 +616,7 @@ class _ChatPageState extends State<ChatPage> {
 
   /// 朗读回复（用户开了才读）：配了语音合成模型走云端真人感语音，否则系统 TTS；都没有就静默。
   Future<void> _say(String text) async {
-    if (!_speak || !mounted) return;
+    if (!_speak || !mounted || text.trim().isEmpty) return;
     final app = AppScope.of(context);
     await _tts.speak(text, app.settings, meter: app.usage, log: app.netLog);
   }
@@ -683,7 +685,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     if (r.error == null) {
       final reply = await app.replier.reply(PersonaEvent.draftsProposed, n: r.drafts.length);
-      if (mounted) setState(() => _msgs.add(_TextMsg(reply)));
+      if (mounted && reply.trim().isNotEmpty) setState(() => _msgs.add(_TextMsg(reply)));
     }
     _saveHistory();
     _jumpToEnd();

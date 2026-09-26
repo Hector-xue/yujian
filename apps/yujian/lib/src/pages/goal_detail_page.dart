@@ -8,6 +8,7 @@ import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'goals_page.dart';
 import 'inbox_page.dart';
+import '../errors_zh.dart';
 
 /// 目标详情：进度与依据、存入 / 兑现 / 完成 / 归档、规则、存入记录。
 class GoalDetailPage extends StatelessWidget {
@@ -96,7 +97,7 @@ class GoalDetailPage extends StatelessWidget {
                     ClipRRect(borderRadius: BorderRadius.circular(6), child: LinearProgressIndicator(value: p.ratio, minHeight: 10, backgroundColor: y.hairline, color: p.reached ? y.income : theme.colorScheme.primary)),
                     const SizedBox(height: 10),
                     Text(app.game.describe(p).replaceFirst(RegExp(r'^[^：]*：'), ''), style: theme.textTheme.bodyMedium),
-                    if (g.deadline != null) Text('期限 ${g.deadline}${p.behindDays != null ? (p.behindDays! > 0 ? ' · 按现在的速度晚 ${p.behindDays} 天' : ' · 按现在的速度提前 ${-p.behindDays!} 天') : ''}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+                    if (g.deadline != null) Text('期限 ${fmtMd(g.deadline!)}${p.behindDays != null ? (p.behindDays! > 0 ? ' · 按现在的速度晚 ${p.behindDays} 天' : ' · 按现在的速度提前 ${-p.behindDays!} 天') : ''}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                     const SizedBox(height: 6),
                     Text(_basis(g, p, vault, app.accountName(g.linkedAccountId)), style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
                   ]),
@@ -140,7 +141,7 @@ class GoalDetailPage extends StatelessWidget {
                     leading: Icon(t.type == TransactionType.expense ? Icons.shopping_bag_outlined : (t.toAccountId == g.vaultAccountId ? Icons.arrow_downward : Icons.arrow_upward), size: 18),
                     title: Text(t.description ?? (t.type == TransactionType.expense ? '兑现' : '存入')),
                     subtitle: Text('${fmtDate(t.occurredAt.localDate, today: todayLocal())} · ${t.type == TransactionType.expense ? app.accountName(g.vaultAccountId) : (t.toAccountId == g.vaultAccountId ? '来自 ${app.accountName(t.accountId)}' : '回到 ${app.accountName(t.toAccountId)}')}', style: theme.textTheme.bodySmall),
-                    trailing: Text('${t.type == TransactionType.expense || t.accountId == g.vaultAccountId ? '−' : '+'}${fmtMoney(t.amountMinor, t.currency)}', style: theme.textTheme.titleSmall),
+                    trailing: Text('${t.type == TransactionType.expense || t.accountId == g.vaultAccountId ? '-' : '+'}${fmtMoney(t.amountMinor, t.currency)}', style: theme.textTheme.titleSmall),
                     onLongPress: () async {
                       final ok = await _confirm(context, '作废这一笔？', '作废后余额会退回。');
                       if (ok) app.voidTransaction(t.id, '目标页作废');
@@ -157,9 +158,9 @@ class GoalDetailPage extends StatelessWidget {
 
   static String _basis(Goal g, GoalProgress p, Account? vault, String linkedName) => switch (g.kind) {
         GoalKind.wish => '依据：锁仓账户「${vault?.name ?? g.name}」的余额 ÷ 目标额。最近 30 天存入 ${p.paceMinorPerDay == null ? '为 0，算不出速度' : '平均每天 ${fmtMoney(p.paceMinorPerDay!.round(), g.currency)}'}。',
-        GoalKind.emergency => '依据：${g.hasVault ? '锁仓余额' : '没锁进别的目标的流动资产'} ÷ 目标额（创建时按近 3 个月平均月支出 × N 冻结）。',
+        GoalKind.emergency => '依据：${g.hasVault ? '锁仓余额' : '现金余额里没锁进别的目标的部分'} ÷ 目标额（创建时按近 3 个月平均月支出 × N 冻结）。',
         GoalKind.payoff => '依据：「$linkedName」的欠款从建目标时的 ${fmtMoney(g.targetMinor, g.currency)} 降到了多少${p.targetMinor > g.targetMinor ? '（现在欠的比建目标时还多，按现在的 ${fmtMoney(p.targetMinor, g.currency)} 算）' : ''}。',
-        GoalKind.milestone => '依据：净资产（全部账户余额之和，信用卡 / 应付为负）÷ 目标额。',
+        GoalKind.milestone => '依据：净资产（全部账户余额之和，信用卡和贷款算负数）÷ 目标额。',
       };
 
   static String _ruleText(GoalRule r, Goal g) => switch (r.kind) {
@@ -262,7 +263,7 @@ class GoalDetailPage extends StatelessWidget {
       await app.game.redeem(g, r.$1, categoryId: r.$2, merchant: r.$3.isEmpty ? null : r.$3);
       messenger.showSnackBar(const SnackBar(content: Text('记好了。花完了记得「标记达成」')));
     } on LedgerException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      messenger.showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 

@@ -91,7 +91,7 @@ class MorePage extends StatelessWidget {
                 child: item(Icons.favorite_border, '支持余见 ¥1', subtitle: '一杯白开水的钱，这条提醒永久关掉', onTap: () => go(const SupportPage())),
               ),
             ),
-          group('目标', [
+          group('规划', [
             item(Icons.flag_outlined, '目标', subtitle: app.game.goals.isEmpty ? '换手机 / 买车 / 首付 / 旅行——给钱一个用途' : app.game.goals.take(2).map((p) => '${p.goal.name} ${(p.ratio * 100).toStringAsFixed(0)}%').join(' · '), onTap: () => go(const GoalsPage())),
             item(Icons.task_alt_outlined, '周任务', subtitle: app.game.weekTasks.isEmpty ? '本周还没挑' : '本周 ${app.game.weekTasks.length} 个', onTap: () => go(const TasksPage())),
             item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.title == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.title}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),

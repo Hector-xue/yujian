@@ -72,8 +72,8 @@ class _StatsPageState extends State<StatsPage> {
       appBar: AppBar(
         title: Text('${month.year} 年 ${month.month} 月'),
         actions: [
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
+          IconButton(tooltip: '上个月', onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
+          IconButton(tooltip: '下个月', onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
         ],
       ),
       body: ListView(

@@ -8,6 +8,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../db/db_file.dart';
 import '../theme.dart';
+import '../errors_zh.dart';
 
 /// 数据：导出 CSV / 备份 JSON 或 SQLite 文件 / 恢复 / 导入账单。所有导入只进收件箱。
 class DataPage extends StatefulWidget {
@@ -25,7 +26,7 @@ class _DataPageState extends State<DataPage> {
       final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
       setState(() => status = path == null ? '已取消' : '已保存 $name');
     } catch (e) {
-      setState(() => status = '保存失败：$e');
+      setState(() => status = '保存失败：${friendlyError(e)}');
     }
   }
 
@@ -34,7 +35,7 @@ class _DataPageState extends State<DataPage> {
       final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
       setState(() => status = path == null ? '已取消' : '已保存 $name（${(bytes.length / 1024).toStringAsFixed(0)} KB）');
     } catch (e) {
-      setState(() => status = '保存失败：$e');
+      setState(() => status = '保存失败：${friendlyError(e)}');
     }
   }
 
@@ -92,7 +93,7 @@ class _DataPageState extends State<DataPage> {
               try {
                 await _saveBytes('yujian-$stamp.db', snapshotDatabase(app.ledger.database), ext: 'db');
               } catch (e) {
-                setState(() => status = '快照失败：$e');
+                setState(() => status = '快照失败：${friendlyError(e)}');
               }
             }),
           item(Icons.restore_outlined, '恢复备份', '会清空当前账本再写入备份内容', () async {
@@ -108,9 +109,9 @@ class _DataPageState extends State<DataPage> {
               final restored = app.restoreBackup(jsonDecode(text) as Map<String, Object?>);
               setState(() => status = '已恢复 $restored 笔交易');
             } on FormatException catch (e) {
-              setState(() => status = '恢复失败：${e.message}');
+              setState(() => status = '恢复失败：${friendlyError(e)}');
             } on LedgerException catch (e) {
-              setState(() => status = '恢复失败：${e.message}');
+              setState(() => status = '恢复失败：${friendlyError(e)}');
             }
           }),
           if (sqliteFileSupported)
@@ -128,9 +129,9 @@ class _DataPageState extends State<DataPage> {
                 final restored = await app.restoreSqlite(f.bytes!);
                 setState(() => status = '已恢复 $restored 笔交易');
               } on FormatException catch (e) {
-                setState(() => status = '恢复失败：${e.message}');
+                setState(() => status = '恢复失败：${friendlyError(e)}');
               } catch (e) {
-                setState(() => status = '恢复失败：$e');
+                setState(() => status = '恢复失败：${friendlyError(e)}');
               }
             }),
           ])),

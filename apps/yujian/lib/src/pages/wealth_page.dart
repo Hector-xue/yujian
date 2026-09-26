@@ -72,9 +72,9 @@ class WealthPage extends StatelessWidget {
                         const SizedBox(height: 6),
                       ],
                       if (m.level == null)
-                        Text('等级 = 生存月数 = 流动资产 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
+                        Text('等级 = 生存月数 = 现金余额 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
                       else ...[
-                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（${_basisLabel(m)}）。', style: theme.textTheme.bodySmall),
+                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 现金余额 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（${_basisLabel(m)}）。', style: theme.textTheme.bodySmall),
                         if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.title}」（${m.level!.next!.name}，≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                       ],
                       const SizedBox(height: 8),
@@ -133,8 +133,8 @@ class WealthPage extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 12),
-                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 手头余额 ${fmtMoney(m.cashMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
-                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${m.payday}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
+                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 现金余额 ${fmtMoney(m.cashMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比现金余额多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
+                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${fmtMd(m.payday)}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
                 stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}（目标锁仓算在资产里）${m.inDebt ? '。是负的很正常：有房贷车贷都这样，看下面的还清进度更有用' : ''}${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
                 if (m.debt.totalMinor > 0)
                   Padding(
@@ -297,7 +297,7 @@ class _AchievementChip extends StatelessWidget {
         builder: (d) => AlertDialog(
           title: Text(def.title),
           content: Text('${def.description}\n\n${on ? '达成于 ${fmtRelativeMs(unlocked!.unlockedAt)}${unlocked!.evidence == null ? '' : '\n依据：${unlocked!.evidence!.entries.map((e) => '${e.key} = ${e.value}').join('，')}'}' : '还没达成。'}'),
-          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('好'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('知道了'))],
         ),
       ),
     );

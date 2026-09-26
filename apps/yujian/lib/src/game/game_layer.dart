@@ -148,18 +148,45 @@ class GameLayer extends ChangeNotifier {
     if (fresh.isNotEmpty) _achievements = ledger.achievements.list();
     if (!enabled) return;
     var changed = fresh.isNotEmpty;
+    // 一次解锁好几个时别刷屏（老用户升级 / 第一次打开会一口气解锁一串）：
+    // 分档的同一类只报最高那档；同一个目标同时过了 10% 和 25% 只报 25%；其余合成一条
+    const tiers = [
+      ['savings.20', 'savings.30', 'savings.50'],
+      ['emergency.1', 'emergency.3', 'emergency.6'],
+      ['record.30', 'record.100'],
+    ];
+    final keys = {for (final a in fresh) a.key};
+    bool outranked(String k) {
+      for (final t in tiers) {
+        final i = t.indexOf(k);
+        if (i >= 0 && t.skip(i + 1).any(keys.contains)) return true;
+      }
+      return false;
+    }
+    final milestones = <String, Achievement>{}; // 目标名 → 最高的那档
+    final generic = <AchievementDef>[];
     for (final a in fresh) {
       final d = a.def;
       if (d == null) continue;
       if (a.key.startsWith('goal.p')) {
-        pendingMessages.add((text: app.replier.template(PersonaEvent.goalMilestone, n: int.parse(a.key.substring(6)), label: '${a.evidence?['goal'] ?? ''}'), sticker: null, meta: '成就 · ${d.title}'));
+        final goal = '${a.evidence?['goal'] ?? ''}';
+        final prev = milestones[goal];
+        if (prev == null || int.parse(a.key.substring(6)) > int.parse(prev.key.substring(6))) milestones[goal] = a;
       } else if (a.key == 'goal.reached') {
         pendingMessages.add((text: app.replier.template(PersonaEvent.goalReached, label: '${a.evidence?['goal'] ?? ''}'), sticker: '🎉', meta: '成就 · ${d.title}'));
       } else if (a.key == 'support.yujian') {
         pendingMessages.add((text: '收到你的一块钱了。谢谢，那条提醒已经永久关掉。', sticker: '🙏', meta: '成就 · ${d.title}'));
-      } else {
-        pendingMessages.add((text: '${d.title}：${d.description}。', sticker: null, meta: '成就解锁'));
+      } else if (!outranked(a.key)) {
+        generic.add(d);
       }
+    }
+    for (final a in milestones.values) {
+      pendingMessages.add((text: app.replier.template(PersonaEvent.goalMilestone, n: int.parse(a.key.substring(6)), label: '${a.evidence?['goal'] ?? ''}'), sticker: null, meta: '成就 · ${a.def?.title ?? ''}'));
+    }
+    if (generic.length == 1) {
+      pendingMessages.add((text: '${generic.single.title}：${generic.single.description}。', sticker: null, meta: '成就解锁'));
+    } else if (generic.length > 1) {
+      pendingMessages.add((text: '解锁了 ${generic.length} 个成就：${generic.map((d) => '「${d.title}」').join('')}。', sticker: null, meta: generic.map((d) => d.description).join('；')));
     }
     // 升级：和上次记的等级比
     final lvl = m.level;
@@ -615,7 +642,7 @@ class GameLayer extends ChangeNotifier {
     pendingMessages.add((
       text: '${app.replier.template(PersonaEvent.payday, n: total ~/ 100)}${note != null ? '（$note）' : ''}\n'
           '${made.map((a) => '「${a.goal.name}」+${fmtMoney(a.amountMinor, a.goal.currency)}${a.short ? '（想要 ${fmtMoney(a.wantedMinor, a.goal.currency)}，钱不够先保前面的）' : ''}').join('\n')}\n'
-          '剩下可花 ${fmtMoney(left, 'CNY')}${m != null ? '，到 ${m.payday.substring(5).replaceFirst('-', '/')} 平均每天 ${fmtMoney((left / m.daysToPayday).floor(), 'CNY')}' : ''}。到收件箱一键确认。',
+          '剩下可花 ${fmtMoney(left, 'CNY')}${m != null ? '，到 ${fmtMd(m.payday)} 平均每天 ${fmtMoney((left / m.daysToPayday).floor(), 'CNY')}' : ''}。到收件箱一键确认。',
       sticker: '💰',
       meta: '发薪日仪式 · ${drafts.length} 笔转账待确认',
     ));

@@ -174,9 +174,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('📱 换手机'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('建好')); // 测试屏 800×600，按钮在折叠线下
+      await tester.ensureVisible(find.text('添加')); // 测试屏 800×600，按钮在折叠线下
       await tester.pumpAndSettle();
-      await tester.tap(find.text('建好'));
+      await tester.tap(find.text('添加'));
       await tester.pumpAndSettle();
       expect(state.game.goals.single.goal.name, '换手机');
       expect(state.game.goals.single.targetMinor, 699900);
@@ -349,9 +349,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '还剩多少要还（元）'), '60000');
       await tester.enterText(find.widgetWithText(TextField, '每月还多少（元）'), '3000');
-      await tester.ensureVisible(find.text('建好'));
+      await tester.ensureVisible(find.text('添加'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('建好'));
+      await tester.tap(find.text('添加'));
       await tester.pumpAndSettle();
       final d = state.ledger.debts.list().single;
       expect(d.account.name, '车贷');

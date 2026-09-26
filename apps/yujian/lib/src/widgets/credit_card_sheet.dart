@@ -6,9 +6,10 @@ import '../theme.dart';
 import 'disclosure_tile.dart';
 import 'fmt.dart';
 import 'picker_field.dart';
+import '../errors_zh.dart';
 
 /// 「9/25」这种短日期。
-String _md(String date) => '${int.parse(date.substring(5, 7))}/${int.parse(date.substring(8, 10))}';
+String _md(String date) => fmtMd(date);
 
 /// 负债页 / 首页一行字能说完的账单状态。
 String cardBillLine(CardStatus s) {
@@ -19,7 +20,7 @@ String cardBillLine(CardStatus s) {
       return '${_md(s.statementDate)} 账单已还清${s.newChargesMinor > 0 ? ' · 新刷 ${fmtMoney(s.newChargesMinor, 'CNY')} 进下期' : ''}';
     case CardBillState.due:
       final d = s.daysToDue;
-      return '还剩 ${fmtMoney(s.remainingMinor, 'CNY')} · ${_md(s.dueDate)} 到期（${d == 0 ? '今天' : '还有 $d 天'}）';
+      return '本期还剩 ${fmtMoney(s.remainingMinor, 'CNY')} · ${_md(s.dueDate)} 到期（${d == 0 ? '今天' : '还有 $d 天'}）';
     case CardBillState.overdue:
       return '已逾期 ${s.overdueDays} 天 · 违约金 ${fmtMoney(s.lateFeeMinor, 'CNY')} + 利息约 ${fmtMoney(s.interestMinor, 'CNY')}';
   }
@@ -316,7 +317,7 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
               ],
             ),
             const SizedBox(height: 12),
-            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(card == null ? '建好' : '保存'))),
+            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(card == null ? '添加' : '保存'))),
           ]),
         );
       },
@@ -369,6 +370,6 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
       say('已保存「$n」');
     }
   } on Exception catch (e) {
-    say('$e');
+    say(friendlyError(e));
   }
 }

@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import '../errors_zh.dart';
 
 class AccountsPage extends StatelessWidget {
   const AccountsPage({super.key});
@@ -14,8 +15,8 @@ class AccountsPage extends StatelessWidget {
     AccountType.bank: '银行卡',
     AccountType.creditCard: '信用卡',
     AccountType.eWallet: '电子钱包',
-    AccountType.receivable: '应收',
-    AccountType.payable: '应付',
+    AccountType.receivable: '借出去的',
+    AccountType.payable: '贷款 / 借款',
     AccountType.investment: '投资',
   };
 
@@ -34,7 +35,7 @@ class AccountsPage extends StatelessWidget {
           onTap: () => _edit(context, a),
         );
     return Scaffold(
-      appBar: AppBar(title: const Text('账户'), actions: [IconButton(onPressed: () => _add(context), icon: const Icon(Icons.add))]),
+      appBar: AppBar(title: const Text('账户'), actions: [IconButton(tooltip: '添加账户', onPressed: () => _add(context), icon: const Icon(Icons.add))]),
       // 在用的一张卡、归档的一张卡；空着就给一句话
       body: ListView(
         padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
@@ -155,7 +156,7 @@ class AccountsPage extends StatelessWidget {
       }
       app.touch();
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -205,7 +206,7 @@ class AccountsPage extends StatelessWidget {
     try {
       app.addAccount(name: name.text.trim(), type: type, currency: currency, initialBalanceMinor: Money.parse(initial.text.trim().isEmpty ? '0' : initial.text.trim(), currency).minor);
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

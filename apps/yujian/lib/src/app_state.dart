@@ -270,7 +270,7 @@ class AppState extends ChangeNotifier {
     final skipped = ledger.recurring.lastSkipped;
     if (skipped.isNotEmpty) {
       for (final k in skipped) {
-        final dates = k.dates.map((d) => '${int.parse(d.substring(5, 7))}/${int.parse(d.substring(8, 10))}').toList();
+        final dates = k.dates.map((d) => fmtMd(d)).toList();
         recurringSkipped.add('${k.recurring.name}：${dates.length > 4 ? '${dates.first}–${dates.last} 共 ${dates.length} 期' : dates.join('、')}');
       }
       unawaited(_saveRecurringSkipped());
@@ -396,7 +396,7 @@ class AppState extends ChangeNotifier {
       final today = _today();
       final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
-      final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${latest.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
+      final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${fmtMd(latest.first.occurredAt.localDate)}';
       // 4×4 日历：本月逐日支出 / 收入（分），按日序逗号分隔，缺的天是 0
       final expByDay = List<int>.filled(last, 0);
       final incByDay = List<int>.filled(last, 0);
@@ -1000,7 +1000,7 @@ class AppState extends ChangeNotifier {
     // 周期账单 / 预算 的问法不进 Query DSL（它们不是交易聚合），直接答
     if (!hasAmount && RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
       final items = ledger.recurring.list();
-      final lines = items.map((r) => '${r.name} ${Money(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${r.nextDue}').join('；');
+      final lines = items.map((r) => '${r.name} ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${fmtMd(r.nextDue)}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: items.isEmpty ? '还没有设置周期账单（更多 → 周期账单）' : '固定账单 ${items.length} 项：$lines');
     }
     // "每月存 3000 多久能攒到 2 万"：纯算术，不碰账本
@@ -1019,7 +1019,7 @@ class AppState extends ChangeNotifier {
       final now = DateTime.now();
       final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
       final a = detectAnomalies(ledger, from: from, to: _today());
-      final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${Money(x.tx.amountMinor, x.tx.currency)}（${x.tx.occurredAt.localDate.substring(5)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
+      final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${fmtMoney(x.tx.amountMinor, x.tx.currency)}（${fmtMd(x.tx.occurredAt.localDate)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: a.isEmpty ? '这个月没有明显异常的支出。' : '这个月 ${a.length} 笔明显高于平时：$lines');
     }
     if (!hasAmount && RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
