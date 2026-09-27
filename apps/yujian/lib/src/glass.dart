@@ -151,7 +151,11 @@ class _GlassBackdropState extends State<GlassBackdrop> with WidgetsBindingObserv
       final shot = await ro.toImage(pixelRatio: scale);
       final rec = ui.PictureRecorder();
       Canvas(rec).drawImage(shot, Offset.zero, Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: widget.sigma * scale, sigmaY: widget.sigma * scale, tileMode: TileMode.clamp));
-      final blurred = await rec.endRecording().toImage(shot.width, shot.height);
+      final raw = await rec.endRecording().toImage(shot.width, shot.height);
+      // 拉伸成 2 的幂尺寸再交给着色器取样：防有的 GLES 驱动把非 2 的幂纹理补齐后读到空白边。
+      // 注意 0.9.13 当时把「卡片右侧发灰」归到这里是误判，真正原因是页面滑入动画里取样位置没更新（见 GlassSurface）；这一步留着只是防御
+      final blurred = await _toPowerOfTwo(raw);
+      if (!identical(blurred, raw)) raw.dispose();
       final luma = await _meanLuma(shot);
       shot.dispose();
       if (!mounted || gen != _gen) {
@@ -166,6 +170,29 @@ class _GlassBackdropState extends State<GlassBackdrop> with WidgetsBindingObserv
     } catch (e) {
       debugPrint('glass backdrop capture failed: $e');
     }
+  }
+
+  /// 不小于 n 的 2 的幂。
+  static int _pow2(int n) {
+    var p = 1;
+    while (p < n) {
+      p <<= 1;
+    }
+    return p;
+  }
+
+  /// 把图拉伸铺满「宽高各自向上取 2 的幂」的新图；本来就是 2 的幂的原样返回。
+  static Future<ui.Image> _toPowerOfTwo(ui.Image img) async {
+    final w = _pow2(img.width), h = _pow2(img.height);
+    if (w == img.width && h == img.height) return img;
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+    return rec.endRecording().toImage(w, h);
   }
 
   static Future<double> _meanLuma(ui.Image img) async {
@@ -232,7 +259,7 @@ class _RenderSizeWatcher extends RenderProxyBox {
 // ------------------------------------------------------------------ 内容卡片：静态背景取样
 
 /// 画在内容卡片底下的玻璃面：从 [GlassBackdrop] 的预模糊图上按自己在屏幕上的位置取样，加折射 / 饱和 / 着色 / 亮边。
-/// 跟着所有祖先滚动位置重画，玻璃里的背景才钉在屏幕上、不跟卡片一起走。
+/// 跟着所有祖先滚动位置、以及所在页面的进出场动画重画，玻璃里的背景才钉在屏幕上、不跟卡片一起走。
 /// 没有着色器 / 背景还没截好时退回半透明填充。
 class GlassSurface extends StatefulWidget {
   final Widget? child;
@@ -258,7 +285,10 @@ class _GlassSurfaceState extends State<GlassSurface> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final deps = <Listenable?>[GlassBackdrop.listenableOf(context)];
+    // 页面进出场动画也要跟：推入时整页从右侧 0.25 屏宽滑进来（FadeForwards），动画期间引擎只挪图层不重画卡片，
+    // 不跟就一直停在第一帧算的屏幕位置——偏右约 0.2 屏宽取样，卡片右边整片发灰（0.9.15 前的「右侧和下面有阴影」）。
+    final route = ModalRoute.of(context);
+    final deps = <Listenable?>[GlassBackdrop.listenableOf(context), route?.animation, route?.secondaryAnimation];
     ScrollableState? s = Scrollable.maybeOf(context);
     while (s != null) {
       deps.add(s.position);

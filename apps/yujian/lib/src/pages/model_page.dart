@@ -162,10 +162,14 @@ class _ModelPageState extends State<ModelPage> {
           Text('读字、看图、陪聊都用它。OpenAI 兼容接口都行：DeepSeek、硅基流动、阿里云百炼、OpenAI、OpenRouter、Ollama（http://主机:11434/v1）。不填就只用规则解析，一样能记账。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
           GlassCard(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SegmentedButton<String>(
-            segments: const [ButtonSegment(value: 'openai', label: Text('OpenAI 兼容')), ButtonSegment(value: 'anthropic', label: Text('Anthropic'))],
-            selected: {providerType},
-            onSelectionChanged: (v) => setState(() => providerType = v.first),
+          // 撑满卡片宽，和下面的输入框左右对齐（Column 是 start 对齐，分段按钮默认只按内容宽）
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<String>(
+              segments: const [ButtonSegment(value: 'openai', label: Text('OpenAI 兼容')), ButtonSegment(value: 'anthropic', label: Text('Anthropic'))],
+              selected: {providerType},
+              onSelectionChanged: (v) => setState(() => providerType = v.first),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -179,7 +183,7 @@ class _ModelPageState extends State<ModelPage> {
             decoration: InputDecoration(
               labelText: 'API Key',
               helperText: '只存在本机安全存储里',
-              suffixIcon: IconButton(icon: Icon(showKey ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKey = !showKey)),
+              suffixIcon: IconButton(tooltip: showKey ? '隐藏 Key' : '显示 Key', icon: Icon(showKey ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKey = !showKey)),
             ),
           ),
           const SizedBox(height: 12),
@@ -187,7 +191,7 @@ class _ModelPageState extends State<ModelPage> {
             controller: model,
             decoration: InputDecoration(
               labelText: '模型名',
-              hintText: 'deepseek-flash',
+              hintText: '如 deepseek-flash',
               helperText: '点右侧列表从端点拉可用模型，别手猜名字',
               suffixIcon: IconButton(
                   tooltip: '从端点拉模型列表',

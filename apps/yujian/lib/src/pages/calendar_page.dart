@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/manual_entry_sheet.dart';
 import 'transactions_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 日历视图：一个月的格子，每天显示当天支出（有收入再显示收入），点一天看那天的明细。
 class CalendarPage extends StatefulWidget {
@@ -24,6 +25,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final y = YujianColors.of(context);
+    final today = DateTime.now();
     final days = DateTime(month.year, month.month + 1, 0).day;
     final from = _iso(DateTime(month.year, month.month, 1));
     final to = _iso(DateTime(month.year, month.month, days));
@@ -39,7 +41,6 @@ class _CalendarPageState extends State<CalendarPage> {
     }
     final monthExp = cny(app.engine.run(QueryDsl(timeRange: range)).rows);
     final monthInc = cny(app.engine.run(QueryDsl(types: const [TransactionType.income], timeRange: range)).rows);
-    final today = DateTime.now();
     final first = DateTime(month.year, month.month, 1);
     final leading = first.weekday % 7; // 周日开头
     final selIso = _iso(selected);
@@ -49,14 +50,20 @@ class _CalendarPageState extends State<CalendarPage> {
     final selExp = dayTx.where((t) => t.type == TransactionType.expense).fold(0, (a, t) => a + t.amountMinor);
     final selInc = dayTx.where((t) => t.type == TransactionType.income).fold(0, (a, t) => a + t.amountMinor);
     const wd = ['日', '一', '二', '三', '四', '五', '六'];
+    // 还款日 / 账单日 / 发薪日（贷款月供、信用卡 / 花呗 / 白条的还款日、周期账单）：格子上点个点，选中那天在下面列出来
+    final marks = <String, List<DueMark>>{};
+    for (final mk in dueMarks(app.ledger, from: from, to: to, today: _iso(today))) {
+      (marks[mk.date] ??= []).add(mk);
+    }
+    final selMarks = marks[selIso] ?? const <DueMark>[];
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('日历'),
         actions: [
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
+          IconButton(tooltip: '上个月', onPressed: () => setState(() => month = DateTime(month.year, month.month - 1)), icon: const Icon(Icons.chevron_left)),
           Center(child: Text('${month.year} 年 ${month.month} 月', style: theme.textTheme.titleMedium)),
-          IconButton(onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
+          IconButton(tooltip: '下个月', onPressed: () => setState(() => month = DateTime(month.year, month.month + 1)), icon: const Icon(Icons.chevron_right)),
           const SizedBox(width: 4),
         ],
       ),
@@ -67,7 +74,15 @@ class _CalendarPageState extends State<CalendarPage> {
         },
         child: const Icon(Icons.add),
       ),
-      body: ListView(
+      body: GestureDetector(
+        // 左右滑切月份（和标题栏的箭头一样）：往左滑看下个月，往右滑看上个月；要滑得够快才算，免得上下滚动时斜一下就翻了
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (v.abs() < 300) return;
+          setState(() => month = DateTime(month.year, month.month + (v < 0 ? 1 : -1)));
+        },
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
         children: [
           GlassCard(
@@ -90,6 +105,13 @@ class _CalendarPageState extends State<CalendarPage> {
                             final inc = incByDay[iso] ?? 0;
                             final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
                             final isSel = iso == selIso;
+                            final dayMarks = marks[iso] ?? const <DueMark>[];
+                            // 点的颜色：有要还的 = 警示色（逾期更深），只有发薪 = 收入色，只有出账 = 灰
+                            final Color? dot = dayMarks.isEmpty
+                                ? null
+                                : dayMarks.any((mk) => mk.isDue && mk.note != '已还清')
+                                    ? y.danger
+                                    : (dayMarks.any((mk) => mk.kind == DueMarkKind.payday) ? y.income : y.muted);
                             // 有账的天按当天净值上色：花得多粉红、进得多浅绿，一眼看出哪天破费；没账的天留白
                             final tint = exp == 0 && inc == 0 ? null : (inc >= exp ? y.income : y.expense);
                             final fill = tint == null ? (isSel ? theme.colorScheme.primary.withValues(alpha: 0.12) : Colors.transparent) : tint.withValues(alpha: isSel ? 0.30 : 0.16);
@@ -107,16 +129,29 @@ class _CalendarPageState extends State<CalendarPage> {
                                         ? Border.all(color: theme.colorScheme.primary, width: 1.4)
                                         : (isSel ? Border.all(color: (tint ?? theme.colorScheme.primary).withValues(alpha: 0.6), width: 1) : Border.all(color: y.cardBorder.withValues(alpha: 0.5), width: 0.5)),
                                   ),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(isToday ? '今' : '$d',
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w500, color: isToday ? theme.colorScheme.primary : null)),
-                                      if (exp > 0) Text('-${_short(exp)}', style: TextStyle(fontSize: 10, color: y.expense, fontWeight: FontWeight.w600), maxLines: 1),
-                                      if (inc > 0) Text('+${_short(inc)}', style: TextStyle(fontSize: 10, color: y.income, fontWeight: FontWeight.w600), maxLines: 1),
-                                    ],
-                                  ),
+                                  child: Stack(children: [
+                                    Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(isToday ? '今' : '$d',
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w500, color: isToday ? theme.colorScheme.primary : null)),
+                                          if (exp > 0) Text('-${_short(exp)}', style: TextStyle(fontSize: 10, color: y.expense, fontWeight: FontWeight.w600), maxLines: 1),
+                                          if (inc > 0) Text('+${_short(inc)}', style: TextStyle(fontSize: 10, color: y.income, fontWeight: FontWeight.w600), maxLines: 1),
+                                        ],
+                                      ),
+                                    ),
+                                    if (dot != null)
+                                      Positioned(
+                                        top: 5,
+                                        right: 5,
+                                        child: Semantics(
+                                          label: dayMarks.map((mk) => '${mk.name}${mk.kind == DueMarkKind.cardStatement ? '出账' : (mk.kind == DueMarkKind.payday ? '' : '还款')}').join('、'),
+                                          child: Container(width: 6, height: 6, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+                                        ),
+                                      ),
+                                  ]),
                                 ),
                               ),
                             );
@@ -146,7 +181,33 @@ class _CalendarPageState extends State<CalendarPage> {
                   ]),
                 ),
                 const Divider(),
-                if (dayTx.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text('这天没有记录', style: theme.textTheme.bodySmall)),
+                // 这天的还款 / 出账 / 发薪
+                for (final mk in selMarks)
+                  ListTile(
+                    dense: true,
+                    onTap: mk.kind == DueMarkKind.payday
+                        ? () async {
+                            await showPaydaySheet(context);
+                            if (mounted) setState(() {});
+                          }
+                        : null,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    leading: Text(switch (mk.kind) { DueMarkKind.payday => '💰', DueMarkKind.loan => '🏦', DueMarkKind.fixed => '🧾', DueMarkKind.cardDue => '💳', DueMarkKind.cardStatement => '📄' }, style: const TextStyle(fontSize: 18)),
+                    title: Text(switch (mk.kind) {
+                      DueMarkKind.payday => '发薪日',
+                      DueMarkKind.loan => '${mk.name}（月供）',
+                      DueMarkKind.fixed => '${mk.name}（固定支出）',
+                      DueMarkKind.cardDue => '${mk.name} 还款日',
+                      DueMarkKind.cardStatement => '${mk.name} 出账日',
+                    }, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: mk.note.isEmpty ? null : Text(mk.note == '约' ? '下期账单，按出账后已经刷的估' : (mk.note == '已还清' ? '这期已还清' : mk.note), style: theme.textTheme.bodySmall),
+                    trailing: mk.amountMinor == null
+                        ? null
+                        : Text('${mk.note == '约' ? '约 ' : ''}${fmtMoney(mk.amountMinor!, 'CNY')}',
+                            style: theme.textTheme.titleSmall?.copyWith(color: mk.isDue && mk.note != '已还清' ? y.danger : null, fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+                if (selMarks.isNotEmpty && dayTx.isNotEmpty) const Divider(indent: 16, endIndent: 16),
+                if (dayTx.isEmpty && selMarks.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text('这天没有记录', style: theme.textTheme.bodySmall)),
                 for (final t in dayTx) TransactionTile(tx: t),
                 const SizedBox(height: 6),
               ],
@@ -154,15 +215,16 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ],
       ),
+      ),
     );
   }
 
   static String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  /// 格子里放不下小数：整数元，上万用 w。
+  /// 格子里放不下小数：整数元，上万写「万」。
   static String _short(int minor) {
     final yuan = minor / 100;
-    if (yuan >= 10000) return '${(yuan / 10000).toStringAsFixed(1)}w';
+    if (yuan >= 10000) return '${(yuan / 10000).toStringAsFixed(1)}万';
     if (yuan >= 100) return yuan.toStringAsFixed(0);
     return yuan.toStringAsFixed(yuan == yuan.roundToDouble() ? 0 : 1);
   }

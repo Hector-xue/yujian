@@ -47,12 +47,20 @@ void main() {
     expect(b.account('old'), isNull);
     expect(b.account('w')?.name, '微信');
     expect(b.balance('w').minor, -4300);
-    expect(b.changes.pending(), isEmpty);
+    // 恢复出来的内容整体记成本机新变更（下次同步推上去；服务端旧历史按 LWW 都比它旧，不会盖回来）
+    final pending = b.changes.pending(limit: 1000);
+    expect(pending.where((c) => c.entity == 'transaction').length, 2);
+    expect(pending.any((c) => c.entity == 'account' && c.entityId == 'w'), isTrue);
     expect(b.changes.lastPullSeq, 0);
     expect(b.changes.deviceId, isNot(deviceA));
+    // 服务端推回来一条更早的旧变更：被 LWW 跳过
+    final old = b.getTransaction(b.listTransactions().first.id);
+    final res = b.applyRemoteChange(ChangeRecord(seq: 1, entity: 'transaction', entityId: old.id, deleted: false, payload: {...old.toJson(), 'description': '旧的'}, at: 1, origin: deviceA, pushed: true), fromDevice: deviceA);
+    expect(res, 'skipped');
     // 恢复后还能继续写，且写入进变更日志
+    final before = b.changes.pendingCount;
     record(b, 'w', 700);
-    expect(b.changes.pendingCount, 2); // transaction + memory
+    expect(b.changes.pendingCount, before + 2); // transaction + memory
     dbB.db.close();
   });
 

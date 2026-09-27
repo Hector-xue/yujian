@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class NetEvent {
   final int atMs;
   final String kind; // chat | vision | transcribe | speech | models | sync | update | download
-  final String purpose; // 细分用途：interpret / companion / reply / shot_text / shot_image / image / push / backup / restore / ping / check / apk / asr_model …
+  final String purpose; // 细分用途：interpret / setup / companion / reply / shot_text / shot_image / image / push / backup / restore / ping / check / apk / asr_model …
   final String host; // 目的地域名
   final String? model;
   final int tokensIn;
@@ -95,6 +95,7 @@ class NetEvent {
         'sync' => '同步',
         'update' => '版本检查',
         'download' => '下载',
+        'feedback' => '反馈',
         _ => kind,
       };
 
@@ -108,6 +109,8 @@ class NetEvent {
         switch (purpose) {
           case 'interpret':
             return '把你在对话里说的这句话$mask，连同你的账户名、分类名、常去商户表和最近 10 笔记录，一起发给 $where，让模型理解你要记哪一笔或查什么。';
+          case 'setup':
+            return '对话建档「规则没分清」：你说的这句负债 / 资产$mask，连同你的账户名（不含余额和记录），发给 $where，让模型分清哪个数是欠款、哪个是月供。只出候选，你在卡片上确认才会建。';
           case 'companion':
             return '陪聊：把你这句话$mask、最近几轮对话、它记住的事，以及账本速览（今天 / 本月的合计数和最近几笔）发给 $where，生成回复。';
           case 'reply':
@@ -140,7 +143,13 @@ class NetEvent {
         switch (purpose) {
           case 'push':
           case 'sync':
-            return '同步：把本机账本的变更（$count 条，明文，走 HTTPS）推到你自己填的同步服务器 $where，并拉回其他设备的变更。不填同步地址就永远不会发生。';
+            return '同步：把本机账本的变更（$count 条）推到你自己填的同步服务器 $where，并拉回其他设备的变更。没设同步加密口令时是明文（走 HTTPS），设了就只有密文，服务器看不到金额和商户。不填同步地址就永远不会发生。';
+          case 'rebuild':
+            return '用本机账本重建同步服务器 $where 上的数据：先清空服务器上的变更日志，再把整本账本（设了同步加密口令就是密文）推上去。';
+          case 'compact':
+            return '让同步服务器 $where 压缩变更日志（每条记录只留最新版本）。只发了这个指令，没有账本数据。';
+          case 'devices':
+            return '查看 / 移出 / 恢复同步服务器 $where 上的设备。只有设备编号，没有账本数据。';
           case 'backup':
             return '把整本账本用你的口令加密（AES-GCM）后上传到 $where（$kb）。没有口令谁也解不开，包括服务器。';
           case 'restore':
@@ -152,6 +161,8 @@ class NetEvent {
         }
       case 'update':
         return '向 $where 询问最新版本号。只发了这个请求（服务器能看到你的 IP 和 App 版本），不带任何账本数据。纯本地模式下只有你手动点「检查更新」才会发。';
+      case 'feedback':
+        return '你在「反馈 BUG / 建议」里点了发送：你写的文字（$chars 字）、截图 $count 张（$kb）和你勾选的附带信息（版本 / 系统 / 屏幕尺寸 / 主题），发到余见作者的服务器 $where，再转到作者的飞书。只在你点「发送」时发生，不带任何账本数据。';
       case 'download':
         switch (purpose) {
           case 'apk':

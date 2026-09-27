@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../app_state.dart';
 import '../platform/avatar_files_native.dart' if (dart.library.js_interop) '../platform/avatar_files_web.dart';
 import '../theme.dart';
+import '../widgets/picker_field.dart';
 
 /// 外观：主题 + 自定义全局背景图（可调可见度）。点了就生效。
 class AppearancePage extends StatefulWidget {
@@ -76,19 +77,52 @@ class _AppearancePageState extends State<AppearancePage> {
           const SizedBox(height: 4),
           Text('主题管质感和形状，强调色跟人格走。点了就生效。', style: theme.textTheme.bodySmall),
           const SizedBox(height: 14),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 160, mainAxisExtent: 118, crossAxisSpacing: 10, mainAxisSpacing: 10),
-            itemCount: appThemes.length,
-            itemBuilder: (ctx, i) => _ThemeCard(
-                spec: appThemes[i],
-                accent: theme.colorScheme.primary,
-                selected: app.settings.themeId == appThemes[i].id,
-                onTap: () => app.saveSettings(app.settings.copyWith(themeId: appThemes[i].id))),
+          _grid(context, [for (final t in appThemes) if (!t.dark) t]),
+          const SizedBox(height: 18),
+          Text('深色', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          _grid(context, [for (final t in appThemes) if (t.dark) t]),
+          const SizedBox(height: 18),
+          // 跟随系统：系统切到深色时自动换成下面选的深色主题，切回浅色再换回上面选的那套。默认关，不设就和以前一样
+          GlassCard(
+            child: Column(children: [
+              SwitchListTile(
+                contentPadding: const EdgeInsets.fromLTRB(16, 0, 12, 0),
+                title: const Text('跟随系统深色'),
+                subtitle: Text(s.darkThemeId.isEmpty ? '关着：一直用上面选的主题' : '系统是深色时用「${themeById(s.darkThemeId).name}」，浅色时用「${themeById(s.themeId).name}」', style: theme.textTheme.bodySmall),
+                value: s.darkThemeId.isNotEmpty,
+                onChanged: (v) => app.saveSettings(s.copyWith(darkThemeId: v ? (themeById(s.themeId).dark ? s.themeId : 'night') : '')),
+              ),
+              if (s.darkThemeId.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  child: PickerField<String>(
+                    value: s.darkThemeId,
+                    decoration: const InputDecoration(labelText: '深色时用'),
+                    items: [for (final t in appThemes) if (t.dark) DropdownMenuItem(value: t.id, child: Text(t.name))],
+                    onChanged: (v) => v == null ? null : app.saveSettings(s.copyWith(darkThemeId: v)),
+                  ),
+                ),
+            ]),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _grid(BuildContext context, List<AppThemeSpec> themes) {
+    final app = AppScope.of(context);
+    final theme = Theme.of(context);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 160, mainAxisExtent: 118, crossAxisSpacing: 10, mainAxisSpacing: 10),
+      itemCount: themes.length,
+      itemBuilder: (ctx, i) => _ThemeCard(
+          spec: themes[i],
+          accent: theme.colorScheme.primary,
+          selected: app.settings.themeId == themes[i].id,
+          onTap: () => app.saveSettings(app.settings.copyWith(themeId: themes[i].id))),
     );
   }
 }

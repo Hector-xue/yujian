@@ -37,7 +37,7 @@ class AuditEntry {
         seq: r['seq'] as int,
         id: r['id'] as String,
         at: DateTime.fromMillisecondsSinceEpoch(r['at'] as int, isUtc: true),
-        actor: enumFromDb(Actor.values, r['actor'] as String),
+        actor: enumFromDbOr(Actor.values, r['actor'] as String, Actor.automation),
         action: r['action'] as String,
         targetType: r['target_type'] as String,
         targetId: r['target_id'] as String,

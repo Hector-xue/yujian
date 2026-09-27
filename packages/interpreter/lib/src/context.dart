@@ -4,7 +4,10 @@ class AccountRef {
   final String name;
   final String currency;
   final List<String> aliases;
-  const AccountRef({required this.id, required this.name, required this.currency, this.aliases = const []});
+  /// 账户类型（ledger_core 的 AccountType.db：cash / bank / credit_card / e_wallet / receivable / payable / investment）。
+  /// 只有对话建档用它（判断同名账户、能不能拿来还款）；记账解析不看。
+  final String? type;
+  const AccountRef({required this.id, required this.name, required this.currency, this.aliases = const [], this.type});
 }
 
 class CategoryRef {
@@ -24,6 +27,7 @@ class RecentTransaction {
   final String localDate;
   final String? categoryId;
   final String? description;
+  final String? type; // expense | income | transfer | refund | adjustment；改分类时按它决定在支出还是收入分类里找
   const RecentTransaction({
     required this.id,
     required this.amountMinor,
@@ -31,6 +35,7 @@ class RecentTransaction {
     required this.localDate,
     this.categoryId,
     this.description,
+    this.type,
   });
 }
 

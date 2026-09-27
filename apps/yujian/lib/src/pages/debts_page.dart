@@ -3,10 +3,15 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import '../theme.dart';
+import '../widgets/action_sheet.dart';
+import '../widgets/credit_card_sheet.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
 import 'accounts_page.dart';
 import 'goals_page.dart';
+import 'repayment_plan_page.dart';
+import '../widgets/disclosure_tile.dart';
+import '../errors_zh.dart';
 
 /// 负债：总负债 / 每月还款 / 预计还清 一眼看完；每一笔负债一行（还剩多少、每月还多少、已还进度）。
 /// 一张表单建三件（负债账户 + 每月还款的周期转账 + 还清目标），别的地方（可花的 / 等级 / 首页目标条 / 小部件）自动跟着走。
@@ -22,13 +27,14 @@ class DebtsPage extends StatelessWidget {
       listenable: app,
       builder: (context, _) {
         final debts = app.ledger.debts.list(currency: 'CNY');
-        final totals = app.ledger.debts.totals();
+        final totals = app.debtTotals();
         final m = app.game.metrics;
-        final income = m?.monthIncomeMinor ?? 0;
+        // 分母用稳定的月收入（近 3 个整月均值 / 近 31 天，和体检同一个口径）：本自然月的收入月初工资没到时是 0 或零头，比例会乱跳
+        final income = m?.incomeRank == null ? 0 : m!.incomeRank!.annualMinor ~/ 12;
         final ratio = income > 0 ? totals.monthlyMinor / income : null;
         final left = totals.monthsLeft;
         return Scaffold(
-          appBar: AppBar(title: const Text('负债'), actions: [IconButton(tooltip: '添加负债', onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add))]),
+          appBar: AppBar(title: const Text('负债'), actions: [IconButton(tooltip: '添加负债', onPressed: () => _add(context), icon: const Icon(Icons.add))]),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
             children: [
@@ -39,9 +45,12 @@ class DebtsPage extends StatelessWidget {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('还没有负债', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 6),
-                      Text('房贷、车贷、网贷、借的钱——填「还剩多少、每月还多少、几号还」，余见替你建好账户、每月的还款提醒和还清目标。', style: theme.textTheme.bodySmall),
+                      Text('房贷、车贷、网贷、借的钱——填「还剩多少、每月还多少、几号还」，余见替你建好账户、每月的还款提醒和还清目标。\n信用卡填额度、账单日、还款日，余见按流水算本期账单、最低还款，没还清的利息和违约金。', style: theme.textTheme.bodySmall),
                       const SizedBox(height: 12),
-                      FilledButton.tonalIcon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('添加负债')),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        FilledButton.tonalIcon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('添加负债')),
+                        OutlinedButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡 / 花呗')),
+                      ]),
                     ]),
                   ),
                 ),
@@ -62,10 +71,23 @@ class DebtsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       Row(children: [
+                        // 每月还款 = 贷款月供 + 各张卡最近一期要还的（不是只算贷款）
                         Expanded(child: _Stat(label: '每月还款', value: totals.monthlyMinor > 0 ? fmtMoney(totals.monthlyMinor, 'CNY') : '—')),
-                        Expanded(child: _Stat(label: '占本月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
-                        Expanded(child: _Stat(label: '预计还清', value: left == null ? '没设还款' : (left <= 0 ? '已还清' : _monthsLabel(left)))),
+                        Expanded(child: _Stat(label: '占月收入', value: ratio == null || totals.monthlyMinor <= 0 ? '—' : '${(ratio * 100).toStringAsFixed(0)}%', color: ratio != null && ratio > 0.5 ? y.danger : null)),
+                        // 预计还清只按贷款推（每笔各还各的，取最晚那笔）；同时有信用卡时标明是「贷款」还清，信用卡按账单还说不出月数
+                        Expanded(child: _Stat(label: totals.loanMinor > 0 && totals.cardMinor > 0 ? '贷款还清' : '预计还清', value: totals.loanMinor <= 0 ? (totals.cardMinor > 0 ? '按账单还' : '已还清') : (left == null ? '没设还款' : _monthsLabel(left)))),
                       ]),
+                      // 每月还款里有信用卡时拆开写：贷款月供和卡账单性质不同（卡账单每期不一样）
+                      if (totals.cardDueMinor > 0) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          [
+                            if (totals.loanMonthlyMinor > 0) '贷款月供 ${fmtMoney(totals.loanMonthlyMinor, 'CNY')}',
+                            '信用卡最近一期 ${fmtMoney(totals.cardDueMinor, 'CNY')}${totals.cardsWithoutTerms > 0 ? '（${totals.cardsWithoutTerms} 张没设账单日，按全部欠款算）' : ''}',
+                          ].join(' + '),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
                     ]),
                   ),
                 ),
@@ -80,21 +102,29 @@ class DebtsPage extends StatelessWidget {
                     ],
                   ]),
                 ),
-                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点一笔设每月还款，长按一笔删除。', style: theme.textTheme.bodySmall)),
+                Padding(padding: const EdgeInsets.fromLTRB(2, 12, 2, 0), child: Text('点贷款设每月还款、点信用卡看账单和额度，长按一笔删除。', style: theme.textTheme.bodySmall)),
                 const SizedBox(height: 2),
-                Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔'))),
+                Wrap(spacing: 4, children: [
+                  TextButton.icon(onPressed: () => showAddDebtSheet(context), icon: const Icon(Icons.add, size: 18), label: const Text('再添一笔')),
+                  TextButton.icon(onPressed: () => showCardTermsSheet(context), icon: const Icon(Icons.credit_card, size: 18), label: const Text('添加信用卡 / 花呗')),
+                ]),
               ],
-              const SizedBox(height: 18),
-              Text('怎么算的', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                '负债账户的余额 = 还剩多少要还（本息合计，不拆）。每月还款是一笔转账到这个账户，到期进收件箱，你确认了余额就少一期。\n'
-                '首页「可花的」会扣掉发薪日前要还的那期；等级按「生活支出 + 每月还贷」算生存月数；信用卡刷了就从可花的里扣，还卡时不再扣。\n'
-                '净资产 = 资产 − 负债，有房贷时通常是负的，这很正常——看「还清进度」比看净资产更有用。',
-                style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+              const SizedBox(height: 12),
+              // 口径说明收起来：要看的人点开，不看的人不用对着一整段字
+              DisclosureTile(
+                title: const Text('怎么算的'),
+                children: [
+                  Text(
+                    '负债的余额就是还剩多少要还；每月还款到期进收件箱，确认一笔少一期。\n'
+                    '「每月还款」= 贷款月供 + 每张卡最近一期账单。「可花的」只扣发薪前要还的那期。\n'
+                    '信用卡账单按账单日那天的欠款算，之后刷的进下一期；没还清会计息，不够最低还款另收违约金。',
+                    style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(spacing: 4, children: [
+                TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RepaymentPlanPage())), child: const Text('还款计划')),
                 TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const GoalsPage())), child: const Text('还清目标')),
                 TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountsPage())), child: const Text('账户余额')),
               ]),
@@ -103,6 +133,20 @@ class DebtsPage extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// 右上「＋」：贷款 / 借款 还是 信用卡。
+  static Future<void> _add(BuildContext context) async {
+    final v = await showActionSheet<String>(context, title: '添加', actions: const [
+      SheetAction('debt', '房贷 / 车贷 / 网贷 / 借款', icon: Icons.account_balance_outlined),
+      SheetAction('card', '信用卡 / 花呗 / 分付 / 白条 / 抖音月付', icon: Icons.credit_card),
+    ]);
+    if (!context.mounted) return;
+    if (v == 'debt') {
+      await showAddDebtSheet(context);
+    } else if (v == 'card') {
+      await showCardTermsSheet(context);
+    }
   }
 
   static String _monthsLabel(int months) {
@@ -142,15 +186,16 @@ class _DebtRow extends StatelessWidget {
     final theme = Theme.of(context);
     final y = YujianColors.of(context);
     final app = AppScope.of(context);
+    final card = d.isCard ? app.cardStatus(d.account.id) : null;
     final sub = d.isCard
-        ? (d.owedMinor > 0 ? '信用卡待还 · 还款记成转到这张卡' : '信用卡 · 没有待还')
+        ? (card == null ? '信用卡 · 点这里设额度和账单日' : cardBillLine(card))
         : d.owedMinor <= 0
             ? '还清了'
             : d.repayment == null
                 ? '没设每月还款 · 点这里设'
                 : '每月 ${fmtMoney(d.monthlyMinor, 'CNY')} · ${int.parse(d.repayment!.nextDue.substring(8, 10))} 号';
     return InkWell(
-      onTap: d.isCard ? null : () => _showRepaymentSheet(context, app, d),
+      onTap: d.isCard ? () => showCreditCardSheet(context, d.account) : () => _showRepaymentSheet(context, app, d),
       onLongPress: () => _confirmRemove(context, app, d),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -161,12 +206,27 @@ class _DebtRow extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(d.account.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(sub, style: theme.textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                // 信用卡的账单状态（还剩多少、几号到期、还有几天）最多两行，不再截成「还有 16…」
+                Text(sub, style: theme.textTheme.bodySmall?.copyWith(color: card?.state == CardBillState.overdue ? y.danger : null), maxLines: 2, overflow: TextOverflow.ellipsis),
               ]),
             ),
             const SizedBox(width: 8),
-            Text(d.owedMinor > 0 ? fmtMoney(d.owedMinor, d.account.currency) : '已还清', style: theme.textTheme.titleMedium?.copyWith(color: d.owedMinor > 0 ? y.danger : y.income, fontFeatures: const [FontFeature.tabularFigures()])),
+            // 右边的大数标明是什么：信用卡是此刻总欠款（和左边「本期还剩」不是一个数），贷款是还欠多少
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(d.owedMinor > 0 ? fmtMoney(d.owedMinor, d.account.currency) : '已还清', style: theme.textTheme.titleMedium?.copyWith(color: d.owedMinor > 0 ? y.danger : y.income, fontFeatures: const [FontFeature.tabularFigures()])),
+              if (d.owedMinor > 0) Text(d.isCard ? '总欠款' : '还欠', style: theme.textTheme.bodySmall?.copyWith(color: y.muted)),
+            ]),
           ]),
+          // 信用卡：额度用了几成（还进去马上回来，再刷再占）
+          if (card != null && card.usedRatio != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(value: card.usedRatio!.clamp(0.0, 1.0), minHeight: 5, backgroundColor: y.hairline, color: card.usedRatio! >= 0.9 ? y.danger : (card.usedRatio! >= 0.7 ? y.warning : theme.colorScheme.primary)),
+            ),
+            const SizedBox(height: 3),
+            Text('额度 ${fmtMoney(card.terms.limitMinor, 'CNY')} · 可用 ${fmtMoney(card.availableMinor, 'CNY')}', style: theme.textTheme.bodySmall?.copyWith(color: y.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
           if (!d.isCard && d.originalMinor > 0) ...[
             const SizedBox(height: 8),
             ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(value: d.paidRatio, minHeight: 5, backgroundColor: y.hairline, color: d.owedMinor <= 0 ? y.income : theme.colorScheme.primary)),
@@ -205,7 +265,7 @@ class _DebtRow extends StatelessWidget {
       final r = app.removeDebt(d.account.id);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.accountDeleted ? '已删除「$name」' : '「$name」已归档，还款提醒和还清目标已删')));
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -273,7 +333,7 @@ class _DebtRow extends StatelessWidget {
       if (minor <= 0) return;
       app.setDebtRepayment(d.account.id, monthlyMinor: minor, day: day, fromAccountId: from!);
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }
@@ -315,7 +375,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
                 ),
             ]),
             const SizedBox(height: 12),
-            TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '房贷 / 车贷 / 花呗 / 借小王的'), textInputAction: TextInputAction.next),
+            TextField(controller: name, decoration: const InputDecoration(labelText: '名称', hintText: '如 房贷、车贷、借小王的'), textInputAction: TextInputAction.next),
             const SizedBox(height: 12),
             TextField(controller: owed, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '还剩多少要还（元）', helperText: '本息合计，看还款计划表上的剩余总额'), textInputAction: TextInputAction.next),
             const SizedBox(height: 12),
@@ -341,7 +401,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
               ),
             ]),
             const SizedBox(height: 16),
-            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('建好'))),
+            Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('添加'))),
           ]),
         );
       },
@@ -369,7 +429,7 @@ Future<DebtSetup?> showAddDebtSheet(BuildContext context) async {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(monthlyMinor > 0 ? '建好了：账户「$n」+ 每月 $day 号的还款提醒 + 还清目标' : '建好了：账户「$n」+ 还清目标')));
     return setup;
   } on Exception catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     return null;
   }
 }

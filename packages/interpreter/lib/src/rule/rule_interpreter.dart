@@ -30,6 +30,7 @@ class RuleInterpreter implements Interpreter {
 
   // ------------------------------------------------------------- transactions
 
+  static final _transferToPersonRe = RegExp(r'转(?:账)?给(?!自己|我)(\S{1,8}?)(?:[\d一二两三四五六七八九十百千万]|$)');
   static final _clauseSplit = RegExp(r'[，,。；;、\n]|然后|还有|另外|以及|接着|之后');
   static final _splitShareRe = RegExp(r'(我|自己|本人)(付了|付|出了|出|承担了|承担|给了|给|花了|掏了|掏|垫了|这边|的部分|份)');
 
@@ -118,6 +119,14 @@ class RuleInterpreter implements Interpreter {
     if (accounts.isEmpty) accounts = _accountsIn(fullText, ctx); // "买了耳机，用花呗支付"：账户在另一个分句
     String? accountId;
     String? toAccountId;
+    // 「转账给房东 2000」「转给爸妈 3000」：收钱的是别人、不是自己的账户，对我就是一笔支出，不是转账
+    if (type == 'transfer') {
+      final to = _transferToPersonRe.firstMatch(clause);
+      if (to != null && _accountsIn(to.group(1)!, ctx).isEmpty) {
+        type = 'expense';
+        notes.add('transfer to a person → expense');
+      }
+    }
     if (type == 'transfer') {
       final tr = _transferAccounts(clause, accounts, ctx);
       accountId = tr.from;
@@ -290,7 +299,9 @@ class RuleInterpreter implements Interpreter {
     } else {
       final accs = _accountsIn(afterMarker, ctx);
       if (accs.isNotEmpty && RegExp('记到|改到|账户|换成|用的是|是用').hasMatch(text)) patch['account_id'] = accs.first.id;
-      final c = _categoryOf(afterMarker, ctx, target == null ? 'expense' : (target.amountMinor > 0 ? 'expense' : 'income'));
+      // 目标是收入就在收入分类里找（金额永远是正数，不能拿它判方向）；没定位到目标就两边都试
+      final kinds = target?.type == 'income' ? const ['income'] : (target == null ? const ['expense', 'income'] : const ['expense']);
+      final c = [for (final k in kinds) _categoryOf(afterMarker, ctx, k)].whereType<({String categoryId, String? merchant, String? accountId})>().firstOrNull;
       if (c != null && !RegExp('账户').hasMatch(text)) patch['category_id'] = c.categoryId;
       if (newAmounts.isNotEmpty) patch['amount_minor'] = newAmounts.last.minor;
       if (RegExp('时间|日期').hasMatch(text) && dh.explicitDate) {
@@ -463,7 +474,7 @@ class RuleInterpreter implements Interpreter {
 
   String? _categoryName(InterpretContext ctx, String id) => _catRef(ctx, id)?.name;
 
-  static final _fillerRe = RegExp(r'^(今天|今日|昨天|昨日|前天|大前天|刚才|刚刚|今早|今晚|昨晚|前晚|凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|深夜|半夜|一共|总共|合计|大概|大约|差不多|又|还|再|就|才|和|跟|用|的|了|是|在|我|花了|花|付了|付|支付了|支付|消费了|消费|买了|给了|给|收到|收了|到账|转了|转|还了|存了|取了|充了|元|块钱|块|钱|人民币|\s|，|,|。|、)+');
+  static final _fillerRe = RegExp(r'^(今天|今日|昨天|昨日|前天|大前天|刚才|刚刚|今早|今晚|昨晚|前晚|凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|深夜|半夜|一共|总共|合计|大概|大约|差不多|又|还|再|就|才|和|跟|用|的|了|是|在|我|花了|花|付了|付|支付了|支付|消费了|消费|买了|给了|给|收到|收了|到账|转账给|转账|转给|转了|转|还了|存了|取了|充了|元|块钱|块|钱|人民币|\s|，|,|。|、)+');
   static final _payWithRe = RegExp(r'(用|走|通过|拿)?(微信|支付宝|花呗|白条|现金|信用卡|银行卡|云闪付|余额宝)(支付|付款|付的|付|转的|转账|扣的|扣款|结算)?(的)?');
 
   String? _describe(String segment, AmountHit hit, int segOffset, InterpretContext ctx) {

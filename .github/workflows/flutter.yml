@@ -73,6 +73,11 @@ jobs:
       - name: build debug apk
         if: env.BUILD == 'true'
         run: rm -rf build/web && flutter build apk --debug && df -h / | tail -1
+      # 原生纯逻辑单测（支付页识别解析器；main 0.9.16 加的）；上一步已经把 Gradle 和依赖都拉好了
+      - name: android unit test
+        if: env.BUILD == 'true'
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+        working-directory: apps/yujian/android
       # 打样分支：Actions 产物配额撞满时拿不到 APK，改挂到一个预发布上（每次覆盖），真机装这个测
       - name: spike prerelease
         if: env.BUILD == 'true' && github.head_ref == 'spike/local-model'

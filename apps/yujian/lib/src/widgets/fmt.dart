@@ -1,9 +1,19 @@
 import 'package:ledger_core/ledger_core.dart';
 
+/// 金额：负号放最前面（-¥12.00），全 App 一个写法（以前负数是「¥-12.00」，有的页面又自己拼「−¥」）。
 String fmtMoney(int minor, String currency) {
-  final m = Money(minor, currency);
-  final s = m.toDecimalString();
-  return currency == 'CNY' ? '¥$s' : '$s $currency';
+  final s = Money(minor < 0 ? -minor : minor, currency).toDecimalString();
+  final sign = minor < 0 ? '-' : '';
+  return currency == 'CNY' ? '$sign¥$s' : '$sign$s $currency';
+}
+
+/// 短日期：「10/1」；不是今年的带上年份「2027/4/1」。全 App 的日子都用它（以前 10/01、10/1、2026-10-01、09/21 混着用）。
+String fmtMd(String localDate, {String? today}) {
+  final p = localDate.split('-');
+  if (p.length < 3) return localDate;
+  final md = '${int.parse(p[1])}/${int.parse(p[2].substring(0, 2))}';
+  final thisYear = (today ?? todayLocal()).substring(0, 4);
+  return p[0] == thisYear ? md : '${p[0]}/$md';
 }
 
 String fmtSigned(Transaction t) {

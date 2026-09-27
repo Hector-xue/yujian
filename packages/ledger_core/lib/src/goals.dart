@@ -95,7 +95,7 @@ class Goal {
 
   factory Goal.fromRow(Map<String, Object?> r) => Goal(
         id: r['id'] as String,
-        kind: GoalKind.values.byName(r['kind'] as String),
+        kind: GoalKind.values.asNameMap()[r['kind']] ?? GoalKind.wish, // 未知值（新版本同步来的）不崩
         name: r['name'] as String,
         emoji: r['emoji'] as String?,
         cover: r['cover'] as String?,
@@ -105,8 +105,9 @@ class Goal {
         vaultAccountId: r['vault_account_id'] as String?,
         linkedAccountId: r['linked_account_id'] as String?,
         priority: r['priority'] as int,
-        status: GoalStatus.values.byName(r['status'] as String),
-        rules: [for (final j in (jsonDecode((r['rules'] as String?) ?? '[]') as List)) GoalRule.fromJson((j as Map).cast<String, Object?>())],
+        status: GoalStatus.values.asNameMap()[r['status']] ?? GoalStatus.active,
+        // 认不出的规则种类（新版本加的）跳过，不猜它是定额还是比例——猜错了会替用户存钱
+        rules: [for (final j in (jsonDecode((r['rules'] as String?) ?? '[]') as List)) if (GoalRuleKind.values.asNameMap().containsKey((j as Map)['kind'])) GoalRule.fromJson(j.cast<String, Object?>())],
         doneAt: r['done_at'] as int?,
         createdAt: r['created_at'] as int,
         updatedAt: r['updated_at'] as int,
@@ -211,6 +212,7 @@ class GoalStore {
     if (vaultAccountId != null) {
       final a = ledger.getAccount(vaultAccountId);
       if (a.currency != currency) throw ValidationException('vault_account_id', 'currency mismatch');
+      if (!canBeVault(a.type)) throw ValidationException('vault_account_id', 'vault must be a cash / bank / e-wallet / investment account');
     }
     final gid = id ?? Ulid.next();
     final ts = _nowMs();
@@ -329,6 +331,7 @@ class GoalStore {
     } else {
       final a = ledger.getAccount(vault);
       if (a.currency != g.currency) throw ValidationException('vault_account_id', 'currency mismatch');
+      if (!canBeVault(a.type)) throw ValidationException('vault_account_id', 'vault must be a cash / bank / e-wallet / investment account');
     }
     _db.execute('UPDATE goals SET vault_account_id = ?, updated_at = ? WHERE id = ?', [vault, _nowMs(), id]);
     final after = get(id);
@@ -359,6 +362,9 @@ class GoalStore {
   // -------------------------------------------------------------- progress
 
   /// 锁仓里的钱（心愿 / 里程碑 / 应急金的锁仓）。
+  /// 真锁仓能放在哪类账户：存钱的账户（现金 / 银行卡 / 钱包 / 投资）。信用卡 / 贷款 / 借出去的当锁仓，「已攒」就成了欠款或别人的钱。
+  static bool canBeVault(AccountType t) => t == AccountType.cash || t == AccountType.bank || t == AccountType.eWallet || t == AccountType.investment || t == AccountType.vault;
+
   int savedMinor(Goal g) => g.vaultAccountId == null ? 0 : ledger.balance(g.vaultAccountId!).minor.clamp(0, maxMinor);
 
   /// 存入记录：转进锁仓账户的 transfer（最新在前）。
@@ -388,12 +394,14 @@ class GoalStore {
       case GoalKind.wish:
         saved = savedMinor(g);
       case GoalKind.emergency:
-        // 应急金：锁仓有钱按锁仓，没锁仓按整体流动资产（目标额创建时冻结）
+        // 应急金：锁仓有钱按锁仓，没锁仓按没锁进别的目标的流动资产（调用方传 WealthMetrics.freeLiquidMinor；目标额创建时冻结）
         saved = g.vaultAccountId != null ? savedMinor(g) : (liquidMinor ?? 0);
       case GoalKind.payoff:
-        target = g.targetMinor;
+        // 「还欠」必须等于这个账户此刻欠多少：信用卡边还边刷，欠款可能涨过建目标时的数——这时按现在的欠款算，
+        // 已还记 0，不能还停在建目标时的数（负债页写欠 8618，目标条还写欠 8118）
         final owed = g.linkedAccountId == null ? 0 : _payoffTarget(g.linkedAccountId!);
-        saved = (target - owed).clamp(0, target);
+        target = owed > g.targetMinor ? owed : g.targetMinor;
+        saved = target - owed;
       case GoalKind.milestone:
         saved = (netWorthMinor ?? 0).clamp(0, maxMinor);
     }
@@ -484,7 +492,8 @@ class GoalStore {
     var left = total;
     final entries = bySource.entries.toList();
     for (var i = 0; i < entries.length; i++) {
-      final amount = i == entries.length - 1 ? left : (total * entries[i].value / sum).round();
+      // 前面的向下取整、最后一笔拿余数：加起来正好等于锁仓余额（四舍五入会多退 1 分，把锁仓退成负数）
+      final amount = i == entries.length - 1 ? left : (total * entries[i].value ~/ sum);
       if (amount > 0) out.add(back(entries[i].key, amount));
       left -= amount;
     }
@@ -501,6 +510,7 @@ class GoalStore {
       if (g.vaultAccountId == null) continue;
       final p = progress(g, today: _fmt(ledger.now()));
       if (p.reached) continue;
+      var room = p.remainingMinor; // 同一个目标的几条规则共用还差的额度：「工资 20%」加「每月 500」加起来也不超过目标
       for (final r in g.rules) {
         int wanted;
         if (r.kind == GoalRuleKind.salaryPct) {
@@ -510,17 +520,30 @@ class GoalStore {
         } else {
           continue;
         }
-        wanted = wanted.clamp(0, p.remainingMinor);
+        wanted = wanted.clamp(0, room);
         if (wanted <= 0) continue;
         final amount = wanted.clamp(0, left.clamp(0, maxMinor));
         out.add(PaydayAllocation(goal: g, rule: r, wantedMinor: wanted, amountMinor: amount));
         left -= amount;
+        room -= wanted;
       }
     }
     return out;
   }
 
-  /// 到期的定额存入（今天是规则约定的日子，且这一期还没存过）。
+  /// 定额存入的指纹：每月一期 = `goal:<id>:fixed:yyyy-MM`，每周一期 = `goal:<id>:fixed:<那一周约定的日子>`。
+  /// 发薪日分钱里的每月定额也用同一个指纹——两条路谁先到谁存，另一条自动跳过，不会一期存两次。
+  static String fixedFingerprint(String goalId, GoalRule r, String today) {
+    final t = _parse(today);
+    if (r.every == 'weekly') {
+      final monday = t.subtract(Duration(days: t.weekday - 1));
+      return 'goal:$goalId:fixed:${_fmt(monday.add(Duration(days: r.day.clamp(1, 7) - 1)))}';
+    }
+    return 'goal:$goalId:fixed:${t.year}-${t.month.toString().padLeft(2, '0')}';
+  }
+
+  /// 到期的定额存入：这一期约定的日子已经到了（含今天）、这一期还没存过、且那天目标已经建好。
+  /// 以前只认「今天正好是那天」，那天没打开 App 这一期就漏了；现在当期内任何一天打开都会补上。
   List<DueDeposit> dueFixed({required String today}) {
     final t = _parse(today);
     final out = <DueDeposit>[];
@@ -528,18 +551,20 @@ class GoalStore {
       if (g.vaultAccountId == null) continue;
       final p = progress(g, today: today);
       if (p.reached) continue;
+      final created = DateTime.fromMillisecondsSinceEpoch(g.createdAt);
+      final createdDay = DateTime.utc(created.year, created.month, created.day);
       for (final r in g.rules) {
         if (r.kind != GoalRuleKind.fixed || r.amountMinor <= 0) continue;
-        String period;
+        DateTime due;
         if (r.every == 'weekly') {
-          if (t.weekday != r.day) continue;
-          period = _fmt(t);
+          final monday = t.subtract(Duration(days: t.weekday - 1));
+          due = monday.add(Duration(days: r.day.clamp(1, 7) - 1));
         } else {
           final last = DateTime.utc(t.year, t.month + 1, 0).day;
-          if (t.day != (r.day > last ? last : r.day)) continue;
-          period = '${t.year}-${t.month.toString().padLeft(2, '0')}';
+          due = DateTime.utc(t.year, t.month, r.day > last ? last : r.day);
         }
-        final fp = 'goal:${g.id}:fixed:$period';
+        if (due.isAfter(t) || due.isBefore(createdDay)) continue; // 还没到 / 那天目标还没建（建目标当月不倒扣）
+        final fp = fixedFingerprint(g.id, r, today);
         if (ledger.hasFingerprint(fp)) continue;
         out.add(DueDeposit(goal: g, rule: r, amountMinor: r.amountMinor.clamp(0, p.remainingMinor), fingerprint: fp, note: '「${g.name}」${r.every == 'weekly' ? '每周' : '每月'}定存'));
       }
@@ -554,6 +579,10 @@ class GoalStore {
     final out = <DueDeposit>[];
     for (final g in list()) {
       if (g.vaultAccountId == null) continue;
+      // 建目标的那一周和它前一周照结（原来就是：周一建目标，上周的零头照样存进去）；更早的周不倒补——
+      // 补结扩成最近 4 周以后，不加这条新目标一建就会一次倒存 4 周的零头
+      final created = DateTime.fromMillisecondsSinceEpoch(g.createdAt);
+      if (DateTime.utc(created.year, created.month, created.day).isAfter(sunday.add(const Duration(days: 7)))) continue;
       for (final r in g.rules) {
         if (r.kind != GoalRuleKind.roundup || r.roundTo <= 1) continue;
         final fp = 'goal:${g.id}:roundup:$weekMonday';

@@ -151,7 +151,7 @@ class _VoicePageState extends State<VoicePage> {
           labelText: label,
           helperText: helper,
           helperMaxLines: 2,
-          suffixIcon: IconButton(icon: Icon(showKeys ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKeys = !showKeys)),
+          suffixIcon: IconButton(tooltip: showKeys ? '隐藏 Key' : '显示 Key', icon: Icon(showKeys ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => showKeys = !showKeys)),
         ),
       );
 
@@ -302,7 +302,7 @@ class _VoicePageState extends State<VoicePage> {
                     children: [
                       TextField(controller: minimaxGroup, decoration: const InputDecoration(labelText: 'GroupId（老账号才要）')),
                       const SizedBox(height: 8),
-                      TextField(controller: minimaxModel, decoration: const InputDecoration(labelText: '模型', hintText: 'speech-02-hd')),
+                      TextField(controller: minimaxModel, decoration: const InputDecoration(labelText: '模型', hintText: '如 speech-02-hd')),
                       const SizedBox(height: 8),
                     ],
                   ),
@@ -323,7 +323,7 @@ class _VoicePageState extends State<VoicePage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  TextField(controller: speechVoice, decoration: const InputDecoration(labelText: '音色', hintText: 'alloy / nova / FunAudioLLM/CosyVoice2-0.5B:anna', helperText: '各家音色名不同，看服务商文档；留空用 alloy', helperMaxLines: 2)),
+                  TextField(controller: speechVoice, decoration: const InputDecoration(labelText: '音色', hintText: '如 alloy、nova、FunAudioLLM/CosyVoice2-0.5B:anna', helperText: '各家音色名不同，看服务商文档；留空用 alloy', helperMaxLines: 2)),
                 ],
               ),
             ]),

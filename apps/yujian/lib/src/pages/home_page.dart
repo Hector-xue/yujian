@@ -3,7 +3,10 @@ import 'package:ledger_core/ledger_core.dart';
 import 'package:query_dsl/query_dsl.dart';
 
 import '../app_state.dart';
+import '../game/cheer.dart';
 import '../theme.dart';
+import '../widgets/cheer_carousel.dart';
+import '../widgets/credit_card_sheet.dart';
 import '../widgets/fmt.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
@@ -11,6 +14,7 @@ import 'goals_page.dart';
 import 'tasks_page.dart';
 import 'transactions_page.dart';
 import 'wealth_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 首页列表的左右页边距；目标横滑条要把它吃回来（视口铺满屏宽）再自己留出来，所以单独记一份。
 const _gutter = 20.0;
@@ -30,13 +34,16 @@ class HomePage extends StatelessWidget {
     final to = '${now.year}-${now.month.toString().padLeft(2, '0')}-${last.toString().padLeft(2, '0')}';
     final expense = app.engine.run(QueryDsl(timeRange: DateRange(from, to)));
     final income = app.engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to)));
-    final balances = app.ledger.balances(includeVault: true); // 余额是真实余额：锁进目标的钱也在手机里，「可花的」才扣它
     final recent = app.ledger.listTransactions(limit: 5);
     final alerts = app.budgetAlerts();
     final anomalies = app.homeAnomalies().take(3).toList();
     final upcoming = app.ledger.recurring.upcoming(today: todayLocal());
+    // 信用卡：7 天内到期还没还清的、已经逾期的，和周期账单放一起提醒
+    final cardsDue = [for (final c in app.cardStatuses()) if (c.state == CardBillState.overdue || (c.state == CardBillState.due && c.daysToDue <= 7)) c];
     int sumCny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
-    final totalBalance = balances.values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+    // 余额 = 手头的钱（现金 / 银行卡 / 钱包 / 锁仓，负的也减）：锁进目标的钱也在手机里，「可花的」才扣它。
+    // 信用卡 / 贷款 / 投资不在这里（它们在净资产里，财富页看）——以前全加在一起，「可花的」就可能比「余额」还多
+    final totalBalance = Wealth.cashOnHand(app.ledger);
 
     return Scaffold(
       appBar: AppBar(title: Text('${now.month} 月')),
@@ -47,7 +54,7 @@ class HomePage extends StatelessWidget {
           ListenableBuilder(
             listenable: app.game,
             builder: (context, _) => app.game.enabled && app.game.metrics != null
-                ? _GameHeader(totalBalance: totalBalance, expense: sumCny(expense.rows), income: sumCny(income.rows))
+                ? _GameHeader(expense: sumCny(expense.rows), income: sumCny(income.rows))
                 : _BalanceCard(totalBalance: totalBalance, expense: sumCny(expense.rows), income: sumCny(income.rows)),
           ),
           ListenableBuilder(listenable: app.game, builder: (context, _) => app.game.enabled ? const _GoalsStrip() : const SizedBox.shrink()),
@@ -68,6 +75,27 @@ class HomePage extends StatelessWidget {
                   ),
                   TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AutomationPage())), child: const Text('去开启')),
                   IconButton(icon: const Icon(Icons.close, size: 18), onPressed: app.dismissAutoHint, tooltip: '不再提示'),
+                ]),
+              ),
+            ),
+          ],
+          // 太久没打开、没自动补的周期账单：说清楚是哪几期，要补就手记
+          if (app.recurringSkipped.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            GlassCard(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.event_busy_outlined, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('这几期太久没打开，没有自动补', style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 2),
+                      Text('${app.recurringSkipped.join('\n')}\n真付过的话手动补记一下。', style: theme.textTheme.bodySmall),
+                    ]),
+                  ),
+                  IconButton(icon: const Icon(Icons.close, size: 18), onPressed: app.dismissRecurringSkipped, tooltip: '知道了'),
                 ]),
               ),
             ),
@@ -109,7 +137,7 @@ class HomePage extends StatelessWidget {
                       dense: true,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                       title: Text(a.tx.description ?? app.categoryName(a.tx.categoryId), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('${a.tx.occurredAt.localDate.substring(5).replaceFirst('-', '/')} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
+                      subtitle: Text('${fmtMd(a.tx.occurredAt.localDate)} · 是平时的 ${a.ratio.toStringAsFixed(1)} 倍', style: theme.textTheme.bodySmall),
                       trailing: Text(fmtMoney(a.tx.amountMinor, a.tx.currency), style: theme.textTheme.titleMedium?.copyWith(color: y.expense, fontFeatures: const [FontFeature.tabularFigures()])),
                     ),
                   ),
@@ -117,17 +145,26 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          if (upcoming.isNotEmpty) ...[
+          if (upcoming.isNotEmpty || cardsDue.isNotEmpty) ...[
             Text('近期到期', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
             GlassCard(
               child: Column(children: [
+                for (final c in cardsDue)
+                  ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    onTap: () => showCreditCardSheet(context, c.account),
+                    title: Text('💳 ${c.account.name}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(cardBillLine(c), style: theme.textTheme.bodySmall?.copyWith(color: c.state == CardBillState.overdue ? y.danger : null), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: Text(fmtMoney(c.state == CardBillState.overdue ? c.overdueTotalMinor : c.remainingMinor, 'CNY'), style: theme.textTheme.titleMedium?.copyWith(color: c.state == CardBillState.overdue ? y.danger : null, fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
                 for (final r in upcoming)
                   ListTile(
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(r.nextDue.substring(5).replaceFirst('-', '/'), style: theme.textTheme.bodySmall),
+                    subtitle: Text(fmtMd(r.nextDue), style: theme.textTheme.bodySmall),
                     trailing: Text(fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String), style: theme.textTheme.titleMedium?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
                   ),
               ]),
@@ -166,7 +203,7 @@ class _BalanceCard extends StatelessWidget {
                   Row(children: [
                     Icon(Icons.account_balance_wallet_outlined, size: 16, color: y.balance),
                     const SizedBox(width: 6),
-                    Text('余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
+                    Text('现金余额', style: theme.textTheme.bodySmall?.copyWith(color: y.balance, fontWeight: FontWeight.w600)),
                   ]),
                   const SizedBox(height: 4),
                   _BigMoney(fmtMoney(totalBalance, 'CNY'), color: y.balance),
@@ -190,10 +227,9 @@ class _BalanceCard extends StatelessWidget {
 
 /// 可花的 / 今天还能花 / 等级：游戏层的首页头卡。
 class _GameHeader extends StatelessWidget {
-  final int totalBalance;
   final int expense;
   final int income;
-  const _GameHeader({required this.totalBalance, required this.expense, required this.income});
+  const _GameHeader({required this.expense, required this.income});
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -217,18 +253,37 @@ class _GameHeader extends StatelessWidget {
             const SizedBox(height: 4),
             _BigMoney(fmtMoney(m.disposableMinor, 'CNY'), color: m.disposableMinor < 0 ? y.danger : y.balance),
             // 只留一行：今天还能花多少、几天后发薪。公式在财富页（点卡片进），首页不摆三行小字
-            Text(
-              m.disposableMinor < 0 ? '发薪前得省着：固定支出比手头的钱多 · ${m.daysToPayday} 天后发薪' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')} · ${m.daysToPayday} 天后发薪',
-              style: theme.textTheme.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            // 发薪那半句点了就能改发薪日；晚了 / 按月底估的直接写出来，不装作是确定的
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => showPaydaySheet(context),
+              child: Text(
+                '${m.disposableMinor < 0 ? '发薪前得省着：要付的比现金余额多' : '今天还能花 ${fmtMoney(m.dailyAllowanceMinor, 'CNY')}'} · '
+                '${m.paydayLateSince != null ? '工资还没到（本该 ${fmtMd(m.paydayLateSince!)} 发）' : '${m.daysToPayday} 天后发薪${m.paydaySource == 'month_end' ? '（按月底估）' : ''}'}',
+                style: theme.textTheme.bodySmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             const SizedBox(height: 12),
+            // 现金余额 = 现金 / 银行卡 / 钱包 / 锁仓相加（和「可花的」同一次计算，可花的 ≤ 它）；总资产 = 非负债账户相加（含投资，透支的照减，不扣负债）
             _StatRow(children: [
-              _Stat(label: '余额', value: fmtMoney(totalBalance, 'CNY')),
+              _Stat(label: '现金余额', value: fmtMoney(m.cashMinor, 'CNY')),
+              // 没有投资 / 借出这类账户时总资产就等于现金余额，并排两个一样的数没意义
+              if (m.assetsMinor != m.cashMinor) _Stat(label: '总资产', value: fmtMoney(m.assetsMinor, 'CNY')),
               _Stat(label: '本月支出', value: fmtMoney(expense, 'CNY'), color: y.expense),
               _Stat(label: '本月收入', value: fmtMoney(income, 'CNY'), color: y.income),
             ]),
+            // 外币账户没折算：说一声，免得对着账户页加不起来
+            if (m.excludedForeign.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算进余额和总资产', style: theme.textTheme.bodySmall?.copyWith(color: y.muted), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+            // 寄语轮播：收入排位（低于三成的不在首页亮出来，财富页里有）+ 按处境挑的一池话，几秒换一句、点一下换一句
+            if (cheerToneFor(m) != null) ...[
+              const SizedBox(height: 10),
+              CheerCarousel(m: m),
+            ],
           ]),
         ),
       ),
@@ -424,7 +479,7 @@ class _StatRow extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) const SizedBox(width: 22), children[i]]],
+          children: [for (var i = 0; i < children.length; i++) ...[if (i > 0) SizedBox(width: children.length >= 4 ? 16 : 22), children[i]]], // 四格时间距收一点，少缩字
         ),
       );
 }

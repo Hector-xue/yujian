@@ -50,7 +50,9 @@ class _SupportPageState extends State<SupportPage> {
                     ]),
                     const SizedBox(height: 12),
                     Text(
-                      supporter ? '你在 $since 支持过余见。谢谢。' : '余见是一个人写的：开源、无广告、账本不出手机。\n付一块钱，「支持余见」那条提醒永久关掉；不付也一样用，功能不差一分。',
+                      supporter
+                          ? '你在 $since 支持过余见。谢谢——你的支持是我持续更新的动力，也是对这个项目的认可。'
+                          : '余见是一个人写的：开源、无广告、账本不出手机。\n你的支持是我持续更新的动力，也是对这个项目的认可。\n付一块钱，「支持余见」那条提醒永久关掉；不付也一样用，功能不差一分。',
                       style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
                     ),
                   ]),

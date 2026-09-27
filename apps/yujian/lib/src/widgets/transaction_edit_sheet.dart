@@ -3,6 +3,7 @@ import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
 import 'picker_field.dart';
+import '../errors_zh.dart';
 
 /// 编辑已确认交易：金额 / 类型 / 分类 / 账户 / 时间 / 商户 / 说明。走 update 草稿 → 立即确认（表单本身就是确认）。
 Future<bool> showTransactionEditSheet(BuildContext context, Transaction tx) async {
@@ -157,7 +158,7 @@ class _FormState extends State<_Form> {
                 app.updateTransaction(t.id, patch);
                 Navigator.pop(context, true);
               } on LedgerException catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
               }
             },
             child: const Text('保存'),

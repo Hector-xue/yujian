@@ -4,6 +4,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import 'picker_field.dart';
 import 'category_icon.dart';
+import '../errors_zh.dart';
 
 /// 手动记一笔：金额 / 类型 / 分类 / 账户 / 时间 / 说明，直接入账（表单本身就是确认）。返回记好的交易。
 Future<Transaction?> showManualEntrySheet(BuildContext context, {String type = 'expense'}) {
@@ -101,8 +102,8 @@ class _FormState extends State<_Form> {
     }
     final cats = _cats!;
     final accs = _accs ??= app.ledger.listAccounts();
+    accountId ??= app.defaultAccountId ?? (accs.isEmpty ? null : accs.first.id);
     final currency = accs.isEmpty ? 'CNY' : (accs.firstWhere((a) => a.id == accountId, orElse: () => accs.first).currency);
-    accountId ??= accs.isEmpty ? null : accs.first.id;
     if (categoryId != null && !cats.any((c) => c.id == categoryId)) categoryId = null;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
@@ -216,7 +217,7 @@ class _FormState extends State<_Form> {
                 });
                 Navigator.pop(context, t);
               } on LedgerException catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
               }
             },
             child: const Text('记上'),

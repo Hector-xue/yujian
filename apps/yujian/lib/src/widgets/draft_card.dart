@@ -5,14 +5,18 @@ import '../app_state.dart';
 import '../theme.dart';
 import 'category_icon.dart';
 import 'draft_edit_sheet.dart';
+import 'draft_source.dart';
 import 'fmt.dart';
+import '../errors_zh.dart';
 
 /// 一组草稿（同 group_id）的确认卡：逐条可改，可整组确认/忽略。对话页和收件箱共用。
+/// [showOrigin]：顶上加一行「从哪来的 · 什么时候进来的」，点开看原文和确切时间（收件箱用；对话页里来源一目了然）。
 class DraftGroupCard extends StatelessWidget {
   final List<Draft> drafts;
   final VoidCallback? onChanged;
   final void Function(int committed)? onCommitted;
-  const DraftGroupCard({super.key, required this.drafts, this.onChanged, this.onCommitted});
+  final bool showOrigin;
+  const DraftGroupCard({super.key, required this.drafts, this.onChanged, this.onCommitted, this.showOrigin = false});
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +30,7 @@ class DraftGroupCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (showOrigin && drafts.isNotEmpty) DraftOriginLine(draft: drafts.first),
             for (final d in drafts) _DraftRow(draft: d, onChanged: onChanged, onCommitted: onCommitted),
             if (pending.isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -48,7 +53,7 @@ class DraftGroupCard extends StatelessWidget {
                               final n = app.commitGroup(drafts.first.groupId).length; // 卡片自己会变成"已记账 N 笔"，不弹条挡输入框
                               onCommitted?.call(n);
                             } on LedgerException catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                             }
                             onChanged?.call();
                           },
@@ -115,7 +120,7 @@ class _DraftRow extends StatelessWidget {
                 app.commit(draft.id, edits: edits);
                 onCommitted?.call(1);
               } on LedgerException catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
               }
               onChanged?.call();
             },
@@ -155,7 +160,8 @@ class _DraftRow extends StatelessWidget {
         'amount_minor' => '金额',
         'occurred_at' => '时间',
         'currency' => '币种',
-        'refund_of_id' => '原交易',
+        'refund_of_id' => '退的是哪一笔',
+        'type' => '收支类型',
         'description' => '说明',
         _ => f,
       };

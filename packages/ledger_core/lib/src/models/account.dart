@@ -51,5 +51,7 @@ class Account {
         'icon': icon,
         'is_archived': isArchived,
         'sort_order': sortOrder,
+        // 建账户的时间要跟着备份 / 同步走：信用卡判「上期逾期」要看卡是不是那一期之前就建了（恢复 / 换机后不能变成「刚建的」）
+        'created_at': createdAt.toUtc().toIso8601String(),
       };
 }

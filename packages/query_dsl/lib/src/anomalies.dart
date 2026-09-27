@@ -2,6 +2,8 @@ import 'package:ledger_core/ledger_core.dart';
 
 /// 异常支出（§19 Phase 2）：与同分类过去 [baselineDays] 天的基线比，超过 max(3×中位数, 均值+2σ) 就算。
 /// 同分类样本不够就退到全部支出的基线；基线都不够就不判（宁可漏，不瞎报）。
+/// 本来就定期、本来就大的不算异常：周期账单（房租、订阅）、目标兑现（攒够了去旅行）不参与判定也不进基线；
+/// 退到全部支出的基线时，同分类以前出现过差不多的数（±20%）也不报——每月手记一次的房租不该每个月都是「比平时高 80 倍」。
 class Anomaly {
   final Transaction tx;
   final int baselineMedianMinor;
@@ -15,7 +17,8 @@ class Anomaly {
 List<Anomaly> detectAnomalies(Ledger ledger, {required String from, required String to, int baselineDays = 90, int minSamples = 5}) {
   final fromUtc = DateTime.parse('${from}T00:00:00Z').subtract(Duration(days: baselineDays + 1));
   final toUtc = DateTime.parse('${to}T00:00:00Z').add(const Duration(days: 2));
-  final all = ledger.listTransactions(from: fromUtc, to: toUtc, type: TransactionType.expense, limit: 1 << 30);
+  bool planned(Transaction x) => x.recurringId != null || x.source == Source.recurring || x.metadata['goal_kind'] == 'redeem';
+  final all = [for (final x in ledger.listTransactions(from: fromUtc, to: toUtc, type: TransactionType.expense, limit: 1 << 30)) if (!planned(x)) x];
   final out = <Anomaly>[];
   for (final t in all) {
     final d = t.occurredAt.localDate;
@@ -25,6 +28,9 @@ List<Anomaly> detectAnomalies(Ledger ledger, {required String from, required Str
     var samples = all.where((x) => inWindow(x) && x.categoryId == t.categoryId).map((x) => x.amountMinor).toList();
     var basis = 'category';
     if (samples.length < minSamples) {
+      // 同分类以前有过差不多的数：是这类支出本来就这么大（房租、学费），不是异常
+      final lo = t.amountMinor * 0.8, hi = t.amountMinor * 1.2;
+      if (samples.any((v) => v >= lo && v <= hi)) continue;
       samples = all.where(inWindow).map((x) => x.amountMinor).toList();
       basis = 'overall';
       if (samples.length < minSamples * 2) continue;

@@ -41,7 +41,8 @@ class ScreenshotOcrParser {
   static final _amountLabelRe = RegExp('实付款?|实际支付|付款金额|支付金额|交易金额|合计|总计|应付|订单金额|退款金额|到账金额|收款金额');
   static final _amountLabelLooseRe = RegExp('金额');
   static final _notAmountLabelRe = RegExp('优惠|折扣|抵扣|立减|减免|余额|返现|积分');
-  static final _incomeLabelRe = RegExp('退款金额|到账金额|收款金额');
+  static final _incomeLabelRe = RegExp('到账金额|收款金额');
+  static final _refundRe = RegExp('退款成功|已退款|退款金额|退款到账|退款详情');
   static final _expenseLabelRe = RegExp('实付|实际支付|付款金额|支付金额');
   static final _merchantLabelRe = RegExp(r'^(收款方全称|收款方|收款商户|收款人|商户全称|商户名称|商户|商家|店铺|付款给|向|付款商户|商品说明|商品|交易对方|对方|转账给|收款账户)[:：]?\s*(.*)$');
   // 方向证据（按优先级）
@@ -98,9 +99,12 @@ class ScreenshotOcrParser {
       if (_signExpenseRe.hasMatch(amountLine)) return 'expense';
       if (_signIncomeRe.hasMatch(amountLine)) return 'income';
     }
+    // 退款页：记成退款（冲减原来那笔支出），不算收入
+    if (amountLabel != null && amountLabel.contains('退款')) return 'refund';
     final body = texts.where((t) => !_statusBarRe.hasMatch(t)).toList();
     final headIdx = body.indexWhere((t) => t.length <= 12 && (_headExpenseRe.hasMatch(t) || _headIncomeRe.hasMatch(t) || _headTransferRe.hasMatch(t)));
     final head = headIdx >= 0 ? body[headIdx] : (body.isEmpty ? '' : body.first);
+    if (_refundRe.hasMatch(head)) return 'refund';
     if (_headTransferRe.hasMatch(head)) return 'transfer';
     if (_headIncomeRe.hasMatch(head)) return 'income';
     if (_headExpenseRe.hasMatch(head)) return 'expense';
@@ -110,11 +114,86 @@ class ScreenshotOcrParser {
     }
     if (_partyExpenseRe.hasMatch(full)) return 'expense';
     if (_partyIncomeRe.hasMatch(full)) return 'income';
+    if (_refundRe.hasMatch(full) && !_wordExpenseRe.hasMatch(full)) return 'refund';
     if (TemplateMatcher.directionOf(full) == 'transfer') return 'transfer';
     if (_wordIncomeRe.hasMatch(full) && !_wordExpenseRe.hasMatch(full)) return 'income';
     if (_wordExpenseRe.hasMatch(full)) return 'expense';
     if (_wordIncomeRe.hasMatch(full)) return 'income';
     return _successRe.hasMatch(full) || amount != null ? 'expense' : null;
+  }
+
+  // ---------------------------------------------------------------- 账单列表（多笔）
+  // 微信 / 支付宝「账单」页、银行流水页：一屏好几笔，每笔一行带正负号的金额，上面是商户、旁边是时间
+  static final _listAmountRe = RegExp(r'^\s*([-−+])\s*[¥￥]?\s*(\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})\s*$');
+  static final _listTimeRe = RegExp(r'^(?:(今天|昨天)|(?:(20\d{2})[-/.年])?(\d{1,2})[-/.月](\d{1,2})日?)\s*(\d{1,2})[:：](\d{2})');
+  static final _listNoiseRe = RegExp(r'^(账单|全部|筛选|统计|本月|支出|收入|收支|查找|搜索|月账单|\d{4}年\d{1,2}月|\d{1,2}月)');
+
+  /// 账单列表截图 → 多笔；不像列表（带正负号的金额行少于 2 个，或者页面顶上是「支付成功」这类单笔页标题）返回空列表。
+  static List<LocalShot> parseList(List<OcrLine> lines, {DateTime? fallbackTime}) {
+    final texts = [for (final l in lines) l.text.trim()].where((t) => t.isNotEmpty).toList();
+    final amountIdx = [for (var i = 0; i < texts.length; i++) if (_listAmountRe.hasMatch(texts[i])) i];
+    if (amountIdx.length < 2) return const [];
+    final body = texts.where((t) => !_statusBarRe.hasMatch(t)).take(4);
+    if (body.any((t) => t.length <= 12 && (_headExpenseRe.hasMatch(t) || _headIncomeRe.hasMatch(t) || _headTransferRe.hasMatch(t)))) return const [];
+    final base = fallbackTime ?? DateTime.now();
+    // 版式：时间在金额下面（微信 / 支付宝账单）还是上面（部分银行流水）。看第一笔金额的下一行是不是时间
+    final first = amountIdx.first;
+    final timeBelow = first + 1 < texts.length && _listTime(texts[first + 1], base) != null;
+    final out = <LocalShot>[];
+    for (var k = 0; k < amountIdx.length; k++) {
+      final i = amountIdx[k];
+      final m = _listAmountRe.firstMatch(texts[i])!;
+      final amount = _minor(m.group(2)!);
+      if (amount == null || amount <= 0) continue;
+      final sign = m.group(1)!;
+      // 商户：往上找第一行「不是金额、不是时间、不是表头噪音」的文字，但不越过上一笔的金额行
+      final floor = k == 0 ? -1 : amountIdx[k - 1];
+      String? merchant;
+      DateTime? when;
+      for (var j = i - 1; j > floor; j--) {
+        final t = texts[j];
+        final tt = _listTime(t, base);
+        if (tt != null) {
+          if (!timeBelow) when ??= tt; // 时间在上面的版式才归这一笔；时间在下面的版式里，上方的时间属于上一笔
+          continue;
+        }
+        if (merchant == null && !_listNoiseRe.hasMatch(t) && !_strongAmountRe.hasMatch(t) && t.length >= 2 && t.length <= 30) merchant = t;
+      }
+      final ceil = k + 1 < amountIdx.length ? amountIdx[k + 1] : texts.length;
+      if (timeBelow) {
+        for (var j = i + 1; j < ceil && j <= i + 2 && when == null; j++) {
+          when = _listTime(texts[j], base);
+        }
+      }
+      if (when != null && when.isAfter(base.add(const Duration(days: 1)))) when = null;
+      final all = texts.sublist(floor + 1, ceil).join('\n');
+      out.add(LocalShot(
+        amountMinor: amount,
+        direction: sign == '+' ? (RegExp('退款').hasMatch(all) ? 'refund' : 'income') : 'expense',
+        merchant: merchant,
+        accountHint: null,
+        occurredAt: when,
+        confidence: merchant == null ? 0.5 : 0.6,
+        looksLikeTransaction: true,
+        text: all,
+      ));
+    }
+    return out.length >= 2 ? out : const [];
+  }
+
+  static DateTime? _listTime(String t, DateTime base) {
+    final m = _listTimeRe.firstMatch(t);
+    if (m == null) return null;
+    final h = int.parse(m.group(5)!), mi = int.parse(m.group(6)!);
+    if (m.group(1) != null) {
+      final d = m.group(1) == '昨天' ? base.subtract(const Duration(days: 1)) : base;
+      return DateTime(d.year, d.month, d.day, h, mi);
+    }
+    final y = m.group(2) != null ? int.parse(m.group(2)!) : base.year;
+    final mo = int.parse(m.group(3)!), d = int.parse(m.group(4)!);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    final dt = DateTime(y, mo, d, h, mi);
+    return dt.month == mo ? dt : null;
   }
 
   static LocalShot parse(List<OcrLine> lines, {DateTime? fallbackTime}) {

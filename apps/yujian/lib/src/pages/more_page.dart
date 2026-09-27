@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../update/update_sheet.dart';
 import '../version.dart';
 import '../widgets/fmt.dart';
+import 'about_page.dart';
 import 'accounts_page.dart';
 import 'ai_page.dart';
 import 'appearance_page.dart';
@@ -13,20 +14,24 @@ import 'audit_page.dart';
 import 'automation_page.dart';
 import 'budgets_page.dart';
 import 'calendar_page.dart';
+import 'checkup_page.dart';
 import 'categories_page.dart';
 import 'data_page.dart';
 import 'debts_page.dart';
+import 'feedback_page.dart';
 import 'goals_page.dart';
 import '../local_model/lab_page.dart';
 import 'persona_page.dart';
 import 'privacy_page.dart';
 import 'recurring_page.dart';
+import 'repayment_plan_page.dart';
 import 'stats_page.dart';
 import 'support_page.dart';
 import 'sync_page.dart';
 import 'tasks_page.dart';
 import 'wealth_page.dart';
 import 'widgets_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 更多：按「记账 / 自动化 / AI / 隐私 / 外观 / 数据 / 关于」分组，每组一张卡。模型相关只留一个入口（模型与语音）。
 class MorePage extends StatelessWidget {
@@ -88,10 +93,13 @@ class MorePage extends StatelessWidget {
                 child: item(Icons.favorite_border, '支持余见 ¥1', subtitle: '一杯白开水的钱，这条提醒永久关掉', onTap: () => go(const SupportPage())),
               ),
             ),
-          group('目标', [
+          group('规划', [
             item(Icons.flag_outlined, '目标', subtitle: app.game.goals.isEmpty ? '换手机 / 买车 / 首付 / 旅行——给钱一个用途' : app.game.goals.take(2).map((p) => '${p.goal.name} ${(p.ratio * 100).toStringAsFixed(0)}%').join(' · '), onTap: () => go(const GoalsPage())),
             item(Icons.task_alt_outlined, '周任务', subtitle: app.game.weekTasks.isEmpty ? '本周还没挑' : '本周 ${app.game.weekTasks.length} 个', onTap: () => go(const TasksPage())),
             item(Icons.insights_outlined, '财富', subtitle: app.game.metrics?.title == null ? '可花的 · 等级 · 成就' : '「${app.game.metrics!.title}」· 可花的 ${fmtMoney(app.game.metrics!.disposableMinor, 'CNY')}', onTap: () => go(const WealthPage())),
+            item(Icons.health_and_safety_outlined, '资产体检', subtitle: '资产状况 + 按先后排好的调优方案', onTap: () => go(const CheckupPage())),
+            item(Icons.event_note_outlined, '还款计划', subtitle: '按发薪日和各个还款日，排出每一笔怎么还', onTap: () => go(const RepaymentPlanPage())),
+            item(Icons.payments_outlined, '发薪日', subtitle: paydaySummary(app), onTap: () => showPaydaySheet(context)),
           ]),
           group('记账', [
             item(Icons.bar_chart_outlined, '月度统计', onTap: () => go(const StatsPage())),
@@ -99,7 +107,7 @@ class MorePage extends StatelessWidget {
             item(Icons.savings_outlined, '预算', onTap: () => go(const BudgetsPage())),
             item(Icons.event_repeat_outlined, '周期账单', onTap: () => go(const RecurringPage())),
             item(Icons.account_balance_wallet_outlined, '账户', onTap: () => go(const AccountsPage())),
-            item(Icons.credit_score_outlined, '负债', subtitle: app.game.metrics == null || app.game.metrics!.debt.totalMinor <= 0 ? '房贷 / 车贷 / 网贷——填两个数，还款提醒和还清目标自动建' : '总负债 ${fmtMoney(app.game.metrics!.debt.totalMinor, 'CNY')}${app.game.metrics!.debt.monthlyMinor > 0 ? ' · 每月还 ${fmtMoney(app.game.metrics!.debt.monthlyMinor, 'CNY')}' : ''}', onTap: () => go(const DebtsPage())),
+            item(Icons.credit_score_outlined, '负债', subtitle: app.game.metrics == null || app.game.metrics!.debt.totalMinor <= 0 ? '房贷 / 车贷 / 网贷 / 信用卡 / 花呗 / 白条——还款提醒和还清目标自动建' : '总负债 ${fmtMoney(app.game.metrics!.debt.totalMinor, 'CNY')}${app.game.metrics!.debt.monthlyMinor > 0 ? ' · 每月还 ${fmtMoney(app.game.metrics!.debt.monthlyMinor, 'CNY')}' : ''}', onTap: () => go(const DebtsPage())),
             item(Icons.label_outline, '分类', onTap: () => go(const CategoriesPage())),
           ]),
           group('自动化', [
@@ -129,6 +137,8 @@ class MorePage extends StatelessWidget {
             item(Icons.history, '审计日志', subtitle: '账本每一次改动', onTap: () => go(const AuditPage())),
           ]),
           group('关于', [
+            item(Icons.info_outline, '关于余见', subtitle: '开源、免费、账本不出手机', onTap: () => go(const AboutPage())),
+            item(Icons.bug_report_outlined, '反馈 BUG / 建议', subtitle: '可以带截图，作者直接看到', onTap: () => go(const FeedbackPage())),
             item(Icons.favorite_border, '支持余见', subtitle: app.isSupporter ? '已支持 · 谢谢' : '¥1 · 不付也一样用', onTap: () => go(const SupportPage())),
             item(
               Icons.system_update_alt_outlined,

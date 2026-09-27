@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
 import '../widgets/picker_field.dart';
+import '../errors_zh.dart';
 
 class AccountsPage extends StatelessWidget {
   const AccountsPage({super.key});
@@ -14,8 +15,8 @@ class AccountsPage extends StatelessWidget {
     AccountType.bank: '银行卡',
     AccountType.creditCard: '信用卡',
     AccountType.eWallet: '电子钱包',
-    AccountType.receivable: '应收',
-    AccountType.payable: '应付',
+    AccountType.receivable: '借出去的',
+    AccountType.payable: '贷款 / 借款',
     AccountType.investment: '投资',
   };
 
@@ -26,15 +27,23 @@ class AccountsPage extends StatelessWidget {
     final all = app.ledger.listAccounts(includeArchived: true);
     final active = all.where((a) => !a.isArchived).toList();
     final archived = all.where((a) => a.isArchived).toList();
+    // 定期（对话里登记的）：副标题带上到期日 / 年利率
+    String deposit(Account a) {
+      if (a.type != AccountType.investment) return '';
+      final t = DepositTerms.read(app.ledger, a.id);
+      if (t == null) return '';
+      return '${t.maturity != null ? ' · ${t.maturity} 到期' : ''}${t.ratePercent != null ? ' · 年利率 ${t.ratePercent}%' : ''}';
+    }
+
     Widget tile(Account a) => ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(a.name, style: a.isArchived ? TextStyle(color: theme.textTheme.bodySmall?.color) : null),
-          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}', style: theme.textTheme.bodySmall),
+          subtitle: Text('${_typeLabels[a.type] ?? a.type.db}${deposit(a)}${a.currency != 'CNY' ? ' · ${a.currency}' : ''}${!a.isArchived && app.defaultAccountId == a.id ? ' · 默认记账' : ''}', style: theme.textTheme.bodySmall),
           trailing: Text(fmtMoney(app.ledger.balance(a.id).minor, a.currency), style: theme.textTheme.titleMedium),
           onTap: () => _edit(context, a),
         );
     return Scaffold(
-      appBar: AppBar(title: const Text('账户'), actions: [IconButton(onPressed: () => _add(context), icon: const Icon(Icons.add))]),
+      appBar: AppBar(title: const Text('账户'), actions: [IconButton(tooltip: '添加账户', onPressed: () => _add(context), icon: const Icon(Icons.add))]),
       // 在用的一张卡、归档的一张卡；空着就给一句话
       body: ListView(
         padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
@@ -57,6 +66,8 @@ class AccountsPage extends StatelessWidget {
     final name = TextEditingController(text: a.name);
     final initial = TextEditingController(text: Money(a.initialBalanceMinor, a.currency).toDecimalString());
     var type = a.type;
+    final wasDefault = app.defaultAccountId == a.id;
+    var makeDefault = wasDefault;
     final hasPostings = app.ledger.accountPostingCount(a.id) > 0;
     final result = await showDialog<String>(
       context: context,
@@ -79,6 +90,14 @@ class AccountsPage extends StatelessWidget {
                   controller: initial,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                   decoration: InputDecoration(labelText: '期初余额（${a.currency}）', helperText: hasPostings ? '币种已有交易，不能改' : null)),
+              if (!a.isArchived)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('默认记账账户'),
+                  subtitle: const Text('一句话记账、通知认不出账户时都记到这里'),
+                  value: makeDefault,
+                  onChanged: (v) => setState(() => makeDefault = v),
+                ),
               if (hasPostings) ...[
                 const SizedBox(height: 10),
                 Align(alignment: Alignment.centerLeft, child: Text('已有交易的账户只能归档，删了历史就对不上。', style: Theme.of(d).textTheme.bodySmall)),
@@ -103,7 +122,25 @@ class AccountsPage extends StatelessWidget {
     try {
       switch (result) {
         case 'archive':
-          app.ledger.archiveAccount(a.id);
+          // 还有钱 / 还有周期账单在用它：先说清楚后果再归档
+          final bal = app.ledger.balance(a.id).minor;
+          final using = app.ledger.recurringUsing(a.id);
+          if (bal != 0 || using.isNotEmpty) {
+            final sure = await showDialog<bool>(
+              context: context,
+              builder: (dlg) => AlertDialog(
+                title: Text('归档「${a.name}」？'),
+                content: Text([
+                  if (bal != 0) '账户里还有 ${fmtMoney(bal, a.currency)}：归档后不再算进余额和净资产。钱没有消失，只是不统计了；卡已经不用了的话，先把钱转走或把余额调成 0。',
+                  if (using.isNotEmpty) '用它的周期账单会一起停掉：${using.map((r) => r.name).join('、')}。恢复账户后到「周期账单」里重新打开。',
+                ].join('\n\n')),
+                actions: [TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(dlg, true), child: const Text('归档'))],
+              ),
+            );
+            if (sure != true || !context.mounted) return;
+          }
+          final paused = app.ledger.archiveAccount(a.id);
+          if (paused > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已归档，停掉了 $paused 条周期账单')));
         case 'unarchive':
           app.ledger.unarchiveAccount(a.id);
         case 'delete':
@@ -123,10 +160,11 @@ class AccountsPage extends StatelessWidget {
           }
         case 'save':
           app.ledger.updateAccount(a.id, name: name.text.trim(), type: type, initialBalanceMinor: Money.parse(initial.text.trim().isEmpty ? '0' : initial.text.trim(), a.currency).minor);
+          if (makeDefault != wasDefault) app.setDefaultAccount(makeDefault ? a.id : null);
       }
       app.touch();
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -176,7 +214,7 @@ class AccountsPage extends StatelessWidget {
     try {
       app.addAccount(name: name.text.trim(), type: type, currency: currency, initialBalanceMinor: Money.parse(initial.text.trim().isEmpty ? '0' : initial.text.trim(), currency).minor);
     } on Exception catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

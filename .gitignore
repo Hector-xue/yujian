@@ -9,3 +9,6 @@ apps/yujian/build/
 apps/yujian/.flutter-plugins-dependencies
 apps/yujian/android/keystore.properties
 apps/yujian/android/*.keystore
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
 import '../app_state.dart';
+import '../game/cheer.dart';
 import '../theme.dart';
 import '../widgets/fmt.dart';
-import '../widgets/picker_field.dart';
+import 'checkup_page.dart';
 import 'debts_page.dart';
+import 'repayment_plan_page.dart';
+import '../widgets/payday_sheet.dart';
 
 /// 财富页：可花的 / 今天还能花 / 等级（生存月数）/ 储蓄率 / 净资产 / 收入线 / 成就，每个数都写清怎么来的；
 /// 底部是游戏层的设置：发薪日、工资账户、总开关、代价行、三个仪式。
@@ -69,9 +72,9 @@ class WealthPage extends StatelessWidget {
                         const SizedBox(height: 6),
                       ],
                       if (m.level == null)
-                        Text('等级 = 生存月数 = 流动资产 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
+                        Text('等级 = 生存月数 = 现金余额 ÷ 月支出。记一笔收入或支出就有了，不用等一个月；也可以在下面直接填「每月大概花多少」。', style: theme.textTheme.bodySmall)
                       else ...[
-                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（${_basisLabel(m)}）。', style: theme.textTheme.bodySmall),
+                        Text('现在的钱够花 ${m.runwayMonths!.toStringAsFixed(1)} 个月 = 现金余额 ${fmtMoney(m.liquidMinor, 'CNY')} ÷ 月支出 ${fmtMoney(m.monthlySpendAvgMinor, 'CNY')}（${_basisLabel(m)}）。', style: theme.textTheme.bodySmall),
                         if (m.level!.next != null && m.toNextLevelMinor != null) Text('再攒 ${fmtMoney(m.toNextLevelMinor!, 'CNY')} 升到「${m.level!.next!.title}」（${m.level!.next!.name}，≥ ${m.level!.next!.minMonths.toStringAsFixed(m.level!.next!.minMonths % 1 == 0 ? 0 : 1)} 个月）。', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
                       ],
                       const SizedBox(height: 8),
@@ -100,9 +103,38 @@ class WealthPage extends StatelessWidget {
                     ]),
                   ),
                 ),
+                // 体检 / 还款计划的入口：放在等级下面，一眼能点到
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(child: OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CheckupPage())), icon: const Icon(Icons.health_and_safety_outlined, size: 18), label: const Text('资产体检'))),
+                  const SizedBox(width: 10),
+                  Expanded(child: OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RepaymentPlanPage())), icon: const Icon(Icons.event_note_outlined, size: 18), label: const Text('还款计划'))),
+                ]),
+                // 你在哪儿：收入在全国的位置（统计局五等份分组估算）+ 寄语
+                if (cheerFor(m) case final c?) ...[
+                  const SizedBox(height: 12),
+                  GlassCard(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('你在哪儿', style: theme.textTheme.bodySmall),
+                        const SizedBox(height: 4),
+                        Text(c.line, style: theme.textTheme.titleMedium?.copyWith(color: c.tone == CheerTone.abundant ? y.income : null)),
+                        if (m.incomeRank != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '${incomeRankLine(m)!}：年收入按${m.incomeRank!.basis == IncomeRankBasis.history ? '近几个整月的收入均值' : '近 31 天的收入'} × 12 ≈ ${fmtMoney(m.incomeRank!.annualMinor, 'CNY')}，'
+                            '对照${IncomeBenchmark.source}（中位数 ${IncomeBenchmark.medianYuan} 元 / 年）估算。统计局不公布分年龄的收入分布，所以只和全国比，不编「同龄人」。',
+                            style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
+                          ),
+                        ],
+                      ]),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
-                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 流动资产 ${fmtMoney(m.liquidMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比手头的钱多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
-                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${m.payday}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从收入记录推的，可在下面改', _ => '没填也推不出，按月底算' }}）'),
+                stat('可花的', fmtMoney(m.disposableMinor, 'CNY'), '= 现金余额 ${fmtMoney(m.cashMinor, 'CNY')} − 锁进目标 ${fmtMoney(m.lockedMinor, 'CNY')} − 发薪前要付的固定支出和还贷 ${fmtMoney(m.fixedDueMinor, 'CNY')}${m.cardOwedMinor > 0 ? ' − 信用卡待还 ${fmtMoney(m.cardOwedMinor, 'CNY')}' : ''}${m.disposableMinor < 0 ? '。是负的：要付的比现金余额多，发薪前得省着' : ''}', color: m.disposableMinor < 0 ? y.danger : y.balance),
+                stat('今天还能花', fmtMoney(m.dailyAllowanceMinor, 'CNY'), '= 可花的 ÷ 到发薪日的 ${m.daysToPayday} 天。今天已花 ${fmtMoney(m.spentTodayMinor, 'CNY')}，已经从可花的里扣掉了，不再减一次。发薪日 ${fmtMd(m.payday)}（${switch (m.paydaySource) { 'profile' => '你填的', 'inferred' => '从工资记录推的，可在下面改', _ => '没填也推不出，按月底估的，在下面设' }}${m.paydayLateSince != null ? '；本该 ${fmtMd(m.paydayLateSince!)} 发的这期还没到，按明天到估' : ''}）'),
                 stat('净资产', fmtMoney(m.netWorthMinor, 'CNY'), '= 资产 ${fmtMoney(m.assetsMinor, 'CNY')} − 负债 ${fmtMoney(m.debt.totalMinor, 'CNY')}（目标锁仓算在资产里）${m.inDebt ? '。是负的很正常：有房贷车贷都这样，看下面的还清进度更有用' : ''}${m.excludedForeign.isNotEmpty ? '。${m.excludedForeign.map((a) => a.name).join('、')} 不是人民币，没算' : ''}', color: m.netWorthMinor < 0 ? y.danger : null),
                 if (m.debt.totalMinor > 0)
                   Padding(
@@ -122,7 +154,7 @@ class WealthPage extends StatelessWidget {
                                     if (m.debt.loanMinor > 0) '贷款 ${fmtMoney(m.debt.loanMinor, 'CNY')}',
                                     if (m.debt.cardMinor > 0) '信用卡 ${fmtMoney(m.debt.cardMinor, 'CNY')}',
                                     if (m.debt.monthlyMinor > 0) '每月还 ${fmtMoney(m.debt.monthlyMinor, 'CNY')}',
-                                    if (m.debt.monthsLeft != null && m.debt.monthsLeft! > 0) '约 ${m.debt.monthsLeft} 个月还清',
+                                    if (m.debt.monthsLeft != null && m.debt.monthsLeft! > 0) '${m.debt.cardMinor > 0 ? '贷款' : ''}约 ${m.debt.monthsLeft} 个月还清',
                                   ].join(' · '),
                                   style: theme.textTheme.bodySmall?.copyWith(color: y.muted),
                                 ),
@@ -265,7 +297,7 @@ class _AchievementChip extends StatelessWidget {
         builder: (d) => AlertDialog(
           title: Text(def.title),
           content: Text('${def.description}\n\n${on ? '达成于 ${fmtRelativeMs(unlocked!.unlockedAt)}${unlocked!.evidence == null ? '' : '\n依据：${unlocked!.evidence!.entries.map((e) => '${e.key} = ${e.value}').join('，')}'}' : '还没达成。'}'),
-          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('好'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('知道了'))],
         ),
       ),
     );
@@ -333,38 +365,19 @@ class _MonthlyCostRowState extends State<_MonthlyCostRow> {
   }
 }
 
-/// 发薪日 + 工资账户：画像里的两项，指标要用。
+/// 发薪日 + 工资账户：点开统一的发薪日设置（首页、日历、「更多」里打开的是同一个）。
 class _PaydayRow extends StatelessWidget {
   const _PaydayRow();
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    final profile = app.ledger.profile;
-    return Row(children: [
-      Expanded(
-        child: PickerField<int?>(
-          value: profile.payday,
-          decoration: const InputDecoration(labelText: '发薪日'),
-          items: [const DropdownMenuItem<int?>(value: null, child: Text('自动推断')), for (var d = 1; d <= 31; d++) DropdownMenuItem<int?>(value: d, child: Text('每月 $d 号'))],
-          onChanged: (v) {
-            profile.payday = v;
-            app.touch();
-          },
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: PickerField<String?>(
-          value: app.accounts.any((a) => a.id == profile.salaryAccountId) ? profile.salaryAccountId : null,
-          decoration: const InputDecoration(labelText: '工资到哪个账户'),
-          items: [const DropdownMenuItem<String?>(value: null, child: Text('不指定')), for (final a in app.accounts) DropdownMenuItem<String?>(value: a.id, child: Text(a.name, style: theme.textTheme.bodyMedium))],
-          onChanged: (v) {
-            profile.salaryAccountId = v;
-            app.touch();
-          },
-        ),
-      ),
-    ]);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('发薪日'),
+      subtitle: Text('${paydaySummary(app)}${app.ledger.profile.salaryAccountId == null ? '' : ' · 工资到「${app.accountName(app.ledger.profile.salaryAccountId)}」'}', style: theme.textTheme.bodySmall),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showPaydaySheet(context),
+    );
   }
 }

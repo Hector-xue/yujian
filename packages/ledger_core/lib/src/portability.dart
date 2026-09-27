@@ -24,11 +24,11 @@ String exportCsv(Ledger ledger) {
       t.type.db,
       Money(t.amountMinor, t.currency).toDecimalString(),
       t.currency,
-      t.categoryId == null ? '' : (ledger.category(t.categoryId!)?.name ?? t.categoryId!),
-      ledger.account(t.accountId)?.name ?? t.accountId,
-      t.toAccountId == null ? '' : (ledger.account(t.toAccountId!)?.name ?? t.toAccountId!),
-      t.merchant ?? '',
-      t.description ?? '',
+      _csvText(t.categoryId == null ? '' : (ledger.category(t.categoryId!)?.name ?? t.categoryId!)),
+      _csvText(ledger.account(t.accountId)?.name ?? t.accountId),
+      _csvText(t.toAccountId == null ? '' : (ledger.account(t.toAccountId!)?.name ?? t.toAccountId!)),
+      _csvText(t.merchant ?? ''),
+      _csvText(t.description ?? ''),
       t.source.db,
       t.status.db,
     ].map(_csvCell).join(','));
@@ -36,9 +36,14 @@ String exportCsv(Ledger ledger) {
   return b.toString();
 }
 
-String _csvCell(String s) => s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+String _csvCell(String s) => s.contains(RegExp(r'[",\r\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
 
-/// JSON 全量备份：账户、分类、交易（含 posting、作废的也带）、记忆。草稿与审计不进备份。
+/// 文本列（商户 / 说明 / 分类名 / 账户名）防 CSV 公式注入：以 = + - @ 开头的，Excel / WPS 打开会当公式执行，
+/// 商户名来自通知和截图，不可信。前面垫一个单引号，表格里显示成文本。金额列不走这里。
+String _csvText(String s) => s.isNotEmpty && '=+-@\t\r'.contains(s[0]) ? "'$s" : s;
+
+/// JSON 全量备份：账户、分类、交易（含 posting、作废的也带）、记忆、收件箱里待确认的草稿。审计不进备份。
+/// 待确认草稿必须带：周期账单起草后 next_due 已经往后推了，不带的话恢复后这几期再也生成不出来。
 Map<String, Object?> exportJson(Ledger ledger) => {
       'format': 'yujian-backup',
       'version': exportFormatVersion,
@@ -55,6 +60,7 @@ Map<String, Object?> exportJson(Ledger ledger) => {
       'tasks': [for (final t in ledger.tasks.list(limit: 1 << 30)) t.toJson()],
       'achievements': [for (final a in ledger.achievements.list()) a.toJson()],
       'profile': ledger.profile.all(),
+      'drafts': [for (final d in ledger.listDrafts(status: DraftStatus.pending, limit: 1 << 30)) d.toJson()],
       'memory': [
         for (final m in ledger.memory.all(limit: 100000))
           {'key': m.key, 'kind': m.kind, 'category_id': m.categoryId, 'account_id': m.accountId, 'hits': m.hits, 'corrections': m.corrections, 'source': m.source},
@@ -80,13 +86,14 @@ int restoreFromJson(Ledger ledger, Map<String, Object?> j) {
     tasks: (j['tasks'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     achievements: (j['achievements'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
     profile: ((j['profile'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', '$v')),
+    drafts: (j['drafts'] as List? ?? const []).cast<Map>().map((m) => m.cast<String, Object?>()).toList(),
   );
 }
 
 /// 账单 CSV 解析结果的一行（已归一，还没变成草稿）。
 class ImportedRow {
   final int line;
-  final String type; // expense | income | transfer | unknown
+  final String type; // expense | income | transfer | refund | unknown
   final int? amountMinor;
   final String currency;
   final OccurredAt? occurredAt;
@@ -96,6 +103,7 @@ class ImportedRow {
   final String? categoryHint; // 原文里的分类，由上层映射
   final String fingerprint;
   final List<String> problems;
+  final int refundedMinor; // 同一个文件里的退款冲减掉的（见 [netImportedRefunds]）；amountMinor 已经是冲减后的
 
   const ImportedRow({
     required this.line,
@@ -109,7 +117,56 @@ class ImportedRow {
     this.categoryHint,
     required this.fingerprint,
     this.problems = const [],
+    this.refundedMinor = 0,
   });
+
+  ImportedRow _refunded(int minor) => ImportedRow(
+        line: line,
+        type: type,
+        amountMinor: (amountMinor ?? 0) - minor,
+        currency: currency,
+        occurredAt: occurredAt,
+        merchant: merchant,
+        description: description,
+        accountHint: accountHint,
+        categoryHint: categoryHint,
+        fingerprint: fingerprint,
+        problems: problems,
+        refundedMinor: refundedMinor + minor,
+      );
+}
+
+/// 账单里的退款行怎么落：
+/// - [linked] 认为账本里已经有原单的（通知 / 截图 / 以前导入记过的）留着，照常记成退款冲那一笔；
+/// - 否则在同一个文件里找原单（同币种、同商户、在退款之前、剩下的够退），把退款直接冲减到原单上，退款行本身不再单独进来
+///   （草稿里的退款要挂在已记账的原单上，同一批导入的原单还没记账，挂不上，只会卡在收件箱）；
+/// - 两边都找不到的（多是全额退掉、原单账单里标「已全额退款」没导的）放进 [orphans]：原单没记过，退款也不用记。
+/// 冲减到 0 的原单一并去掉。
+({List<ImportedRow> rows, List<ImportedRow> orphans}) netImportedRefunds(List<ImportedRow> rows, {required bool Function(ImportedRow refund) linked}) {
+  final out = [...rows];
+  final orphans = <ImportedRow>[];
+  final drop = <int>{};
+  for (var i = 0; i < out.length; i++) {
+    final r = out[i];
+    if (r.type != 'refund' || r.amountMinor == null || linked(r)) continue;
+    int? best;
+    for (var j = 0; j < out.length; j++) {
+      final o = out[j];
+      if (j == i || drop.contains(j) || o.type != 'expense' || o.currency != r.currency || (o.amountMinor ?? 0) < r.amountMinor!) continue;
+      if ((o.merchant ?? '') != (r.merchant ?? '')) continue;
+      if (o.occurredAt != null && r.occurredAt != null && o.occurredAt!.utc.isAfter(r.occurredAt!.utc)) continue;
+      // 多笔都对得上：取离退款最近的那笔
+      if (best == null || (o.occurredAt != null && out[best].occurredAt != null && o.occurredAt!.utc.isAfter(out[best].occurredAt!.utc))) best = j;
+    }
+    drop.add(i);
+    if (best == null) {
+      orphans.add(r);
+    } else {
+      out[best] = out[best]._refunded(r.amountMinor!);
+      if ((out[best].amountMinor ?? 0) <= 0) drop.add(best);
+    }
+  }
+  return (rows: [for (var i = 0; i < out.length; i++) if (!drop.contains(i)) out[i]], orphans: orphans);
 }
 
 /// 手工列映射（表头认不出时由用户指定；索引为列号）。
@@ -122,15 +179,16 @@ class ColumnMapping {
   final int? account;
   final int? category;
   final int? status;
+  final int? orderId; // 交易单号列：有就用它当去重指纹（同一分钟两杯同价咖啡不会被当成一笔）
   final int headerRow; // 表头所在行（0 起），数据从下一行开始
-  const ColumnMapping({required this.date, required this.amount, this.inOut, this.merchant, this.description, this.account, this.category, this.status, this.headerRow = 0});
+  const ColumnMapping({required this.date, required this.amount, this.inOut, this.merchant, this.description, this.account, this.category, this.status, this.orderId, this.headerRow = 0});
 }
 
 /// 通用账单 CSV 解析：自动找表头行（含"金额"或 amount），按同义词认列。
 /// 覆盖微信、支付宝账单导出，以及余见自己导出的 CSV；其他表只要有日期+金额也能读。
 List<ImportedRow> parseBillCsv(String text, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
-  final lines = const LineSplitter().convert(text.replaceFirst('\uFEFF', ''));
-  return parseBillTable([for (final l in lines) parseCsvLine(l)], defaultCurrency: defaultCurrency, tzOffsetMinutes: tzOffsetMinutes, mapping: mapping);
+  // 先按 CSV 规则整体拆（引号里的换行属于同一个格子，支付宝的商品说明里就有），再交给表格解析
+  return parseBillTable(parseCsv(text.replaceFirst('\uFEFF', '')), defaultCurrency: defaultCurrency, tzOffsetMinutes: tzOffsetMinutes, mapping: mapping);
 }
 
 /// 找表头行：含"金额/amount"且含"时间/日期/date"的第一行。找不到返回 -1。
@@ -148,7 +206,7 @@ int findHeaderRow(List<List<String>> rows) {
 List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrency = 'CNY', int tzOffsetMinutes = 480, ColumnMapping? mapping}) {
   int headerIdx;
   List<String> header;
-  int? cDate, cAmount, cInOut, cCounter, cGoods, cPay, cCat, cStatus, cCurrency;
+  int? cDate, cAmount, cInOut, cCounter, cGoods, cPay, cCat, cStatus, cCurrency, cOrder;
   var cTime = -1;
   if (mapping != null) {
     headerIdx = mapping.headerRow;
@@ -161,6 +219,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
     cPay = mapping.account;
     cCat = mapping.category;
     cStatus = mapping.status;
+    cOrder = mapping.orderId;
   } else {
     headerIdx = findHeaderRow(rows);
     if (headerIdx < 0) throw const FormatException('没找到表头（需要有"时间/日期"和"金额"列）');
@@ -189,6 +248,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
     cCat = col(['交易分类', '分类', 'category', '类别']);
     cStatus = col(['当前状态', '交易状态', 'status']);
     cCurrency = col(['币种', 'currency']);
+    cOrder = col(['交易单号', '交易订单号', '交易号', '订单号', '流水号', 'id']);
     cTime = header.indexWhere((h) => h.toLowerCase() == 'time');
     if (cDate == null || cAmount == null) throw const FormatException('表头缺少时间或金额列');
   }
@@ -196,6 +256,7 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
   final amountCol = cAmount;
 
   final out = <ImportedRow>[];
+  final seen = <String, int>{}; // 没有单号时，同一文件里完全相同的行按出现次序区分（再导同一个文件仍能对上）
   for (var i = headerIdx + 1; i < rows.length; i++) {
     final cells = rows[i];
     if (cells.every((c) => c.trim().isEmpty)) continue;
@@ -225,11 +286,16 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
       type = 'income';
     } else if (RegExp('转账|transfer').hasMatch(inOut)) {
       type = 'transfer';
-    } else if (RegExp('不计收支|/').hasMatch(inOut) || inOut.isEmpty) {
+    } else if (RegExp('不计收支').hasMatch(inOut)) {
+      // 零钱通 / 余额宝转入转出、还信用卡、理财申购：钱在自己账户之间挪，不是花掉。按转账起草，确认前补转入账户
+      type = 'transfer';
+      problems.add('不计收支：多为自己账户之间挪钱，确认前补上转入账户');
+    } else if (RegExp('/').hasMatch(inOut) || inOut.isEmpty) {
       type = amtText.startsWith('-') ? 'expense' : (amtText.startsWith('+') ? 'income' : 'unknown');
     }
     if (type == 'unknown') problems.add('分不清收支');
-    if (type == 'income' && RegExp('退款').hasMatch(inOut)) type = 'refund_like';
+    // 退款：冲减原来那笔支出，不算收入（算成收入会虚增收入和储蓄率）
+    if (type == 'income' && RegExp('退款').hasMatch(cells.join(' '))) type = 'refund';
 
     OccurredAt? when;
     final dateText = cell(dateCol) + (cTime >= 0 && cTime != dateCol ? ' ${cell(cTime)}' : '');
@@ -241,10 +307,19 @@ List<ImportedRow> parseBillTable(List<List<String>> rows, {String defaultCurrenc
 
     final merchant = cell(cCounter);
     final goods = cell(cGoods);
-    final fp = 'import:${_hash('$dateText|$amtText|$merchant|$goods')}';
+    final order = cell(cOrder).replaceAll(RegExp(r'[\s\t]'), '');
+    String fp;
+    if (order.isNotEmpty && order != '/') {
+      fp = 'import:order:$order';
+    } else {
+      final base = 'import:${_hash('$dateText|$amtText|$merchant|$goods')}';
+      final n = (seen[base] ?? 0) + 1;
+      seen[base] = n;
+      fp = n == 1 ? base : '$base#$n';
+    }
     out.add(ImportedRow(
       line: i + 1,
-      type: type == 'refund_like' ? 'income' : type,
+      type: type,
       amountMinor: amount,
       currency: Currency.isKnown(currency) ? currency : defaultCurrency,
       occurredAt: when,
@@ -334,6 +409,47 @@ String _hash(String s) {
   return '${a.toRadixString(16).padLeft(8, '0')}${b.toRadixString(16).padLeft(8, '0')}';
 }
 
+/// RFC4180 整篇解析：引号、转义引号、逗号，以及引号里的换行（属于同一个格子）。
+List<List<String>> parseCsv(String text) {
+  final rows = <List<String>>[];
+  var row = <String>[];
+  final b = StringBuffer();
+  var inQ = false;
+  for (var i = 0; i < text.length; i++) {
+    final c = text[i];
+    if (inQ) {
+      if (c == '"') {
+        if (i + 1 < text.length && text[i + 1] == '"') {
+          b.write('"');
+          i++;
+        } else {
+          inQ = false;
+        }
+      } else {
+        b.write(c);
+      }
+    } else if (c == '"') {
+      inQ = true;
+    } else if (c == ',') {
+      row.add(b.toString());
+      b.clear();
+    } else if (c == '\n' || c == '\r') {
+      if (c == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;
+      row.add(b.toString());
+      b.clear();
+      rows.add(row);
+      row = <String>[];
+    } else {
+      b.write(c);
+    }
+  }
+  if (b.isNotEmpty || row.isNotEmpty) {
+    row.add(b.toString());
+    rows.add(row);
+  }
+  return rows;
+}
+
 /// RFC4180 风格单行解析（引号、转义引号、逗号）。
 List<String> parseCsvLine(String line) {
   final out = <String>[];
@@ -366,8 +482,9 @@ List<String> parseCsvLine(String line) {
 }
 
 /// 把解析行变成 DraftInput（账户/分类 id 由上层映射后传入）。
-DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccountId, String? categoryId, double confidence = 0.6}) {
-  final type = r.type == 'unknown' ? 'expense' : r.type;
+/// 分不清收支的行不替用户猜成支出：类型留空，收件箱里补。退款按 [refundOfId] 指向原单（没猜到也留空让用户挑）。
+DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccountId, String? categoryId, String? refundOfId, double confidence = 0.6}) {
+  final type = r.type == 'unknown' ? null : r.type;
   return DraftInput(
     payload: {
       'type': type,
@@ -376,10 +493,11 @@ DraftInput importedRowToDraft(ImportedRow r, {String? accountId, String? toAccou
       'account_id': accountId,
       if (type == 'transfer') 'to_account_id': toAccountId,
       if (type == 'expense' || type == 'income') 'category_id': categoryId,
+      if (type == 'refund') 'refund_of_id': refundOfId,
       'merchant': r.merchant,
       'description': r.description ?? r.merchant,
       'occurred_at': r.occurredAt?.toIso8601String(),
-      'metadata': {'import_line': r.line, if (r.categoryHint != null) 'category_hint': r.categoryHint, if (r.accountHint != null) 'account_hint': r.accountHint},
+      'metadata': {'import_line': r.line, if (r.categoryHint != null) 'category_hint': r.categoryHint, if (r.accountHint != null) 'account_hint': r.accountHint, if (r.refundedMinor > 0) 'refunded_in_bill': r.refundedMinor},
     },
     confidence: r.problems.isEmpty ? confidence : 0.3,
     eventFingerprint: r.fingerprint,

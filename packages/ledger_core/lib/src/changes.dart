@@ -50,9 +50,25 @@ class ChangeLog {
   int get pendingCount => _db.select("SELECT COUNT(*) AS n FROM changes WHERE origin = 'local' AND pushed = 0").first['n'] as int;
 
   void markPushed(Iterable<int> seqs) {
-    for (final s in seqs) {
-      _db.execute('UPDATE changes SET pushed = 1 WHERE seq = ?', [s]);
-    }
+    final all = seqs.toList();
+    const chunk = 500; // SQLite 绑定变量上限之内
+    _db.transaction(() {
+      for (var i = 0; i < all.length; i += chunk) {
+        final part = all.sublist(i, i + chunk > all.length ? all.length : i + chunk);
+        _db.execute('UPDATE changes SET pushed = 1 WHERE seq IN (${List.filled(part.length, '?').join(',')})', part);
+      }
+    });
+  }
+
+  int get count => _db.select('SELECT COUNT(*) AS n FROM changes').first['n'] as int;
+
+  /// 压缩：每个实体只留最新一条（按 seq）。LWW 只看最新状态和它的时刻，中间版本没用；
+  /// 被压掉的本机未推送旧版本已经被更新的那条（本机写或已应用的远端写）盖过了，推上去也只是旧数据。
+  /// 返回删掉的条数。
+  int compact() {
+    final before = count;
+    _db.execute('DELETE FROM changes WHERE seq NOT IN (SELECT MAX(seq) FROM changes GROUP BY entity, entity_id)');
+    return before - count;
   }
 
   /// 某实体最近一次本地已知变更时刻（本地写或已应用的远端写），用于 LWW。

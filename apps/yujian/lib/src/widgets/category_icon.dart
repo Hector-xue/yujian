@@ -35,7 +35,8 @@ class CategoryIcon extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(color: tint(c?.id).withValues(alpha: 0.55), shape: BoxShape.circle),
+      // 深色主题：粉彩圆片在黑底上太亮、像一个个灯泡，压暗一些
+      decoration: BoxDecoration(color: tint(c?.id).withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.55), shape: BoxShape.circle),
       child: Text(glyph, style: TextStyle(fontSize: size * 0.5, height: 1.0)),
     );
   }
@@ -133,7 +134,7 @@ Future<String?> pickCategoryIcon(BuildContext context, {String? current}) async 
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(d), child: const Text('取消')),
-        FilledButton(onPressed: () => Navigator.pop(d, ctl.text.trim()), child: const Text('好')),
+        FilledButton(onPressed: () => Navigator.pop(d, ctl.text.trim()), child: const Text('保存')),
       ],
     ),
   );

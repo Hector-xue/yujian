@@ -18,6 +18,21 @@ void main() {
     expect(x.fingerprintIsExact, isTrue);
   });
 
+  test('same notification key reused by the app: different payments are not duplicates', () {
+    const key = '0|com.tencent.mm|1234|null|10123';
+    final a = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥19.90', key: key));
+    final b = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥36.00', key: key));
+    final again = m.extract(ev('com.tencent.mm', '微信支付', '已支付¥19.90', key: key));
+    expect(a.fingerprintIsExact, isTrue);
+    expect(a.fingerprint, isNot(b.fingerprint)); // 第二笔不能被当重复吞掉
+    expect(a.fingerprint, again.fingerprint); // 同一条被系统重发 / 更新：仍是重复
+  });
+
+  test('stable hash is deterministic', () {
+    expect(TemplateMatcher.stableHash('已支付¥19.90'), TemplateMatcher.stableHash('已支付¥19.90'));
+    expect(TemplateMatcher.stableHash('a'), isNot(TemplateMatcher.stableHash('b')));
+  });
+
   test('wechat income', () {
     final x = m.extract(ev('com.tencent.mm', '微信收款', '微信支付收款200.00元'));
     expect(x.direction, 'income');
@@ -76,7 +91,7 @@ void main() {
     expect(mt.amountMinor, 2350);
     expect(mt.templateId, 'shop_pay');
     final rf = m.extract(ev('com.xunmeng.pinduoduo', '拼多多', '退款成功，¥45.00 已退回原支付账户'));
-    expect(rf.direction, 'income');
+    expect(rf.direction, 'refund'); // 退款冲减支出，不算收入
     expect(rf.amountMinor, 4500);
     expect(m.extract(ev('com.jingdong.app.mall', '京东', '您的包裹已签收，快递员：张三')).ignored, isTrue);
     expect(m.extract(ev('com.sankuai.meituan.takeoutnew', '美团外卖', '骑手已接单，预计送达 12:30')).ignored, isTrue);

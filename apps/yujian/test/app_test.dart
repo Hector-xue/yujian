@@ -28,7 +28,7 @@ void main() {
     await tester.pumpWidget(YujianApp(state: state));
     await tester.pumpAndSettle();
     expect(find.text('本月支出'), findsOneWidget);
-    expect(find.text('余额'), findsOneWidget);
+    expect(find.text('现金余额'), findsOneWidget);
     expect(state.accounts.length, 3);
     expect(state.categories.length, 19);
   });
@@ -143,6 +143,16 @@ void main() {
     await tester.tap(find.text('收件箱'));
     await tester.pumpAndSettle();
     expect(find.text('全部确认'), findsOneWidget);
+  });
+
+  test('recurring: 太久没打开只补最近 3 期，跳过的记下来给首页提示，关掉后不再显示', () async {
+    final t = DateTime.now();
+    final first = DateTime(t.year, t.month - 6, 1);
+    state.ledger.recurring.create(name: '房租', template: {'type': 'expense', 'amount_minor': 220000, 'currency': 'CNY', 'account_id': 'wechat', 'category_id': 'housing'}, frequency: Frequency.monthly, firstDue: '${first.year}-${first.month.toString().padLeft(2, '0')}-01');
+    expect(state.generateRecurring(), 3);
+    expect(state.recurringSkipped.single, startsWith('房租：'));
+    await state.dismissRecurringSkipped();
+    expect(state.recurringSkipped, isEmpty);
   });
 
   testWidgets('recurring due → inbox draft; budget alert shows on home', (tester) async {
@@ -350,10 +360,16 @@ void main() {
       expect(await st.ingestScreenshots([shot(1)]), 1);
       expect(st.ledger.listTransactions().single.amountMinor, 3650);
       expect(st.screenshotLog.first.outcome, 'recorded');
+      // 另一张截图认出完全相同的一笔（同金额、同一时刻）：多半是同一笔截了两次 → 标疑似重复，静默模式也不自动入账
+      src.images['content://shot/2'] = Uint8List.fromList([2]);
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/2': payJson}));
+      expect(await st.ingestScreenshots([shot(2)]), 1);
+      expect(st.ledger.listTransactions().length, 1);
+      expect(st.inbox.single.possibleDuplicateOf, st.ledger.listTransactions().single.id);
       // 实时流：原生说「有新的」，Dart 自己去 drain
       await st.startScreenshots();
       src.images['content://shot/3'] = Uint8List.fromList([3]);
-      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/3': payJson}));
+      st.shotVision = VisionInterpreter(_FakeVision({'content://shot/3': payJson.replaceFirst('36.50', '12.00')}));
       src.push(shot(3));
       await Future<void>.delayed(Duration.zero);
       await st.drainScreenshots(); // 排在流触发的那批后面，等它跑完

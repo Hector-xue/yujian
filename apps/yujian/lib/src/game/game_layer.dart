@@ -131,7 +131,7 @@ class GameLayer extends ChangeNotifier {
       final today = _today;
       final m = Wealth(ledger).compute(today: today);
       _metrics = m;
-      _goals = [for (final g in ledger.goals.list()) ledger.goals.progress(g, today: today, liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor)];
+      _goals = [for (final g in ledger.goals.list()) ledger.goals.progress(g, today: today, liquidMinor: m.freeLiquidMinor, netWorthMinor: m.netWorthMinor)];
       _weekTasks = ledger.tasks.list(week: thisWeek);
       _taskProgress = {for (final t in _weekTasks) t.id: ledger.tasks.progress(t, today: today)};
       _achievements = ledger.achievements.list();
@@ -148,18 +148,45 @@ class GameLayer extends ChangeNotifier {
     if (fresh.isNotEmpty) _achievements = ledger.achievements.list();
     if (!enabled) return;
     var changed = fresh.isNotEmpty;
+    // 一次解锁好几个时别刷屏（老用户升级 / 第一次打开会一口气解锁一串）：
+    // 分档的同一类只报最高那档；同一个目标同时过了 10% 和 25% 只报 25%；其余合成一条
+    const tiers = [
+      ['savings.20', 'savings.30', 'savings.50'],
+      ['emergency.1', 'emergency.3', 'emergency.6'],
+      ['record.30', 'record.100'],
+    ];
+    final keys = {for (final a in fresh) a.key};
+    bool outranked(String k) {
+      for (final t in tiers) {
+        final i = t.indexOf(k);
+        if (i >= 0 && t.skip(i + 1).any(keys.contains)) return true;
+      }
+      return false;
+    }
+    final milestones = <String, Achievement>{}; // 目标名 → 最高的那档
+    final generic = <AchievementDef>[];
     for (final a in fresh) {
       final d = a.def;
       if (d == null) continue;
       if (a.key.startsWith('goal.p')) {
-        pendingMessages.add((text: app.replier.template(PersonaEvent.goalMilestone, n: int.parse(a.key.substring(6)), label: '${a.evidence?['goal'] ?? ''}'), sticker: null, meta: '成就 · ${d.title}'));
+        final goal = '${a.evidence?['goal'] ?? ''}';
+        final prev = milestones[goal];
+        if (prev == null || int.parse(a.key.substring(6)) > int.parse(prev.key.substring(6))) milestones[goal] = a;
       } else if (a.key == 'goal.reached') {
         pendingMessages.add((text: app.replier.template(PersonaEvent.goalReached, label: '${a.evidence?['goal'] ?? ''}'), sticker: '🎉', meta: '成就 · ${d.title}'));
       } else if (a.key == 'support.yujian') {
         pendingMessages.add((text: '收到你的一块钱了。谢谢，那条提醒已经永久关掉。', sticker: '🙏', meta: '成就 · ${d.title}'));
-      } else {
-        pendingMessages.add((text: '${d.title}：${d.description}。', sticker: null, meta: '成就解锁'));
+      } else if (!outranked(a.key)) {
+        generic.add(d);
       }
+    }
+    for (final a in milestones.values) {
+      pendingMessages.add((text: app.replier.template(PersonaEvent.goalMilestone, n: int.parse(a.key.substring(6)), label: '${a.evidence?['goal'] ?? ''}'), sticker: null, meta: '成就 · ${a.def?.title ?? ''}'));
+    }
+    if (generic.length == 1) {
+      pendingMessages.add((text: '${generic.single.title}：${generic.single.description}。', sticker: null, meta: '成就解锁'));
+    } else if (generic.length > 1) {
+      pendingMessages.add((text: '解锁了 ${generic.length} 个成就：${generic.map((d) => '「${d.title}」').join('')}。', sticker: null, meta: generic.map((d) => d.description).join('；')));
     }
     // 升级：和上次记的等级比
     final lvl = m.level;
@@ -167,12 +194,15 @@ class GameLayer extends ChangeNotifier {
       try {
         final p = await SharedPreferences.getInstance();
         final last = p.getInt('wealth_level');
-        if (last != null && lvl.index > last) {
+        // 只在超过「喊过的最高等级」时才喊升级：生存月数在临界点来回抖（记一笔掉下去、进一笔工资又上来），不能每次都喊
+        final announced = p.getInt('wealth_level_max') ?? last;
+        if (announced != null && lvl.index > announced) {
           // 净资产为负时称号是负翁那套，升级喊的名字跟首页角标一致
           pendingMessages.add((text: app.replier.template(PersonaEvent.levelUp, label: m.title ?? lvl.title), sticker: '⬆️', meta: '等级「${lvl.name}」· 生存月数 ${m.runwayMonths!.toStringAsFixed(1)} 个月'));
           changed = true;
         }
         if (last != lvl.index) await p.setInt('wealth_level', lvl.index);
+        if (announced == null || lvl.index > announced) await p.setInt('wealth_level_max', lvl.index);
       } catch (_) {}
     }
     if (changed) notifyListeners();
@@ -212,7 +242,7 @@ class GameLayer extends ChangeNotifier {
     }
     final sal = ledger.profile.salaryAccountId;
     if (sal != null && ledger.account(sal) != null) return sal;
-    return app.accounts.first.id;
+    return app.defaultAccountId ?? (throw StateError('还没有账户'));
   }
 
   /// 存入。虚拟锁仓：只是标记，直接记账；真锁仓：进收件箱，用户去银行 App 真转了再确认。
@@ -220,10 +250,14 @@ class GameLayer extends ChangeNotifier {
   Future<Draft?> deposit(Goal g, int amountMinor, {String? fromAccountId, String? fingerprint, String? note, Source source = Source.manual}) async {
     final from = fromAccountId ?? _defaultFrom(g);
     final payload = ledger.goals.depositPayload(g, amountMinor, fromAccountId: from, note: note);
-    final d = ledger.propose([DraftInput(payload: payload, eventFingerprint: fingerprint, fingerprintIsExact: fingerprint != null)], source: source, actor: Actor.user, interpreter: 'goal').firstOrNull;
+    // 虚拟锁仓：起草 + 确认同一个事务，确认失败不留草稿
+    final d = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(payload: payload, eventFingerprint: fingerprint, fingerprintIsExact: fingerprint != null)], source: source, actor: Actor.user, interpreter: 'goal').firstOrNull;
+      if (d != null && g.isVirtualVault) ledger.commit(d.id);
+      return d;
+    });
     if (d == null) return null; // 指纹重复：这期已经存过
     if (g.isVirtualVault) {
-      ledger.commit(d.id);
       if (enabled) pendingMessages.add((text: app.replier.template(PersonaEvent.depositMade, n: amountMinor ~/ 100, label: g.name), sticker: null, meta: null));
       app.touch();
       return null;
@@ -234,8 +268,10 @@ class GameLayer extends ChangeNotifier {
 
   /// 兑现：从锁仓记一笔支出（可多笔）。
   Future<Transaction> redeem(Goal g, int amountMinor, {required String categoryId, String? merchant, String? description}) async {
-    final d = ledger.propose([DraftInput(payload: ledger.goals.redeemPayload(g, amountMinor, categoryId: categoryId, merchant: merchant, description: description))], source: Source.manual, actor: Actor.user, interpreter: 'goal').single;
-    final t = ledger.commit(d.id);
+    final t = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(payload: ledger.goals.redeemPayload(g, amountMinor, categoryId: categoryId, merchant: merchant, description: description))], source: Source.manual, actor: Actor.user, interpreter: 'goal').single;
+      return ledger.commit(d.id);
+    });
     app.touch();
     return t;
   }
@@ -266,11 +302,14 @@ class GameLayer extends ChangeNotifier {
   Future<void> release(Goal g, {bool silent = false}) async {
     if (g.vaultAccountId == null) return;
     if (!g.isVirtualVault) return; // 真锁仓：钱就在那个账户里，无需转
-    final backs = ledger.goals.releasePayloads(g, fallbackAccountId: app.accounts.first.id);
-    for (final b in backs) {
-      final d = ledger.propose([DraftInput(payload: b)], source: Source.manual, actor: Actor.user, interpreter: 'goal').single;
-      ledger.commit(d.id);
-    }
+    final backs = ledger.goals.releasePayloads(g, fallbackAccountId: _defaultFrom(g));
+    // 多笔释放要么全成、要么全不成（不会只退回一半）
+    ledger.database.transaction(() {
+      for (final b in backs) {
+        final d = ledger.propose([DraftInput(payload: b)], source: Source.manual, actor: Actor.user, interpreter: 'goal').single;
+        ledger.commit(d.id);
+      }
+    });
     if (!silent) app.touch();
   }
 
@@ -379,13 +418,17 @@ class GameLayer extends ChangeNotifier {
         }
         if (t.result == TaskResult.done && t.rewardGoalId != null && t.rewardMinor > 0) {
           final g = ledger.goals.find(t.rewardGoalId!);
-          if (g != null && g.hasVault) await deposit(g, t.rewardMinor, fingerprint: 'task:${t.id}:reward', note: '任务奖励「${t.title}」');
+          if (g != null && g.hasVault) await deposit(g, t.rewardMinor, fingerprint: 'task:${t.id}:reward', note: '任务奖励「${t.title}」', source: Source.recurring);
         }
       }
     }
-    // 上周零头周结
-    for (final d in ledger.goals.roundupDue(weekMonday: TaskStore.previousWeek(week))) {
-      await deposit(d.goal, d.amountMinor, fingerprint: d.fingerprint, note: d.note, source: Source.recurring);
+    // 零头周结：补最近 4 个过完的周（隔几周没打开也不漏；指纹按周，已结过的自动跳过）
+    var w = week;
+    for (var i = 0; i < 4; i++) {
+      w = TaskStore.previousWeek(w);
+      for (final d in ledger.goals.roundupDue(weekMonday: w)) {
+        await deposit(d.goal, d.amountMinor, fingerprint: d.fingerprint, note: d.note, source: Source.recurring);
+      }
     }
     // 本周候选
     try {
@@ -517,8 +560,7 @@ class GameLayer extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       // 发薪日：今天是发薪日且这个月还没发过卡（真实工资到账那条路在 onIncomeCommitted）
-      final m = metrics ?? Wealth(ledger).compute(today: today);
-      if (rituals['payday'] == true && m.payday == today && p.getString('payday_ritual_month') != today.substring(0, 7)) {
+      if (rituals['payday'] == true && Wealth(ledger).isPayday(today: today) && p.getString('payday_ritual_month') != today.substring(0, 7)) {
         final est = _estimatedSalary();
         if (est > 0) {
           await p.setString('payday_ritual_month', today.substring(0, 7));
@@ -580,23 +622,27 @@ class GameLayer extends ChangeNotifier {
   Future<List<Draft>> proposePaydayPlan(int incomeMinor, {String? fromAccountId, String? note}) async {
     final plan = ledger.goals.paydayPlan(incomeMinor);
     if (plan.isEmpty) return const [];
-    final from = fromAccountId ?? ledger.profile.salaryAccountId ?? app.accounts.first.id;
+    final from = fromAccountId ?? ledger.profile.salaryAccountId ?? app.defaultAccountId;
+    if (from == null) return const [];
     final month = _today.substring(0, 7);
     final inputs = <DraftInput>[];
+    final made = <PaydayAllocation>[]; // 真正起草了的（这期已经存过的跳过，消息里也不该再列）
     for (final a in plan) {
-      final fp = 'goal:${a.goal.id}:payday:$month${a.rule.kind == GoalRuleKind.fixed ? ':fixed' : ''}';
-      if (ledger.hasFingerprint(fp)) continue;
+      // 每月定额和「到期定存」共用一个指纹：发薪日先到就在这里存，定存那天自动跳过；反过来也一样，不会一期存两次
+      final fp = a.rule.kind == GoalRuleKind.fixed ? GoalStore.fixedFingerprint(a.goal.id, a.rule, _today) : 'goal:${a.goal.id}:payday:$month';
+      if (ledger.hasFingerprint(fp) || a.amountMinor <= 0) continue;
+      made.add(a);
       inputs.add(DraftInput(payload: ledger.goals.depositPayload(a.goal, a.amountMinor, fromAccountId: from, note: '发薪日 → 「${a.goal.name}」${a.short ? '（钱不够，先保前面的目标，只给 ${fmtMoney(a.amountMinor, a.goal.currency)}）' : ''}'), eventFingerprint: fp, fingerprintIsExact: true, confidence: 0.9));
     }
     if (inputs.isEmpty) return const [];
     final drafts = ledger.propose(inputs, source: Source.recurring, actor: Actor.automation, interpreter: 'payday');
-    final total = plan.fold(0, (a, b) => a + b.amountMinor);
+    final total = made.fold(0, (a, b) => a + b.amountMinor);
     final m = metrics;
     final left = incomeMinor - total;
     pendingMessages.add((
       text: '${app.replier.template(PersonaEvent.payday, n: total ~/ 100)}${note != null ? '（$note）' : ''}\n'
-          '${plan.map((a) => '「${a.goal.name}」+${fmtMoney(a.amountMinor, a.goal.currency)}${a.short ? '（想要 ${fmtMoney(a.wantedMinor, a.goal.currency)}，钱不够先保前面的）' : ''}').join('\n')}\n'
-          '剩下可花 ${fmtMoney(left, 'CNY')}${m != null ? '，到 ${m.payday.substring(5).replaceFirst('-', '/')} 平均每天 ${fmtMoney((left / m.daysToPayday).floor(), 'CNY')}' : ''}。到收件箱一键确认。',
+          '${made.map((a) => '「${a.goal.name}」+${fmtMoney(a.amountMinor, a.goal.currency)}${a.short ? '（想要 ${fmtMoney(a.wantedMinor, a.goal.currency)}，钱不够先保前面的）' : ''}').join('\n')}\n'
+          '剩下可花 ${fmtMoney(left, 'CNY')}${m != null ? '，到 ${fmtMd(m.payday)} 平均每天 ${fmtMoney((left / m.daysToPayday).floor(), 'CNY')}' : ''}。到收件箱一键确认。',
       sticker: '💰',
       meta: '发薪日仪式 · ${drafts.length} 笔转账待确认',
     ));

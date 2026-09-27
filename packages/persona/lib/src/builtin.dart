@@ -17,7 +17,7 @@ const builtinPersonas = <PersonaPack>[
 ''',
     templates: {
       ..._common,
-      'draftsProposed': '{n} 笔待确认。',
+      'draftsProposed': '', // 记账卡片上已经有「确认」，不再多说一句
       'recorded': '已记 {n} 笔。',
       'dismissed': '已忽略。',
       'queryAnswered': '{label}',

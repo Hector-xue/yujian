@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../theme.dart';
 import '../widgets/persona_avatar.dart';
 import 'persona_editor_page.dart';
+import '../errors_zh.dart';
 
 /// 人格与角色：选人格（点了就生效）、换头像、新建 / 编辑自定义角色、导入人格包、它记住的事。
 class PersonaPage extends StatefulWidget {
@@ -110,7 +111,7 @@ class _PersonaPageState extends State<PersonaPage> {
       await app.upsertCustomPersona(j);
       if (mounted) setState(() => personaId = pack.id);
     } catch (e) {
-      final msg = e is FormatException ? e.message : '$e';
+      final msg = friendlyError(e);
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('人格包不合法：$msg')));
     }
   }
@@ -168,6 +169,15 @@ class _PersonaPageState extends State<PersonaPage> {
             if (app.memory.items.isNotEmpty)
               TextButton(
                   onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: const Text('全部忘掉？'),
+                        content: Text('它记住的 ${app.memory.items.length} 件事会全部删掉，删了找不回来。账本不受影响。'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('全部忘掉'))],
+                      ),
+                    );
+                    if (ok != true) return;
                     await app.memory.clear();
                     if (mounted) setState(() {});
                   },
@@ -189,6 +199,7 @@ class _PersonaPageState extends State<PersonaPage> {
                     title: Text(m.text),
                     subtitle: m.atMs == 0 ? null : Text(DateTime.fromMillisecondsSinceEpoch(m.atMs).toIso8601String().substring(0, 10), style: theme.textTheme.bodySmall),
                     trailing: IconButton(
+                        tooltip: '忘掉这一条',
                         icon: const Icon(Icons.close, size: 18),
                         onPressed: () async {
                           await app.memory.remove(m.text);

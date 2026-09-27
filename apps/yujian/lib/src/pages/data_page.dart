@@ -8,6 +8,7 @@ import 'package:ledger_core/ledger_core.dart';
 import '../app_state.dart';
 import '../db/db_file.dart';
 import '../theme.dart';
+import '../errors_zh.dart';
 
 /// 数据：导出 CSV / 备份 JSON 或 SQLite 文件 / 恢复 / 导入账单。所有导入只进收件箱。
 class DataPage extends StatefulWidget {
@@ -25,8 +26,16 @@ class _DataPageState extends State<DataPage> {
       final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
       setState(() => status = path == null ? '已取消' : '已保存 $name');
     } catch (e) {
-      setState(() => status = '保存失败：$e');
+      setState(() => status = '保存失败：${friendlyError(e)}');
     }
+  }
+
+  /// 导出要把整本账过一遍（上万笔要零点几秒）：先把「正在整理」画出来再算，不让按钮点了像没反应
+  Future<void> _export(String name, String Function() build, {String ext = 'csv'}) async {
+    setState(() => status = '正在整理数据…');
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (!mounted) return;
+    await _save(name, build(), ext: ext);
   }
 
   Future<void> _saveBytes(String name, Uint8List bytes, {required String ext}) async {
@@ -34,7 +43,7 @@ class _DataPageState extends State<DataPage> {
       final path = await FilePicker.platform.saveFile(fileName: name, bytes: bytes, type: FileType.custom, allowedExtensions: [ext]);
       setState(() => status = path == null ? '已取消' : '已保存 $name（${(bytes.length / 1024).toStringAsFixed(0)} KB）');
     } catch (e) {
-      setState(() => status = '保存失败：$e');
+      setState(() => status = '保存失败：${friendlyError(e)}');
     }
   }
 
@@ -85,14 +94,14 @@ class _DataPageState extends State<DataPage> {
         children: [
           Padding(padding: const EdgeInsets.fromLTRB(2, 0, 2, 6), child: Text('导出与备份', style: theme.textTheme.bodySmall)),
           GlassCard(child: Column(children: [
-          item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _save('yujian-$stamp.csv', exportCsv(app.ledger))),
-          item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、记忆全量；恢复时整库替换', () => _save('yujian-backup-$stamp.json', exportJsonString(app.ledger), ext: 'json')),
+          item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _export('yujian-$stamp.csv', () => exportCsv(app.ledger))),
+          item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、收件箱、记忆全量；恢复时整库替换', () => _export('yujian-backup-$stamp.json', () => exportJsonString(app.ledger), ext: 'json')),
           if (sqliteFileSupported)
             item(Icons.storage_outlined, '备份数据库文件（SQLite）', '账本原文件的一致快照，含草稿、审计、预算、周期账单；可直接用 SQLite 工具打开', () async {
               try {
                 await _saveBytes('yujian-$stamp.db', snapshotDatabase(app.ledger.database), ext: 'db');
               } catch (e) {
-                setState(() => status = '快照失败：$e');
+                setState(() => status = '快照失败：${friendlyError(e)}');
               }
             }),
           item(Icons.restore_outlined, '恢复备份', '会清空当前账本再写入备份内容', () async {
@@ -108,9 +117,9 @@ class _DataPageState extends State<DataPage> {
               final restored = app.restoreBackup(jsonDecode(text) as Map<String, Object?>);
               setState(() => status = '已恢复 $restored 笔交易');
             } on FormatException catch (e) {
-              setState(() => status = '恢复失败：${e.message}');
+              setState(() => status = '恢复失败：${friendlyError(e)}');
             } on LedgerException catch (e) {
-              setState(() => status = '恢复失败：${e.message}');
+              setState(() => status = '恢复失败：${friendlyError(e)}');
             }
           }),
           if (sqliteFileSupported)
@@ -128,9 +137,9 @@ class _DataPageState extends State<DataPage> {
                 final restored = await app.restoreSqlite(f.bytes!);
                 setState(() => status = '已恢复 $restored 笔交易');
               } on FormatException catch (e) {
-                setState(() => status = '恢复失败：${e.message}');
+                setState(() => status = '恢复失败：${friendlyError(e)}');
               } catch (e) {
-                setState(() => status = '恢复失败：$e');
+                setState(() => status = '恢复失败：${friendlyError(e)}');
               }
             }),
           ])),
@@ -143,7 +152,7 @@ class _DataPageState extends State<DataPage> {
               return;
             }
             final r = app.importBillCsv(text);
-            setState(() => status = r.error != null ? '导入失败：${r.error}' : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}');
+            setState(() => status = r.error != null ? '导入失败：${r.error}' : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}${r.refundsSkipped > 0 ? '，${r.refundsSkipped} 笔退款的原单没记过、不用记' : ''}');
           }),
           ])),
           if (status != null) Padding(padding: const EdgeInsets.fromLTRB(2, 16, 2, 0), child: Text(status!, style: theme.textTheme.bodyMedium)),

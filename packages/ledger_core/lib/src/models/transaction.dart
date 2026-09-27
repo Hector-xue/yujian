@@ -80,15 +80,16 @@ class Transaction {
 
   factory Transaction.fromRow(Map<String, Object?> r, List<Posting> postings) => Transaction(
         id: r['id'] as String,
-        type: enumFromDb(TransactionType.values, r['type'] as String),
+        // 新版本同步过来的未知值：类型退成 adjustment（只影响余额、不进收支统计），来源退成 manual；读一行就崩会拖垮整页
+        type: enumFromDbOr(TransactionType.values, r['type'] as String, TransactionType.adjustment),
         occurredAt: OccurredAt.fromMillis(r['occurred_at_ms'] as int, r['tz_offset_min'] as int),
         currency: r['currency'] as String,
         merchant: r['merchant'] as String?,
         description: r['description'] as String?,
         categoryId: r['category_id'] as String?,
         tags: (jsonDecode(r['tags'] as String) as List).cast<String>(),
-        source: enumFromDb(Source.values, r['source'] as String),
-        status: enumFromDb(TransactionStatus.values, r['status'] as String),
+        source: enumFromDbOr(Source.values, r['source'] as String, Source.manual),
+        status: enumFromDbOr(TransactionStatus.values, r['status'] as String, TransactionStatus.void_),
         confidence: (r['confidence'] as num?)?.toDouble(),
         refundOfId: r['refund_of_id'] as String?,
         recurringId: r['recurring_id'] as String?,

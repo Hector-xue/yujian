@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ledger_core/ledger_core.dart';
 
@@ -15,6 +16,7 @@ import 'src/pages/more_page.dart';
 import 'src/pages/transactions_page.dart';
 import 'src/platform/avatar_files_native.dart' if (dart.library.js_interop) 'src/platform/avatar_files_web.dart';
 import 'src/platform/home_widget_bridge.dart';
+import 'src/demo/demo_data.dart';
 import 'src/notifications/notification_source.dart';
 import 'src/notifications/screenshot_source.dart';
 import 'src/settings_store.dart';
@@ -26,6 +28,13 @@ Future<void> main() async {
   final db = await openAppDatabase();
   final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
   await state.loadSettings();
+  // 只在 Web：网址带 ?demo=1 且账本是空的 → 写一套演示数据（门户截图 / 在线试玩）；?theme=night 这类参数直接切主题。手机上不走这段
+  if (kIsWeb) {
+    final q = Uri.base.queryParameters;
+    final theme = q['theme'];
+    if (theme != null && appThemes.any((t) => t.id == theme)) await state.saveSettings(state.settings.copyWith(themeId: theme));
+    if (q['demo'] == '1') await seedDemoData(state);
+  }
   await GlassShaders.load(); // 玻璃着色器：一次编译，全 App 共用
   state.generateRecurring();
   await state.startNotifications();
@@ -66,6 +75,36 @@ Future<void> screenshotBackground() async {
 final dockController = DockController();
 final _dockObserver = DockObserver(dockController);
 
+/// 系统深浅色变了就重建（MaterialApp 外面还没有 MediaQuery，只能直接听引擎）。
+class _PlatformBrightnessBuilder extends StatefulWidget {
+  final Widget Function(BuildContext context, Brightness brightness) builder;
+  const _PlatformBrightnessBuilder({required this.builder});
+  @override
+  State<_PlatformBrightnessBuilder> createState() => _PlatformBrightnessBuilderState();
+}
+
+class _PlatformBrightnessBuilderState extends State<_PlatformBrightnessBuilder> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, WidgetsBinding.instance.platformDispatcher.platformBrightness);
+}
+
 class YujianApp extends StatelessWidget {
   final AppState state;
   const YujianApp({super.key, required this.state});
@@ -74,58 +113,62 @@ class YujianApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppScope(
       state: state,
-      child: ListenableBuilder(
-        listenable: state,
-        builder: (context, _) {
-          final accent = Color(0xFF000000 | state.persona.accent);
-          final spec = themeById(state.settings.themeId);
-          final base = spec.build(accent);
-          final bgPath = state.settings.backgroundImage ?? '';
-          final bgOpacity = state.settings.backgroundOpacity.clamp(0.0, 1.0);
-          final bgWidth = View.of(context).physicalSize.width.round(); // 按屏幕物理宽度解码，别把几千像素的原图整张塞进显存
-          final custom = bgPath.isEmpty ? null : backgroundImage(bgPath, cacheWidth: bgWidth, opacity: bgOpacity); // 文件没了就当没设
-          // 全局背景层：主题自己的渐变（或纯色）在最下面，用户的背景图按可见度叠在上面，页面 Scaffold 透明
-          Widget background(BuildContext context) => Stack(fit: StackFit.expand, children: [
-                spec.background?.call(context, accent) ?? ColoredBox(color: base.colorScheme.surface),
-                ?custom,
-              ]);
-          final hasBg = spec.background != null || custom != null;
-          final y = base.extension<YujianColors>()!;
-          // 底栏挂在 Navigator 外面的覆盖层里（见 dock_host.dart），切页时不跟着路由一起被合成，磨砂全程有效
-          // 没有背景层的实色主题：Navigator 底下垫一块主题底色。MaterialApp 切主题时会把 ThemeData 插值 200ms，
-          // scaffoldBackgroundColor 从透明（玻璃 / 暖木）渐变到实色的那几帧是半透明的，底下没东西就露出窗口的黑——
-          // 「四款主题互相切换会黑闪一下」就是它；玻璃主题切走时背景层又是立刻拆掉的，同样露黑
-          Widget host(Widget child) => DockHost(
-                controller: dockController,
-                dockBuilder: _buildDock,
-                child: hasBg ? child : Stack(fit: StackFit.expand, children: [ColoredBox(color: base.colorScheme.surface), child]),
-              );
-          return MaterialApp(
-            title: '余见',
-            theme: custom == null ? base : withCustomBackground(base, background),
-            debugShowCheckedModeBanner: false,
-            // 切主题不做 200ms 插值：玻璃参数、透明底色、投影列表在中间态没有意义，插值那几帧就是「黑闪 / 灰闪」；直接切
-            themeAnimationDuration: Duration.zero,
-            showPerformanceOverlay: state.perfOverlay,
-            navigatorObservers: [_dockObserver],
-            // 背景层截一次图、模糊一次，所有玻璃卡片从它上面取样（见 glass.dart）
-            builder: (context, child) => !hasBg
-                ? host(child!)
-                : GlassBackdrop(
-                    signature: (spec.id, accent.toARGB32(), bgPath, bgOpacity, bgWidth),
-                    sigma: y.blur,
-                    warmUp: custom == null
-                        ? null
-                        : (ctx) async {
-                            final p = backgroundImageProvider(bgPath, cacheWidth: bgWidth);
-                            if (p != null) await precacheImage(p, ctx);
-                          },
-                    background: background(context),
-                    child: host(child!),
-                  ),
-            home: const Shell(),
-          );
-        },
+      child: _PlatformBrightnessBuilder(
+        builder: (context, platformBrightness) => ListenableBuilder(
+          listenable: state,
+          builder: (context, _) {
+            final accent = Color(0xFF000000 | state.persona.accent);
+            // 「跟随系统深色」开着且系统是深色：换成选好的深色主题；没开（默认）就一直用自己挑的那套
+            final darkId = state.settings.darkThemeId;
+            final spec = themeById(darkId.isNotEmpty && platformBrightness == Brightness.dark ? darkId : state.settings.themeId);
+            final base = spec.build(accent);
+            final bgPath = state.settings.backgroundImage ?? '';
+            final bgOpacity = state.settings.backgroundOpacity.clamp(0.0, 1.0);
+            final bgWidth = View.of(context).physicalSize.width.round(); // 按屏幕物理宽度解码，别把几千像素的原图整张塞进显存
+            final custom = bgPath.isEmpty ? null : backgroundImage(bgPath, cacheWidth: bgWidth, opacity: bgOpacity); // 文件没了就当没设
+            // 全局背景层：主题自己的渐变（或纯色）在最下面，用户的背景图按可见度叠在上面，页面 Scaffold 透明
+            Widget background(BuildContext context) => Stack(fit: StackFit.expand, children: [
+                  spec.background?.call(context, accent) ?? ColoredBox(color: base.colorScheme.surface),
+                  ?custom,
+                ]);
+            final hasBg = spec.background != null || custom != null;
+            final y = base.extension<YujianColors>()!;
+            // 底栏挂在 Navigator 外面的覆盖层里（见 dock_host.dart），切页时不跟着路由一起被合成，磨砂全程有效
+            // 没有背景层的实色主题：Navigator 底下垫一块主题底色。MaterialApp 切主题时会把 ThemeData 插值 200ms，
+            // scaffoldBackgroundColor 从透明（玻璃 / 暖木）渐变到实色的那几帧是半透明的，底下没东西就露出窗口的黑——
+            // 「四款主题互相切换会黑闪一下」就是它；玻璃主题切走时背景层又是立刻拆掉的，同样露黑
+            Widget host(Widget child) => DockHost(
+                  controller: dockController,
+                  dockBuilder: _buildDock,
+                  child: hasBg ? child : Stack(fit: StackFit.expand, children: [ColoredBox(color: base.colorScheme.surface), child]),
+                );
+            return MaterialApp(
+              title: '余见',
+              theme: custom == null ? base : withCustomBackground(base, background),
+              debugShowCheckedModeBanner: false,
+              // 切主题不做 200ms 插值：玻璃参数、透明底色、投影列表在中间态没有意义，插值那几帧就是「黑闪 / 灰闪」；直接切
+              themeAnimationDuration: Duration.zero,
+              showPerformanceOverlay: state.perfOverlay,
+              navigatorObservers: [_dockObserver],
+              // 背景层截一次图、模糊一次，所有玻璃卡片从它上面取样（见 glass.dart）
+              builder: (context, child) => !hasBg
+                  ? host(child!)
+                  : GlassBackdrop(
+                      signature: (spec.id, accent.toARGB32(), bgPath, bgOpacity, bgWidth),
+                      sigma: y.blur,
+                      warmUp: custom == null
+                          ? null
+                          : (ctx) async {
+                              final p = backgroundImageProvider(bgPath, cacheWidth: bgWidth);
+                              if (p != null) await precacheImage(p, ctx);
+                            },
+                      background: background(context),
+                      child: host(child!),
+                    ),
+              home: const Shell(),
+            );
+          },
+        ),
       ),
     );
   }

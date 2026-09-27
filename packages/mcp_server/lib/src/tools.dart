@@ -67,7 +67,7 @@ final toolDefs = <ToolDef>[
   const ToolDef('list_goals', '目标（心愿 / 应急金 / 还清 / 里程碑）及进度：已攒、目标额、按当前速度还要几天', {'type': 'object', 'properties': {'today': {'type': 'string', 'description': 'yyyy-MM-dd，默认今天'}}}),
   const ToolDef('get_wealth', '财富指标：可花的（可支配余额）、今天还能花、生存月数与等级、储蓄率、净资产、收入分线；每个数都是账本推导的', {'type': 'object', 'properties': {'today': {'type': 'string'}}}),
   const ToolDef('list_tasks', '周任务（本周及最近几周）与结算结果', {'type': 'object', 'properties': {'week': {'type': 'string', 'description': '那一周周一 yyyy-MM-dd，默认本周'}}}),
-  const ToolDef('propose_goal', '提议建一个目标。只写进收件箱式的「待建目标」列表（返回草案），不会直接创建；用户在余见的目标页确认。', {
+  const ToolDef('propose_goal', '起草一个目标：只返回一份目标草案，不写入账本、也不进收件箱；请把草案展示给用户，由用户在余见「目标」页里建。', {
     'type': 'object',
     'properties': {'kind': {'type': 'string', 'enum': ['wish', 'emergency', 'milestone']}, 'name': {'type': 'string'}, 'amount': {'type': 'string', 'description': '目标金额，元'}, 'deadline': {'type': 'string', 'description': 'yyyy-MM-dd'}, 'emoji': {'type': 'string'}},
     'required': ['kind', 'name', 'amount'],
@@ -167,14 +167,16 @@ class LedgerTools {
         return [
           for (final g in ledger.goals.list())
             () {
-              final p = ledger.goals.progress(g, today: day, liquidMinor: m.liquidMinor, netWorthMinor: m.netWorthMinor);
+              final p = ledger.goals.progress(g, today: day, liquidMinor: m.freeLiquidMinor, netWorthMinor: m.netWorthMinor);
               return {...g.toJson(), 'saved': Money(p.savedMinor, g.currency).toDecimalString(), 'target': Money(p.targetMinor, g.currency).toDecimalString(), 'ratio': double.parse(p.ratio.toStringAsFixed(3)), 'eta_days': p.etaDays, 'behind_days': p.behindDays, 'milestone': p.milestone};
             }(),
         ];
       case 'get_wealth':
-        final m = Wealth(ledger).compute(today: (args['today'] as String?) ?? today());
+        final day = (args['today'] as String?) ?? today();
+        final m = Wealth(ledger).compute(today: day);
         String y(int minor) => Money(minor, m.currency).toDecimalString();
         return {
+          'cash_on_hand': y(m.cashMinor), // 首页「余额」：现金 / 银行卡 / 钱包 / 锁仓相加
           'disposable': y(m.disposableMinor),
           'daily_allowance': y(m.dailyAllowanceMinor),
           'liquid': y(m.liquidMinor),
@@ -194,8 +196,28 @@ class LedgerTools {
           'savings_rate': m.savingsRate == null ? null : double.parse(m.savingsRate!.toStringAsFixed(3)),
           'net_worth': y(m.netWorthMinor),
           'assets': y(m.assetsMinor),
-          'debt': {'loan': y(m.debt.loanMinor), 'card': y(m.debt.cardMinor), 'monthly_repayment': y(m.debt.monthlyMinor), 'months_left': m.debt.monthsLeft},
+          'debt': {'loan': y(m.debt.loanMinor), 'card': y(m.debt.cardMinor), 'loan_monthly': y(m.debt.loanMonthlyMinor), 'card_due': y(m.debt.cardDueMinor), 'monthly_repayment': y(m.debt.monthlyMinor), 'months_left': m.debt.monthsLeft},
           'income_by_line': m.incomeByLine.map((k, v) => MapEntry(k.name, y(v))),
+          // 设了额度 / 账单日的信用卡：本期账单、还剩、最低还款、到期日、逾期的违约金和利息估算
+          'credit_cards': [
+            for (final c in ledger.cards.list(today: day, currency: m.currency))
+              {
+                'account_id': c.account.id,
+                'name': c.account.name,
+                'limit': y(c.terms.limitMinor),
+                'owed': y(c.owedMinor),
+                'available': y(c.availableMinor),
+                'statement_date': c.statementDate,
+                'due_date': c.dueDate,
+                'statement': y(c.statementMinor),
+                'repaid': y(c.repaidMinor),
+                'remaining': y(c.remainingMinor),
+                'min_payment': y(c.minPaymentMinor),
+                'state': c.state.name,
+                'late_fee': y(c.lateFeeMinor),
+                'interest_estimate': y(c.interestMinor),
+              },
+          ],
         };
       case 'list_tasks':
         final week = (args['week'] as String?) ?? TaskStore.weekOf(today());

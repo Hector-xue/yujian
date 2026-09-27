@@ -23,7 +23,7 @@ class NotificationEvent {
 /// 模板抽取结果。null 字段 = 没抽到；`ignored` = 这条通知与交易无关（营销、验证码）。
 class Extraction {
   final String templateId;
-  final String? direction; // expense | income | transfer
+  final String? direction; // expense | income | transfer | refund（退款：记成退款冲减原支出，不算收入）
   final int? amountMinor;
   final String currency;
   final String? merchant;

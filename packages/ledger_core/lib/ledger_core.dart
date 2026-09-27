@@ -4,7 +4,10 @@
 library;
 
 export 'src/achievements.dart';
+export 'src/benchmark.dart';
 export 'src/budget.dart';
+export 'src/checkup.dart';
+export 'src/cards.dart';
 export 'src/changes.dart';
 export 'src/debts.dart';
 export 'src/goals.dart';
@@ -21,9 +24,12 @@ export 'src/models/enums.dart';
 export 'src/models/transaction.dart';
 export 'src/money.dart';
 export 'src/occurred_at.dart';
+export 'src/payday.dart';
+export 'src/plan.dart';
 export 'src/portability.dart';
 export 'src/profile.dart';
 export 'src/recurring.dart';
+export 'src/setup.dart';
 export 'src/tasks.dart';
 export 'src/validation.dart' show Analysis, ValidatedTransaction, analyzeCreatePayload;
 export 'src/wealth.dart';

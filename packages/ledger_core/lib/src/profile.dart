@@ -7,7 +7,9 @@ import 'db/database.dart';
 /// 键值表，一行一个键；同步按键走。
 class ProfileStore {
   static const keyPayday = 'payday';
+  static const keyPaydays = 'paydays';
   static const keySalaryAccount = 'salary_account_id';
+  static const keyDefaultAccount = 'default_account_id'; // 记账默认用哪个账户（解析器、通知认不出账户时）；没设 = 账户列表第一个
   static const keyIncomeLines = 'income_lines';
   static const keyGameLayer = 'game_layer'; // 财富游戏表达层总开关（目标本身不受它管）
   static const keyRituals = 'rituals'; // {payday:bool, weekly:bool, monthly:bool}
@@ -44,7 +46,24 @@ class ProfileStore {
     return v == null ? null : int.tryParse(v);
   }
 
-  set payday(int? d) => set(keyPayday, d == null ? null : '$d');
+  set payday(int? d) => paydays = d == null ? const [] : [d];
+
+  /// 每月的发薪日（可以几个：工资、绩效分开发）；空 = 没填（自动推断）。
+  /// 存在 `paydays`（「10,25」）；老字段 `payday` 同时写第一个，老版本照样读得到主发薪日。
+  List<int> get paydays {
+    final raw = getString(keyPaydays);
+    final single = payday;
+    var list = raw == null ? [if (single != null) single] : [for (final x in raw.split(',')) if (int.tryParse(x.trim()) case final d? when d >= 1 && d <= 31) d];
+    // 老版本只改老字段：两边对不上说明在老版本上改过（或清空了），以老字段为准
+    if (raw != null && (list.isEmpty || single != list.reduce((a, b) => a < b ? a : b))) list = [if (single != null) single];
+    return (list.toSet().toList()..sort());
+  }
+
+  set paydays(List<int> days) {
+    final clean = (days.where((d) => d >= 1 && d <= 31).toSet().toList()..sort());
+    set(keyPaydays, clean.isEmpty ? null : clean.join(','));
+    set(keyPayday, clean.isEmpty ? null : '${clean.first}');
+  }
 
   /// 手填的「每月大概花多少」（分）；null = 让指标自己估。
   int? get monthlyCostMinor {
@@ -62,6 +81,9 @@ class ProfileStore {
   /// 「30 天后再说」到期日；null = 没按过。
   String? get supportSnoozeUntil => getString(keySupportSnoozeUntil);
   set supportSnoozeUntil(String? d) => set(keySupportSnoozeUntil, d == null || d.isEmpty ? null : d);
+
+  String? get defaultAccountId => getString(keyDefaultAccount);
+  set defaultAccountId(String? v) => set(keyDefaultAccount, v);
 
   String? get salaryAccountId => getString(keySalaryAccount);
   set salaryAccountId(String? v) => set(keySalaryAccount, v);

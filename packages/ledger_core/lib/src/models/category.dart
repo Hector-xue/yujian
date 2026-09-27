@@ -22,7 +22,7 @@ class Category {
   factory Category.fromRow(Map<String, Object?> r) => Category(
         id: r['id'] as String,
         parentId: r['parent_id'] as String?,
-        kind: enumFromDb(CategoryKind.values, r['kind'] as String),
+        kind: enumFromDbOr(CategoryKind.values, r['kind'] as String, CategoryKind.expense),
         name: r['name'] as String,
         icon: r['icon'] as String?,
         isDefault: (r['is_default'] as int) == 1,

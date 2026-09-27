@@ -156,13 +156,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('可花的'), findsOneWidget);
       expect(find.textContaining('今天还能花'), findsOneWidget);
-      expect(find.text('余额'), findsOneWidget);
+      expect(find.text('现金余额'), findsOneWidget);
       expect(find.text('本月支出'), findsOneWidget);
       expect(find.text('给钱一个用途'), findsOneWidget);
       await state.game.setEnabled(false);
       await tester.pumpAndSettle();
       expect(find.text('可花的'), findsNothing);
-      expect(find.text('余额'), findsOneWidget);
+      expect(find.text('现金余额'), findsOneWidget);
       expect(find.text('给钱一个用途'), findsNothing);
     });
 
@@ -174,9 +174,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('📱 换手机'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('建好')); // 测试屏 800×600，按钮在折叠线下
+      await tester.ensureVisible(find.text('添加')); // 测试屏 800×600，按钮在折叠线下
       await tester.pumpAndSettle();
-      await tester.tap(find.text('建好'));
+      await tester.tap(find.text('添加'));
       await tester.pumpAndSettle();
       expect(state.game.goals.single.goal.name, '换手机');
       expect(state.game.goals.single.targetMinor, 699900);
@@ -303,6 +303,14 @@ void main() {
       expect(find.text('¥500000.00'), findsWidgets);
       expect(find.textContaining('每月 ¥8000.00'), findsOneWidget);
       expect(find.text('每月还款'), findsOneWidget);
+      expect(find.text('预计还清'), findsOneWidget);
+      // 加一张没设账单日的信用卡（欠 300）：每月还款 = 月供 8000 + 卡 300，拆开写；还清月数标明只是贷款
+      state.ledger.createAccount(id: 'cc', name: '信用卡', type: AccountType.creditCard, currency: 'CNY', initialBalanceMinor: -30000);
+      await tester.pumpWidget(AppScope(state: state, child: MaterialApp(theme: buildTheme(), home: const DebtsPage(key: ValueKey('with-card')))));
+      await tester.pumpAndSettle();
+      expect(find.text('¥8300.00'), findsOneWidget);
+      expect(find.textContaining('贷款月供 ¥8000.00 + 信用卡最近一期 ¥300.00（1 张没设账单日'), findsOneWidget);
+      expect(find.text('贷款还清'), findsOneWidget);
       // 还一期：转账到房贷账户 → 余额少一期、目标进度 1.6%
       state.addManual({'type': 'transfer', 'amount_minor': 800000, 'currency': 'CNY', 'account_id': 'wechat', 'to_account_id': setup.account.id, 'occurred_at': '${day(0)}T09:00:00+08:00'});
       expect(state.ledger.debts.list().first.owedMinor, 49200000);
@@ -341,9 +349,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '还剩多少要还（元）'), '60000');
       await tester.enterText(find.widgetWithText(TextField, '每月还多少（元）'), '3000');
-      await tester.ensureVisible(find.text('建好'));
+      await tester.ensureVisible(find.text('添加'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('建好'));
+      await tester.tap(find.text('添加'));
       await tester.pumpAndSettle();
       final d = state.ledger.debts.list().single;
       expect(d.account.name, '车贷');

@@ -38,6 +38,8 @@ class AppState extends ChangeNotifier {
   TemplateMatcher matcher = TemplateMatcher();
   StreamSubscription<NotificationEvent>? _liveSub;
   HybridInterpreter interpreter = HybridInterpreter();
+  /// 对话建档（「欠白条 5000，每月 15 号还 1000」「工行定期 1 万」）：规则优先，规则说不清才问模型；只在对话页用。
+  SetupInterpreter setupInterpreter = SetupInterpreter();
   VisionInterpreter? vision;
   /// 截图自动记账用的两条模型路（标签不同，出网记录里分得清）：「发文字」档的文本模型、「发原图」档的看图模型。
   LLMInterpreter? shotLlm;
@@ -83,6 +85,9 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
+      recurringSkipped
+        ..clear()
+        ..addAll(p.getStringList('recurring_skipped') ?? const []);
       _anomaliesDismissed.addAll(p.getStringList('anomalies_dismissed') ?? const []);
     } catch (_) {}
     _apply();
@@ -158,6 +163,7 @@ class AppState extends ChangeNotifier {
     final p = tagged('interpret');
     provider = p;
     interpreter = HybridInterpreter(llm: p == null ? null : LLMInterpreter(p));
+    setupInterpreter = SetupInterpreter(llm: tagged('setup'));
     final v = tagged('image');
     vision = v == null ? null : VisionInterpreter(v);
     final st = tagged('shot_text');
@@ -179,7 +185,7 @@ class AppState extends ChangeNotifier {
       }
     }
     matcher = TemplateMatcher(userTemplates: userTemplates);
-    sync = settings.syncActive ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!)) : null;
+    sync = settings.syncActive ? SyncClient(ledger, SyncConfig(baseUrl: settings.syncUrl!, token: settings.syncToken!, passphrase: settings.syncPassphrase)) : null;
     notifyListeners();
   }
 
@@ -191,6 +197,10 @@ class AppState extends ChangeNotifier {
   /// 首次启动：默认分类 + 三个常用账户。
   void bootstrap() {
     ledger.seedDefaultCategories();
+    // 存储维护：变更日志太长就压缩（每个实体只留最新一条），审计里 90 天前的机器流水修剪掉；数量不大时什么都不做
+    try {
+      ledger.maintain();
+    } catch (_) {}
     if (ledger.listAccounts(includeArchived: true).isEmpty) {
       ledger.createAccount(id: 'wechat', name: '微信', type: AccountType.eWallet, currency: 'CNY');
       ledger.createAccount(id: 'alipay', name: '支付宝', type: AccountType.eWallet, currency: 'CNY');
@@ -249,15 +259,39 @@ class AppState extends ChangeNotifier {
       supportPayTappedAt = null;
       return;
     }
-    if (x.ignored || x.amountMinor != SupportConfig.amountMinor || x.direction == 'income') return;
+    if (x.ignored || x.amountMinor != SupportConfig.amountMinor || x.direction == 'income' || x.direction == 'refund') return;
     markSupporter(via: e.source == 'screen' ? 'screen' : 'notification');
   }
+
+  /// 太久没打开、没自动补的周期账单（一行一条：「房租 3/10、4/10…」），首页提示，用户关掉为止。
+  /// 以前是悄悄跳过，少记了几期用户不知道。
+  final List<String> recurringSkipped = [];
 
   /// 周期账单到期 → 草稿进收件箱。启动和新增周期项时调用。
   int generateRecurring() {
     final n = ledger.recurring.generateDue(today: _today(), tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes).length;
-    if (n > 0) notifyListeners();
+    final skipped = ledger.recurring.lastSkipped;
+    if (skipped.isNotEmpty) {
+      for (final k in skipped) {
+        final dates = k.dates.map((d) => fmtMd(d)).toList();
+        recurringSkipped.add('${k.recurring.name}：${dates.length > 4 ? '${dates.first}–${dates.last} 共 ${dates.length} 期' : dates.join('、')}');
+      }
+      unawaited(_saveRecurringSkipped());
+    }
+    if (n > 0 || skipped.isNotEmpty) notifyListeners();
     return n;
+  }
+
+  Future<void> dismissRecurringSkipped() async {
+    recurringSkipped.clear();
+    notifyListeners();
+    await _saveRecurringSkipped();
+  }
+
+  Future<void> _saveRecurringSkipped() async {
+    try {
+      await (await SharedPreferences.getInstance()).setStringList('recurring_skipped', recurringSkipped);
+    } catch (_) {}
   }
 
   static String _today() {
@@ -361,11 +395,11 @@ class AppState extends ChangeNotifier {
       int cny(List<QueryRow> rows) => rows.where((r) => r.currency == 'CNY').fold(0, (a, r) => a + r.valueMinor);
       final expense = cny(engine.run(QueryDsl(timeRange: DateRange(from, to))).rows);
       final income = cny(engine.run(QueryDsl(types: const [TransactionType.income], timeRange: DateRange(from, to))).rows);
-      final balance = ledger.balances(includeVault: true).values.where((m) => m.currency == 'CNY').fold(0, (a, m) => a + m.minor);
+      final balance = Wealth.cashOnHand(ledger); // 和首页「余额」同一口径：手头的钱，不含信用卡 / 贷款 / 投资
       final today = _today();
       final todayExp = cny(engine.run(QueryDsl(timeRange: DateRange(today, today))).rows);
       final latest = ledger.listTransactions(limit: 1);
-      final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${latest.first.occurredAt.localDate.substring(5).replaceFirst('-', '/')}';
+      final recent = latest.isEmpty ? '还没有记录，点「记一笔」开始' : '最近：${latest.first.description ?? categoryName(latest.first.categoryId)} ${fmtSigned(latest.first)} · ${fmtMd(latest.first.occurredAt.localDate)}';
       // 4×4 日历：本月逐日支出 / 收入（分），按日序逗号分隔，缺的天是 0
       final expByDay = List<int>.filled(last, 0);
       final incByDay = List<int>.filled(last, 0);
@@ -417,6 +451,11 @@ class AppState extends ChangeNotifier {
     if (c == null) return null;
     try {
       final r = await trackSync('sync', () => c.sync(), countOf: (r) => r.pushed + r.pulled);
+      // 推完拉完，本机变更日志里的旧版本都没用了：压缩（只留每个实体最新一条，LWW 依据不变）
+      try {
+        ledger.changes.compact();
+      } catch (_) {}
+      unawaited(_maybeCompactServer(c));
       lastSyncNote = '${DateTime.now().toIso8601String().substring(11, 16)} ${r.toString()}';
       notifyListeners();
       return r;
@@ -425,6 +464,18 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  /// 服务器变更日志每 7 天压缩一次（每个实体只留最新一条；新设备首次拉取快、服务器不无限长）。失败不打扰。
+  Future<void> _maybeCompactServer(SyncClient c) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final last = p.getInt('server_compact_at') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - last < const Duration(days: 7).inMilliseconds) return;
+      await trackSync('compact', () => c.compactServer());
+      await p.setInt('server_compact_at', now);
+    } catch (_) {}
   }
 
   /// 同步页和启动同步都从这里过：成功失败都进出网记录。
@@ -503,20 +554,24 @@ class AppState extends ChangeNotifier {
         continue;
       }
       final accountId = (x.accountHint == null ? null : rule.matchAccount(x.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      final type = x.direction == 'income' ? 'income' : (x.direction == 'transfer' ? 'transfer' : 'expense');
+      final type = switch (x.direction) { 'income' => 'income', 'transfer' => 'transfer', 'refund' => 'refund', _ => 'expense' };
+      final hasCategory = type == 'income' || type == 'expense';
       final kind = type == 'income' ? 'income' : 'expense';
-      final guessed = type == 'transfer' ? null : rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind);
+      final guessed = hasCategory ? rule.guessCategory('${x.merchant ?? ''} ${e.text}', ctx, kind) : null;
       // 猜不出分类落到「其他」，照样能记；智能模式仍要求真猜中才自动入账
-      final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+      final categoryId = hasCategory ? (guessed ?? ctx.fallbackCategoryId(kind)) : null;
+      final postedAt = DateTime.fromMillisecondsSinceEpoch(e.postedAtMs);
       final payload = <String, Object?>{
         'type': type,
         'amount_minor': x.amountMinor,
         'currency': x.currency,
         'account_id': accountId,
-        if (type != 'transfer') 'category_id': categoryId,
+        if (hasCategory) 'category_id': categoryId,
+        // 退款冲减原来那笔支出：按商户 / 金额猜原单，猜不到留空，收件箱里让用户挑
+        if (type == 'refund') 'refund_of_id': ledger.guessRefundOriginal(amountMinor: x.amountMinor!, currency: x.currency, merchant: x.merchant, at: postedAt),
         'merchant': x.merchant,
         'description': x.merchant ?? (e.title ?? e.packageName),
-        'occurred_at': OccurredAt(DateTime.fromMillisecondsSinceEpoch(e.postedAtMs), DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
+        'occurred_at': OccurredAt(postedAt, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
         'metadata': {'notification': {'package': e.packageName, 'title': e.title, 'text': e.text, 'template': x.templateId, if (e.source != null) 'source': e.source}},
       };
       final drafts = ledger.propose(
@@ -534,7 +589,7 @@ class AppState extends ChangeNotifier {
       final d = drafts.single;
       final auto = switch (settings.automationMode) {
         AutomationMode.confirm => false,
-        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && guessed != null && x.accountHint != null,
+        AutomationMode.smart => d.missingFields.isEmpty && d.possibleDuplicateOf == null && x.confidence >= 0.85 && (guessed != null || (type == 'refund' && payload['refund_of_id'] != null)) && x.accountHint != null,
         AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
       };
       if (auto) {
@@ -658,6 +713,15 @@ class AppState extends ChangeNotifier {
       _noteScreenshot(e, 'skipped', '这个平台没有本地识别（换「发原图」才能用）');
       return 0;
     }
+    // 账单列表截图（一屏好几笔）：每笔一条草稿，都进收件箱让用户过目（列表里的商户 / 时间靠版式猜，不自动入账）
+    final list = ScreenshotOcrParser.parseList(lines, fallbackTime: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
+    if (list.isNotEmpty) {
+      final inputs = <DraftInput>[
+        for (var i = 0; i < list.length; i++)
+          DraftInput(payload: _localShotPayload(list[i], fallback: DateTime.fromMillisecondsSinceEpoch(e.addedMs)).$1, confidence: list[i].confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
+      ];
+      return _proposeShot(e, inputs, interpreter: 'ocr:list', modelUsed: null, autoOk: false);
+    }
     final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
     if (!shot.looksLikeTransaction) {
       _noteScreenshot(e, 'ignored', '不是交易截图（本机判断，没上传）');
@@ -666,7 +730,7 @@ class AppState extends ChangeNotifier {
     // 本地够硬就直接起草；「发文字」档下证据弱的（没标签、没 ¥ 的裸数字）交给模型再看一眼
     if (shot.usable && (!thenText || shot.confident || interpreter.llm == null)) {
       final (payload, guessed) = _localShotPayload(shot, fallback: DateTime.fromMillisecondsSinceEpoch(e.addedMs));
-      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed || payload['type'] == 'transfer');
+      return _proposeShot(e, [DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shot:${e.id}:0', fingerprintIsExact: true)], interpreter: 'ocr:local', modelUsed: null, autoOk: guessed || payload['type'] == 'transfer' || (payload['type'] == 'refund' && payload['refund_of_id'] != null));
     }
     if (!thenText) {
       _noteScreenshot(e, 'ignored', '像是交易但本机没认出金额（可在自动记账页切到「本机认不出时发文字」）');
@@ -683,7 +747,8 @@ class AppState extends ChangeNotifier {
     final r = await llm.interpret('这是我截图上 OCR 出来的文字，请从中识别交易：\n$text', context());
     final inputs = [
       for (var i = 0; i < r.drafts.length; i++)
-        if (r.drafts[i].payload['kind'] == null) DraftInput(payload: r.drafts[i].payload, confidence: r.drafts[i].confidence, eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
+        // 截图文字是外部输入（图里写什么模型就可能照着编），置信和看图那条路一样打 8 折：模型不报置信时默认 0.7 × 0.8，够不到智能模式的门槛
+        if (r.drafts[i].payload['kind'] == null) DraftInput(payload: r.drafts[i].payload, confidence: (r.drafts[i].confidence * 0.8).clamp(0, 0.9), eventFingerprint: 'shot:${e.id}:$i', fingerprintIsExact: true),
     ];
     if (inputs.isEmpty) {
       _noteScreenshot(e, 'ignored', '文字发给模型也没认出交易', modelUsed: r.modelUsed);
@@ -698,9 +763,10 @@ class AppState extends ChangeNotifier {
     final rule = interpreter.rule;
     final accountId = (shot.accountHint == null ? null : rule.matchAccount(shot.accountHint!, ctx)) ?? ctx.defaultAccountId;
     final type = shot.direction!;
+    final hasCategory = type == 'income' || type == 'expense';
     final kind = type == 'income' ? 'income' : 'expense';
-    final guessed = type == 'transfer' ? null : rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind);
-    final categoryId = type == 'transfer' ? null : (guessed ?? ctx.fallbackCategoryId(kind));
+    final guessed = hasCategory ? rule.guessCategory('${shot.merchant ?? ''} ${shot.text}', ctx, kind) : null;
+    final categoryId = hasCategory ? (guessed ?? ctx.fallbackCategoryId(kind)) : null;
     final when = shot.occurredAt ?? fallback;
     return (
       <String, Object?>{
@@ -708,7 +774,8 @@ class AppState extends ChangeNotifier {
         'amount_minor': shot.amountMinor,
         'currency': 'CNY',
         'account_id': accountId,
-        if (type != 'transfer') 'category_id': categoryId,
+        if (hasCategory) 'category_id': categoryId,
+        if (type == 'refund') 'refund_of_id': ledger.guessRefundOriginal(amountMinor: shot.amountMinor!, currency: 'CNY', merchant: shot.merchant, at: when),
         'merchant': shot.merchant,
         'description': shot.merchant ?? '截图记账',
         'occurred_at': OccurredAt(when, DateTime.now().timeZoneOffset.inMinutes).toIso8601String(),
@@ -728,11 +795,22 @@ class AppState extends ChangeNotifier {
       return (drafts: const <Draft>[], error: '本机识别出错了，换一张试试', modelUsed: null);
     }
     if (lines == null) return null;
+    final list = ScreenshotOcrParser.parseList(lines, fallbackTime: DateTime.now());
+    if (list.isNotEmpty) {
+      final drafts = ledger.propose([
+        for (var i = 0; i < list.length; i++)
+          DraftInput(payload: _localShotPayload(list[i], fallback: DateTime.now()).$1, confidence: list[i].confidence, eventFingerprint: 'shotlocal:${TemplateMatcher.stableHash(list[i].text)}:$i', fingerprintIsExact: true),
+      ], source: Source.screenshot, interpreter: 'ocr:list');
+      if (drafts.isEmpty) return (drafts: const <Draft>[], error: '这张图已经记过', modelUsed: null);
+      notifyListeners();
+      return (drafts: drafts, error: null, modelUsed: '本机识别（账单列表 ${drafts.length} 笔）');
+    }
     final shot = ScreenshotOcrParser.parse(lines, fallbackTime: DateTime.now());
     if (!shot.looksLikeTransaction) return (drafts: const <Draft>[], error: '这张图不像交易截图（本机判断，没上传）', modelUsed: null);
     if (!shot.usable) return (drafts: const <Draft>[], error: '像是交易，但本机没认出金额。支付成功页 / 账单详情认得准，排版乱的小票认不出', modelUsed: null);
     final (payload, _) = _localShotPayload(shot, fallback: DateTime.now());
-    final drafts = ledger.propose([DraftInput(payload: payload, confidence: shot.confidence)], source: Source.screenshot, interpreter: 'ocr:local');
+    // 按识别出的文字做指纹：同一张图再识别一次就是「已经记过」，不再起第二条草稿
+    final drafts = ledger.propose([DraftInput(payload: payload, confidence: shot.confidence, eventFingerprint: 'shotlocal:${TemplateMatcher.stableHash(shot.text)}', fingerprintIsExact: true)], source: Source.screenshot, interpreter: 'ocr:local');
     if (drafts.isEmpty) return (drafts: const <Draft>[], error: '这张图已经记过', modelUsed: null);
     notifyListeners();
     return (drafts: drafts, error: null, modelUsed: '本机识别');
@@ -798,7 +876,7 @@ class AppState extends ChangeNotifier {
       }
     }
     final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
-    final how = interpreter == 'ocr:local' ? '本机识别 · ' : '';
+    final how = interpreter == 'ocr:local' ? '本机识别 · ' : (interpreter == 'ocr:list' ? '本机识别账单列表 · ' : '');
     _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', '$how${committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts'}', modelUsed: modelUsed);
     return drafts.length;
   }
@@ -832,7 +910,22 @@ class AppState extends ChangeNotifier {
   List<Anomaly> homeAnomalies() {
     final from = DateTime.now().subtract(const Duration(days: homeAnomalyDays - 1));
     final fromDate = '${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}';
-    return [for (final a in detectAnomalies(ledger, from: fromDate, to: _today())) if (!_anomaliesDismissed.contains(a.tx.id)) a];
+    final all = _cached('anomalies', () => detectAnomalies(ledger, from: fromDate, to: _today()));
+    return [for (final a in all) if (!_anomaliesDismissed.contains(a.tx.id)) a];
+  }
+
+  // 首页 / 负债页每次重建都要的派生数据（信用卡状态、异常、负债合计）按「数据版本号 + 今天」缓存：
+  // 底栏几页常驻，任何一次 notify 都会让它们一起重建，账记多了每次都重算就是一下卡顿；数据没变就直接用上次的
+  final Map<String, (int, String, Object)> _memo = {};
+  T _cached<T extends Object>(String key, T Function() compute) {
+    final rev = ledger.revision;
+    final today = _today();
+    final hit = _memo[key];
+    if (hit != null && hit.$1 == rev && hit.$2 == today) return hit.$3 as T;
+    final v = compute();
+    // 算的过程中如果有写入（极少），版本号已经变了：按算完时的版本记，下次照样会重算
+    _memo[key] = (ledger.revision, today, v);
+    return v;
   }
 
   Future<void> dismissAnomaly(String txId) async {
@@ -851,18 +944,31 @@ class AppState extends ChangeNotifier {
   List<Category> get categories => ledger.listCategories();
   List<Draft> get inbox => ledger.listDrafts(status: DraftStatus.pending);
 
+  /// 默认记账账户：用户在账户页设的（没归档）优先，没设就是账户列表第一个。
+  String? get defaultAccountId {
+    final accs = accounts;
+    final chosen = ledger.profile.defaultAccountId;
+    if (chosen != null && accs.any((a) => a.id == chosen)) return chosen;
+    return accs.isEmpty ? null : accs.first.id;
+  }
+
+  void setDefaultAccount(String? id) {
+    ledger.profile.defaultAccountId = id;
+    notifyListeners();
+  }
+
   InterpretContext context() {
     final accs = accounts;
     return InterpretContext(
       now: DateTime.now(),
       tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes,
-      defaultAccountId: accs.isEmpty ? null : accs.first.id,
-      accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency)],
+      defaultAccountId: defaultAccountId,
+      accounts: [for (final a in accs) AccountRef(id: a.id, name: a.name, currency: a.currency, type: a.type.db)],
       categories: [for (final c in categories) CategoryRef(id: c.id, name: c.name, kind: c.kind.db, parentId: c.parentId)],
       merchantMap: {for (final m in ledger.memory.all(limit: 300)) m.key: (categoryId: m.categoryId, accountId: m.accountId)},
       recentTransactions: [
         for (final t in ledger.listTransactions(limit: 20))
-          RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description),
+          RecentTransaction(id: t.id, amountMinor: t.amountMinor, currency: t.currency, localDate: t.occurredAt.localDate, categoryId: t.categoryId, description: t.description, type: t.type.db),
       ],
     );
   }
@@ -892,6 +998,10 @@ class AppState extends ChangeNotifier {
         if (ledger.listTransactions(limit: 1).isEmpty) '账本还是空的，一笔都没记过',
         // 目标（游戏层）：名字和进度，让陪聊能接得上「日本游攒得怎么样了」
         for (final p in game.goals.take(3)) '目标：${game.describe(p)}',
+        // 信用卡：没还清的账单（陪聊能提醒「招行 25 号到期还剩 3000」，逾期的把违约金 / 利息说清）
+        for (final c in cardStatuses())
+          if (c.state == CardBillState.due || c.state == CardBillState.overdue)
+            '信用卡「${c.account.name}」${c.statementDate.substring(5)} 账单还剩 ${fmtMoney(c.remainingMinor, 'CNY')}，${c.state == CardBillState.overdue ? '已逾期 ${c.overdueDays} 天，违约金 ${fmtMoney(c.lateFeeMinor, 'CNY')}、利息约 ${fmtMoney(c.interestMinor, 'CNY')}' : '${c.dueDate.substring(5)} 到期，最低还款 ${fmtMoney(c.minPaymentMinor, 'CNY')}'}，可用额度 ${fmtMoney(c.availableMinor, 'CNY')}',
         if (game.enabled && game.metrics?.title != null) '称号「${game.metrics!.title}」${game.metrics!.inDebt ? '（净资产 ${fmtMoney(game.metrics!.netWorthMinor, 'CNY')}，负翁档按欠款分）' : '（等级「${game.metrics!.level!.name}」）'}，可花的 ${fmtMoney(game.metrics!.disposableMinor, 'CNY')}',
       ];
       return lines.join('\n');
@@ -900,12 +1010,53 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------- 对话建档
+
+  /// 一句话像不像在说自己的负债 / 资产；像就返回待建的项（还没写账本），不像返回 null（照常走 [say]）。
+  /// [explicit] = 点了「登记负债 / 资产」再说的。
+  Future<SetupOutcome?> trySetup(String text, {bool explicit = false}) async {
+    final env = setupEnv();
+    final r = await setupInterpreter.interpret(text, context(), explicit: explicit, today: env.today, redactForModel: settings.redact ? redactForModel : null);
+    if (r == null) return null;
+    for (final it in r.items) {
+      it.infer(env);
+    }
+    return r;
+  }
+
+  SetupEnv setupEnv() => SetupEnv.of(ledger, today: _today());
+
+  /// 用户点了确认：一个事务建完（失败全部回滚，抛出去让页面说原因）。
+  List<SetupApplied> applySetup(List<SetupItem> items) {
+    final r = Setups(ledger).apply(items, env: setupEnv());
+    // 和负债页表单一样：建了还清目标就在对话里说一声
+    if (game.enabled) {
+      for (final x in r) {
+        if (x.goalId == null) continue;
+        final g = ledger.goals.get(x.goalId!);
+        game.pendingMessages.add((text: replier.template(PersonaEvent.goalCreated, label: g.name), sticker: null, meta: null));
+      }
+    }
+    notifyListeners();
+    return r;
+  }
+
+  /// 撤销刚建的；返回真删掉的账户数（有记录的只归档）。
+  int undoSetup(List<SetupApplied> applied) {
+    final n = Setups(ledger).undo(applied);
+    notifyListeners();
+    return n;
+  }
+
   /// 一句话 → 解析 → 草稿进收件箱（不落账）。返回解析结果与建立的草稿。
   Future<({InterpretResult result, List<Draft> drafts, QueryResult? query, String? error})> say(String text) async {
+    // 下面这些关键词直答（周期账单 / 异常 / 预算）只在句子里没有金额时才拦：「今天花多了，打车花了 80」是在记账，
+    // 以前被「花多了」拦下来回了一段异常分析，那 80 块就没记上
+    final hasAmount = extractAmounts(text).isNotEmpty;
     // 周期账单 / 预算 的问法不进 Query DSL（它们不是交易聚合），直接答
-    if (RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
+    if (!hasAmount && RegExp('固定账单|周期账单|订阅|每个月.*(要交|要付|固定)').hasMatch(text) && RegExp('哪些|多少|什么|有没有').hasMatch(text)) {
       final items = ledger.recurring.list();
-      final lines = items.map((r) => '${r.name} ${Money(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${r.nextDue}').join('；');
+      final lines = items.map((r) => '${r.name} ${fmtMoney(r.template['amount_minor'] as int, r.template['currency'] as String)}，下次 ${fmtMd(r.nextDue)}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: items.isEmpty ? '还没有设置周期账单（更多 → 周期账单）' : '固定账单 ${items.length} 项：$lines');
     }
     // "每月存 3000 多久能攒到 2 万"：纯算术，不碰账本
@@ -920,20 +1071,20 @@ class AppState extends ChangeNotifier {
         return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: '每月存 ${Money((monthly * 100).round(), 'CNY').toDecimalString()}，攒到 ${Money((target * 100).round(), 'CNY').toDecimalString()} 需要 $months 个月（${(months / 12).toStringAsFixed(1)} 年）。');
       }
     }
-    if (RegExp('异常|不正常|反常|比平时|花得多|花多了|大额').hasMatch(text)) {
+    if (!hasAmount && RegExp('异常|不正常|反常|比平时|花得多|花多了|大额').hasMatch(text)) {
       final now = DateTime.now();
       final from = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
       final a = detectAnomalies(ledger, from: from, to: _today());
-      final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${Money(x.tx.amountMinor, x.tx.currency)}（${x.tx.occurredAt.localDate.substring(5)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
+      final lines = a.take(5).map((x) => '${x.tx.description ?? categoryName(x.tx.categoryId)} ${fmtMoney(x.tx.amountMinor, x.tx.currency)}（${fmtMd(x.tx.occurredAt.localDate)}，是${x.basis == 'category' ? '同类' : '平时'}中位数的 ${x.ratio.toStringAsFixed(1)} 倍）').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: a.isEmpty ? '这个月没有明显异常的支出。' : '这个月 ${a.length} 笔明显高于平时：$lines');
     }
-    if (RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
+    if (!hasAmount && RegExp('预算').hasMatch(text) && RegExp('还剩|剩多少|超了|怎么样|多少').hasMatch(text)) {
       final st = ledger.budgets.statuses(today: _today());
       final lines = st.map((s) => '${s.budget.name} 已用 ${Money(s.spentMinor, s.budget.currency)} / ${Money(s.budget.amountMinor, s.budget.currency)}${s.exceeded ? '（已超）' : ''}').join('；');
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: st.isEmpty ? '还没有设置预算（更多 → 预算）' : lines);
     }
     // 目标：「日本游攒了多少」直答；「攒 5000 换手机」→ 目标建议卡（都不出网）
-    final goalAnswer = game.answerGoalQuery(text);
+    final goalAnswer = hasAmount ? null : game.answerGoalQuery(text);
     if (goalAnswer != null) {
       return (result: const InterpretResult(intent: Intent.chat, interpreter: 'rule'), drafts: const <Draft>[], query: null, error: goalAnswer);
     }
@@ -1027,24 +1178,31 @@ class AppState extends ChangeNotifier {
   }
 
   /// 作废 = 建一条 void 草稿并立即确认（用户已在对话框里确认过原因）。
+  /// 起草和确认在同一个事务里：确认失败（校验不过、有退款挡着……）整体回滚，收件箱里不会留下一条垃圾草稿。
   void voidTransaction(String id, String reason) {
-    final d = ledger.propose([DraftInput(kind: DraftKind.void_, targetTransactionId: id, payload: {'reason': reason})], source: Source.manual, actor: Actor.user).single;
-    ledger.commit(d.id);
+    ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(kind: DraftKind.void_, targetTransactionId: id, payload: {'reason': reason})], source: Source.manual, actor: Actor.user).single;
+      ledger.commit(d.id);
+    });
     notifyListeners();
   }
 
   /// 修改 = update 草稿 + 立即确认（编辑表单本身就是确认动作）。
   Transaction updateTransaction(String id, Map<String, Object?> patch) {
-    final d = ledger.propose([DraftInput(kind: DraftKind.update, targetTransactionId: id, payload: patch)], source: Source.manual, actor: Actor.user).single;
-    final t = ledger.commit(d.id);
+    final t = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(kind: DraftKind.update, targetTransactionId: id, payload: patch)], source: Source.manual, actor: Actor.user).single;
+      return ledger.commit(d.id);
+    });
     notifyListeners();
     return t;
   }
 
   /// 手动记账 = create 草稿 + 立即确认。
   Transaction addManual(Map<String, Object?> payload) {
-    final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
-    final t = ledger.commit(d.id);
+    final t = ledger.database.transaction(() {
+      final d = ledger.propose([DraftInput(payload: payload)], source: Source.manual, actor: Actor.user).single;
+      return ledger.commit(d.id);
+    });
     notifyListeners();
     unawaited(game.onIncomeCommitted(t)); // 手动记的工资也触发发薪日仪式
     return t;
@@ -1071,6 +1229,48 @@ class AppState extends ChangeNotifier {
     return r;
   }
 
+  /// 设了条款的信用卡此刻的状态（额度 / 本期账单 / 最低还款 / 逾期费用）；负债页和首页「近期到期」用。
+  List<CardStatus> cardStatuses() => _cached('cards', () => ledger.cards.list(today: _today(), currency: 'CNY'));
+
+  /// 一张卡的状态：从 [cardStatuses] 的缓存里取（负债页每行一张，不再每行各算一遍）；没设条款 = null。
+  CardStatus? cardStatus(String accountId) {
+    for (final c in cardStatuses()) {
+      if (c.account.id == accountId) return c;
+    }
+    final a = ledger.account(accountId);
+    // 不是人民币的卡不在上面的列表里：单独算
+    return a != null && a.currency != 'CNY' ? ledger.cards.status(accountId, today: _today()) : null;
+  }
+
+  /// 负债合计（贷款月供 + 各张卡最近一期账单 / 最晚还清那笔）；负债页总览用。
+  DebtTotals debtTotals() => _cached('debtTotals', () => ledger.debts.totals(today: _today(), currency: 'CNY'));
+
+  /// 新建一张信用卡（账户 + 条款）。
+  Account addCreditCard({required String name, required CardTerms terms, int owedMinor = 0}) {
+    final a = ledger.cards.add(name: name, terms: terms, owedMinor: owedMinor);
+    notifyListeners();
+    return a;
+  }
+
+  /// 设 / 改一张信用卡的额度、账单日、还款日、利率这些条款。
+  /// 设 / 改条款；[name] 不为空就顺便改名（信用卡、花呗这些建好后也能改名字）。
+  void setCardTerms(String accountId, CardTerms terms, {String? name}) {
+    ledger.database.transaction(() {
+      if (name != null && name.trim().isNotEmpty) ledger.cards.rename(accountId, name);
+      ledger.cards.setTerms(accountId, terms);
+    });
+    notifyListeners();
+  }
+
+  /// 还款计划（从今天排到第二个发薪日前）。
+  RepaymentPlan repaymentPlan() => RepaymentPlanner(ledger).build(today: _today(), metrics: game.metrics);
+
+  /// 资产体检 + 调优方案。
+  Checkup checkup() {
+    final m = game.metrics;
+    return Checkups(ledger).run(today: _today(), metrics: m, plan: RepaymentPlanner(ledger).build(today: _today(), metrics: m));
+  }
+
   /// 删一笔负债：还款提醒 + 还清目标一起删；账户没还款记录就真删，有就归档（见 Debts.remove）。
   DebtRemoval removeDebt(String accountId) {
     final r = ledger.debts.remove(accountId);
@@ -1091,13 +1291,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// 导入账单 CSV：解析 → 账户/分类映射 → 一组草稿进收件箱。返回统计。
-  ({int drafts, int deduped, int problems, String? error}) importBillCsv(String text) {
-    final List<ImportedRow> rows;
+  ({int drafts, int deduped, int problems, int refundsSkipped, String? error}) importBillCsv(String text) {
+    final List<ImportedRow> parsed;
     try {
-      rows = parseBillCsv(text, tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes);
+      parsed = parseBillCsv(text, tzOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes);
     } on FormatException catch (e) {
-      return (drafts: 0, deduped: 0, problems: 0, error: e.message);
+      return (drafts: 0, deduped: 0, problems: 0, refundsSkipped: 0, error: e.message);
     }
+    // 退款：账本里有原单的挂上去；没有的在同一个文件里冲减原单；都没有的（原单全额退了、没导）不记
+    final guesses = <ImportedRow, String?>{
+      for (final r in parsed)
+        if (r.type == 'refund' && r.amountMinor != null) r: ledger.guessRefundOriginal(amountMinor: r.amountMinor!, currency: r.currency, merchant: r.merchant, at: r.occurredAt?.utc.toLocal()),
+    };
+    final net = netImportedRefunds(parsed, linked: (r) => guesses[r] != null);
+    final rows = net.rows;
     final ctx = context();
     final rule = interpreter.rule;
     final inputs = <DraftInput>[];
@@ -1106,13 +1313,14 @@ class AppState extends ChangeNotifier {
       if (r.problems.isNotEmpty) problems++;
       final kind = r.type == 'income' ? 'income' : 'expense';
       final text = [r.categoryHint, r.merchant, r.description].whereType<String>().join(' ');
-      final categoryId = r.type == 'transfer' ? null : rule.guessCategory(text, ctx, kind);
+      final categoryId = r.type == 'expense' || r.type == 'income' ? rule.guessCategory(text, ctx, kind) : null;
       final accountId = (r.accountHint == null ? null : rule.matchAccount(r.accountHint!, ctx)) ?? ctx.defaultAccountId;
-      inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId));
+      final refundOf = r.type == 'refund' ? guesses[r] : null;
+      inputs.add(importedRowToDraft(r, accountId: accountId, categoryId: categoryId, refundOfId: refundOf));
     }
     final drafts = ledger.propose(inputs, source: Source.import_, actor: Actor.automation, interpreter: 'import');
     notifyListeners();
-    return (drafts: drafts.length, deduped: inputs.length - drafts.length, problems: problems, error: null);
+    return (drafts: drafts.length, deduped: inputs.length - drafts.length, problems: problems, refundsSkipped: net.orphans.length, error: null);
   }
 
   /// 恢复备份：整库替换，之后重新装配（分类/账户变了）。
