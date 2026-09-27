@@ -12,7 +12,7 @@
     <!-- 账本、设置、密钥都不进系统备份（Google 云备份 / adb backup / 厂商换机迁移）：本地优先的承诺不能被系统备份绕过去；
          换机请用 App 里的「数据 → 导出 / 备份」。Android 12+ 的换机迁移不看 allowBackup，得靠 dataExtractionRules 排除 -->
     <application
-        android:label="余见"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
@@ -63,7 +63,7 @@
         <!-- 通知监听：用户在系统设置里授权后才生效；只读支付类通知，不读短信 -->
         <service
             android:name=".YujianNotificationListener"
-            android:label="余见"
+            android:label="${appLabel}"
             android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>

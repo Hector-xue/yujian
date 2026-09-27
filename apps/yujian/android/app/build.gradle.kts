@@ -34,6 +34,7 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "余见"
     }
 
     signingConfigs {
@@ -48,6 +49,13 @@ android {
     }
 
     buildTypes {
+        // debug 包换一个包名并排装：正式版是 release 签名 + 更高的 versionCode，debug 包想覆盖装必报「签名冲突 / 无法降级」。
+        // 并排装互不干扰（各自的数据目录），测完直接卸掉。
+        debug {
+            applicationIdSuffix = ".spike"
+            versionNameSuffix = "-spike"
+            manifestPlaceholders["appLabel"] = "余见·打样"
+        }
         release {
             signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             isMinifyEnabled = false
