@@ -756,9 +756,10 @@ class Dock extends StatelessWidget {
         // 0.9.27：照 HyperOS 底栏 / 通知卡——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低；
         // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _GlassRim 一圈细亮边
         ? LiquidGlass(
-            spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.62), saturation: 1.15, thickness: 5, refract: 1.5, light: 0.45),
+            // 0.9.30：白只叠 38%、模糊 18、饱和度略提——底下滚过的字和颜色要隐约透得出来（0.62 / 24 时像一块白塑料，没有透明感）
+            spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.42) : Colors.white.withValues(alpha: 0.38), saturation: 1.3, thickness: 5, refract: 1.5, light: 0.45),
             radius: 999,
-            blur: 24,
+            blur: 18,
             fallback: y.cardFill,
             child: inner)
         // 实色主题：胶囊就是一块实色卡（描边 / 投影跟卡片同一套），页面从它下面滑过时不透
