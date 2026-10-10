@@ -63,10 +63,10 @@ void main() {
   float sheen = 1.0 - smoothstep(0.0, 0.6, p.y / uRect.y); // 顶部一道柔和面光
   // 平玻璃（折射带 ≤ 6px，0.9.29 起卡片 / 底栏都是）：不要亮边内侧那道暗线、不要顶部面光、着色器自己的亮边减到三成——
   // 亮边 + 暗线 + 面光合起来就是一道斜面，看着像带弧度、有厚度的玻璃。轮廓交给 Dart 侧画的 1px 细亮边
-  float flat = 1.0 - smoothstep(6.0, 10.0, uThickness);
-  sheen *= 1.0 - flat;
-  float rimLight = rim * (0.25 + 0.75 * lit) * uLight * (1.0 - 0.7 * flat);
-  float dark = (rim * shade * 0.10 + fresnel * 0.07) * uLight * (1.0 - flat);
+  float flatGlass = 1.0 - smoothstep(6.0, 10.0, uThickness);
+  sheen *= 1.0 - flatGlass;
+  float rimLight = rim * (0.25 + 0.75 * lit) * uLight * (1.0 - 0.7 * flatGlass);
+  float dark = (rim * shade * 0.10 + fresnel * 0.07) * uLight * (1.0 - flatGlass);
 
   if (uMode > 1.5) {
     // 只画玻璃面：着色打底，亮边 / 面光是加白，暗线是加黑；预乘输出
