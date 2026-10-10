@@ -103,7 +103,7 @@ void main() {
       await st.flushBackground();
       final n = fake.posted.single;
       final d = st.inbox.single;
-      expect((n.kind, n.tag, n.target, n.canConfirm), ('pending', d.id, d.id, isTrue));
+      expect((n.kind, n.tag, n.target, n.canConfirm), ('pending', d.id, d.id, true));
       expect(n.title, contains('¥19.90'));
       expect(n.text, contains('瑞幸咖啡'));
     });
