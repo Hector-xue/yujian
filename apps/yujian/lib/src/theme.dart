@@ -717,12 +717,21 @@ class Dock extends StatelessWidget {
     final inner = MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, removeLeft: true, removeRight: true, child: child);
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
-        // 0.9.26：着色加重、亮边加强，白一点、边清楚一点（参照用户给的酷安底栏）；外面再压一圈内亮边
-        ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: (y.glassTint * 1.6).clamp(0.0, 0.62)), thickness: 22, refract: 14, light: 0.85), radius: 999, blur: 26, fallback: y.cardFill, child: inner)
+        // 0.9.27：照 HyperOS 底栏 / 通知卡——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低；
+        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _DockSheen 一圈细亮边
+        ? LiquidGlass(
+            spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.62), saturation: 1.15, thickness: 5, refract: 1.5, light: 0.45),
+            radius: 999,
+            blur: 24,
+            fallback: y.cardFill,
+            child: inner)
         // 实色主题：胶囊就是一块实色卡（描边 / 投影跟卡片同一套），页面从它下面滑过时不透
         : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: y.borderWidth > 0 ? Border.all(color: y.cardBorder, width: y.borderWidth) : null), child: inner);
     final dark = theme.brightness == Brightness.dark;
-    final shadows = y.shadows ?? [BoxShadow(color: dark ? const Color(0x80000000) : theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))];
+    final shadows = y.glass
+        // 玻璃底栏：大而淡的影子 + 贴边一点点实影，浮起来但不脏
+        ? [BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.45 : 0.10), blurRadius: 28, offset: const Offset(0, 10)), BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.25 : 0.04), blurRadius: 4, offset: const Offset(0, 1))]
+        : y.shadows ?? [BoxShadow(color: dark ? const Color(0x80000000) : theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))];
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 0, 20, dockBottomMargin(context)), // 两边留宽一点（胶囊不顶满屏，更像浮着）；边距按 viewPadding，键盘动的时候不跳
       // 玻璃胶囊是半透明的，而且 BackdropFilter 会把它底下已经画好的东西一起模糊——BoxShadow 连形状内部也铺，
@@ -733,17 +742,47 @@ class Dock extends StatelessWidget {
               shadows: shadows,
               child: ClipRRect(
                 borderRadius: r,
-                // 内亮边：玻璃胶囊的轮廓靠它立起来（亮色主题白边、深色主题淡白边）
-                child: DecoratedBox(
-                  position: DecorationPosition.foreground,
-                  decoration: BoxDecoration(borderRadius: r, border: Border.all(color: Colors.white.withValues(alpha: dark ? 0.14 : 0.85), width: 1.2)),
-                  child: pill,
-                ),
+                child: CustomPaint(foregroundPainter: _DockSheen(dark: dark), child: pill),
               ),
             )
           : DecoratedBox(decoration: BoxDecoration(borderRadius: r, boxShadow: shadows), child: ClipRRect(borderRadius: r, child: pill)),
     );
   }
+}
+
+/// 玻璃底栏的轮廓层，压在模糊上面。平的玻璃：不做内渐变（下缘一暗就显得鼓、显得脏），只有
+/// - 一圈细亮边，上缘略亮、下缘略淡（光从上面来），玻璃的边靠它；
+/// - 最外一圈几乎看不见的细线：亮色主题是极淡的灰，只为了白底上轮廓不丢。
+class _DockSheen extends CustomPainter {
+  final bool dark;
+  const _DockSheen({required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final rr = RRect.fromRectAndRadius(rect, Radius.circular(size.height / 2));
+    canvas.drawRRect(
+      rr.deflate(0.9),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: dark ? [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.10)] : [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: 0.70)],
+        ).createShader(rect),
+    );
+    canvas.drawRRect(
+      rr.deflate(0.25),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5
+        ..color = dark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.035),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DockSheen old) => old.dark != dark;
 }
 
 /// 玻璃卡片（所有主题、所有页面统一用它，别再用 Card）。
