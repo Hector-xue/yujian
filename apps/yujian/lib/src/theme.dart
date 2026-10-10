@@ -127,12 +127,15 @@ ThemeData _base({
   TextStyle? appBarTitle,
   double buttonRadius = 12,
   Brightness brightness = Brightness.light,
+  Color? onPrimary, // 强调色上的字（黄这类浅色强调色上要白字 / 黑字，默认按种子色推）
+  Color? textAccent, // 文字按钮的颜色（强调色太浅、白底上看不清时给个深一点的）
 }) {
   final dark = brightness == Brightness.dark;
   final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness).copyWith(
     surface: surface,
     onSurface: ink,
     primary: accent,
+    onPrimary: onPrimary,
     outlineVariant: y.hairline,
   );
   final r = BorderRadius.circular(y.radius);
@@ -176,7 +179,8 @@ ThemeData _base({
       errorMaxLines: 3,
     ),
     filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12))),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)), side: BorderSide(color: y.cardBorder))),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)), side: BorderSide(color: y.cardBorder), foregroundColor: textAccent)),
+    textButtonTheme: textAccent == null ? null : TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: textAccent)),
     segmentedButtonTheme: SegmentedButtonThemeData(style: SegmentedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)))),
     listTileTheme: ListTileThemeData(selectedTileColor: Colors.transparent, selectedColor: ink, iconColor: accent),
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: surface, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(y.radius + 6)))),
@@ -413,6 +417,36 @@ final _blank = AppThemeSpec(
   },
 );
 
+/// 便签：浅灰底、纯白大圆角卡片、不描边几乎没影子，一点暖黄（照 HyperOS 便签）。清爽、留白多。
+/// 强调色固定成便签黄（不跟人格走——这套的辨识度就在这抹黄）；黄上用白字，文字按钮用深一点的琥珀色，白底上才看得清。
+final _memo = AppThemeSpec(
+  id: 'memo',
+  name: '便签',
+  tagline: '浅灰底、白卡片、一点暖黄',
+  build: (_) {
+    const ink = Color(0xFF1A1A1A);
+    const soft = Color(0xFF999999);
+    const yellow = Color(0xFFF2B600);
+    const y = YujianColors(
+      balance: Color(0xFF1A1A1A),
+      income: Color(0xFF2E9D5B),
+      expense: ink,
+      danger: Color(0xFFE5484D),
+      warning: Color(0xFFD9930D),
+      muted: soft,
+      hairline: Color(0xFFEDEDED),
+      cardFill: Color(0xFFFFFFFF),
+      cardBorder: Color(0xFFEAEAEA),
+      chromeFill: Color(0xFFF2F2F4),
+      radius: 22,
+      glass: false,
+      borderWidth: 0,
+      shadows: [BoxShadow(color: Color(0x0A000000), blurRadius: 18, offset: Offset(0, 4))], // 几乎看不见，只让白卡片和灰底分开一点
+    );
+    return _base(accent: yellow, surface: const Color(0xFFF2F2F4), ink: ink, soft: soft, y: y, buttonRadius: 20, titleWeight: 600, onPrimary: Colors.white, textAccent: const Color(0xFFB07C00));
+  },
+);
+
 /// 硬边：奶白底、2px 墨线、右下一块不虚化的硬影。新粗野主义（Gumroad / Figma 社区那一挂）——够劲、不腻。
 final _bold = AppThemeSpec(
   id: 'bold',
@@ -636,7 +670,7 @@ class _NightBackdrop extends StatelessWidget {
   }
 }
 
-final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura, _blank, _bold, _soft, _warm, _night, _midnight, _ember];
+final appThemes = <AppThemeSpec>[_glass, _ink0, _fresh, _cartoon, _sakura, _blank, _memo, _bold, _soft, _warm, _night, _midnight, _ember];
 
 AppThemeSpec themeById(String id) => appThemes.firstWhere((t) => t.id == id, orElse: () => _glass);
 
