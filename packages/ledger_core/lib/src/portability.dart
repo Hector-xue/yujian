@@ -36,6 +36,10 @@ String exportCsv(Ledger ledger) {
   return b.toString();
 }
 
+/// 余见自己导出的明细表（[exportCsv]）：表头固定。换手机拿它去「导入账单」只能带过去交易，带不走信用卡 / 负债 / 目标，
+/// 导入前要提醒一句（0.9.33：有人这样换手机，信用卡、负债、目标全得重做）。
+bool isYujianCsv(String text) => text.replaceFirst('\uFEFF', '').trimLeft().startsWith('id,date,time,type,amount,currency,category,account,to_account');
+
 String _csvCell(String s) => s.contains(RegExp(r'[",\r\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
 
 /// 文本列（商户 / 说明 / 分类名 / 账户名）防 CSV 公式注入：以 = + - @ 开头的，Excel / WPS 打开会当公式执行，
