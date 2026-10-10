@@ -22,6 +22,7 @@ import 'src/notifications/screenshot_source.dart';
 import 'src/settings_store.dart';
 import 'src/theme.dart';
 import 'src/update/update_sheet.dart';
+import 'src/widgets/dock_bar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -176,22 +177,16 @@ class YujianApp extends StatelessWidget {
   /// 底栏内容：首页 · 收件箱 · 对话 · 记录 · 更多（对话放正中间）。
   Widget _buildDock(BuildContext context, int tab, ValueChanged<int> onTab) {
     final inboxCount = AppScope.of(context).inbox.length;
-    // tooltip 置空：底栏在 Navigator 外面，没有 Overlay 给它挂提示
-    return NavigationBar(
-      backgroundColor: Colors.transparent,
+    return DockBar(
       height: dockNavHeight(context),
-      selectedIndex: tab,
-      onDestinationSelected: onTab,
-      destinations: [
-        const NavigationDestination(tooltip: '', icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '首页'),
-        NavigationDestination(tooltip: '', 
-          icon: Badge(isLabelVisible: inboxCount > 0, label: Text('$inboxCount'), child: const Icon(Icons.inbox_outlined)),
-          selectedIcon: Badge(isLabelVisible: inboxCount > 0, label: Text('$inboxCount'), child: const Icon(Icons.inbox)),
-          label: '收件箱',
-        ),
-        const NavigationDestination(tooltip: '', icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: '对话'),
-        const NavigationDestination(tooltip: '', icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: '记录'),
-        const NavigationDestination(tooltip: '', icon: Icon(Icons.more_horiz), label: '更多'),
+      selected: tab,
+      onTap: onTab,
+      items: [
+        const DockItem(icon: Icons.home_outlined, selectedIcon: Icons.home, label: '首页'),
+        DockItem(icon: Icons.inbox_outlined, selectedIcon: Icons.inbox, label: '收件箱', badge: inboxCount),
+        const DockItem(icon: Icons.chat_bubble_outline, selectedIcon: Icons.chat_bubble, label: '对话'),
+        const DockItem(icon: Icons.receipt_long_outlined, selectedIcon: Icons.receipt_long, label: '记录'),
+        const DockItem(icon: Icons.more_horiz, label: '更多'),
       ],
     );
   }

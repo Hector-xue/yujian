@@ -311,7 +311,7 @@ Future<void> showCardTermsSheet(BuildContext context, {Account? card}) async {
                 Row(children: [
                   Expanded(child: TextField(controller: feeDaily, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '每天违约金 %', helperText: '白条 0.07，没有填 0'))),
                   const SizedBox(width: 10),
-                  Expanded(child: TextField(controller: feeMin, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '违约金最低（元）', helperText: '没有就空着'))),
+                  Expanded(child: TextField(controller: feeMin, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '最低违约金', helperText: '单位元；没有就空着'))),
                 ]),
                 const SizedBox(height: 8),
               ],
