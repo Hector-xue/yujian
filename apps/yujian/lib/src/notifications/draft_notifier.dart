@@ -113,7 +113,7 @@ class AndroidDraftNotifier implements DraftNotifier {
     final raw = await _call<String>('drainActions');
     if (raw == null || raw.isEmpty) return const [];
     try {
-      return [for (final j in jsonDecode(raw) as List) if (DraftAction.fromJson(j) case final a?) a];
+      return [for (final j in jsonDecode(raw) as List) ?DraftAction.fromJson(j)];
     } catch (_) {
       return const [];
     }
