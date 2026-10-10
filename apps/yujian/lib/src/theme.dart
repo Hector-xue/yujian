@@ -717,17 +717,30 @@ class Dock extends StatelessWidget {
     final inner = MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, removeLeft: true, removeRight: true, child: child);
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
-        ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: y.glassTint * 0.7), thickness: 22, refract: 14, light: 0.6), radius: 999, blur: 22, fallback: y.cardFill, child: inner)
+        // 0.9.26：着色加重、亮边加强，白一点、边清楚一点（参照用户给的酷安底栏）；外面再压一圈内亮边
+        ? LiquidGlass(spec: y.glassSpec.copyWith(tint: y.cardFill.withValues(alpha: (y.glassTint * 1.6).clamp(0.0, 0.62)), thickness: 22, refract: 14, light: 0.85), radius: 999, blur: 26, fallback: y.cardFill, child: inner)
         // 实色主题：胶囊就是一块实色卡（描边 / 投影跟卡片同一套），页面从它下面滑过时不透
         : DecoratedBox(decoration: BoxDecoration(color: y.cardFill, borderRadius: r, border: y.borderWidth > 0 ? Border.all(color: y.cardBorder, width: y.borderWidth) : null), child: inner);
     final dark = theme.brightness == Brightness.dark;
     final shadows = y.shadows ?? [BoxShadow(color: dark ? const Color(0x80000000) : theme.colorScheme.onSurface.withValues(alpha: 0.12), blurRadius: 30, offset: const Offset(0, 12))];
     return Padding(
-      padding: EdgeInsets.fromLTRB(10, 0, 10, dockBottomMargin(context)), // 胶囊宽一点、贴底一点；边距按 viewPadding，键盘动的时候不跳
+      padding: EdgeInsets.fromLTRB(20, 0, 20, dockBottomMargin(context)), // 两边留宽一点（胶囊不顶满屏，更像浮着）；边距按 viewPadding，键盘动的时候不跳
       // 玻璃胶囊是半透明的，而且 BackdropFilter 会把它底下已经画好的东西一起模糊——BoxShadow 连形状内部也铺，
       // 影子就透进胶囊、和滚过去的字糊成一片灰。玻璃只画形状外面的影子（OuterShadow），实色胶囊照旧
       child: y.glass
-          ? OuterShadow(radius: 999, shadows: shadows, child: ClipRRect(borderRadius: r, child: pill))
+          ? OuterShadow(
+              radius: 999,
+              shadows: shadows,
+              child: ClipRRect(
+                borderRadius: r,
+                // 内亮边：玻璃胶囊的轮廓靠它立起来（亮色主题白边、深色主题淡白边）
+                child: DecoratedBox(
+                  position: DecorationPosition.foreground,
+                  decoration: BoxDecoration(borderRadius: r, border: Border.all(color: Colors.white.withValues(alpha: dark ? 0.14 : 0.85), width: 1.2)),
+                  child: pill,
+                ),
+              ),
+            )
           : DecoratedBox(decoration: BoxDecoration(borderRadius: r, boxShadow: shadows), child: ClipRRect(borderRadius: r, child: pill)),
     );
   }

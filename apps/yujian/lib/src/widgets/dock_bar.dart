@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// 底栏一格。
 class DockItem {
@@ -10,12 +13,11 @@ class DockItem {
   const DockItem({required this.icon, this.selectedIcon, required this.label, this.badge = 0});
 }
 
-/// 胶囊底栏里的一排按钮。选中的那格是一块小胶囊，把图标和文字一起包住，四周和外面的大胶囊留一样宽的缝：
-/// 小胶囊的高 = 大胶囊的高 − 2 × 缝，两头是半圆，最左 / 最右那格的半圆和大胶囊的半圆同心，所以哪台手机都不会顶出边界。
+/// 胶囊底栏里的一排按钮。选中的那格下面垫一块会滑的小胶囊：切换时从旧的一格滑到新的一格，路上横向拉长、微微鼓起
+/// （像一块玻璃被拖过去），到了回弹成原样。小胶囊四周和大胶囊留一样宽的缝，两头半圆和大胶囊同心，哪台手机都不顶出去。
 ///
-/// 以前用的是 Material 的 NavigationBar：它的指示块固定 64×32、只包图标、贴在上半截，最左那格落在大胶囊收窄的圆弧上，
-/// 窄一点的屏幕（字号大一点）就伸到胶囊外面去了。
-class DockBar extends StatelessWidget {
+/// 比例：小胶囊要明显比高宽（约 1.6–1.8 : 1），不然看着是个椭圆——所以底栏不高（见 dockNavHeight），字 11。
+class DockBar extends StatefulWidget {
   final List<DockItem> items;
   final int selected;
   final ValueChanged<int> onTap;
@@ -24,61 +26,137 @@ class DockBar extends StatelessWidget {
   final double gap;
   const DockBar({super.key, required this.items, required this.selected, required this.onTap, required this.height, this.gap = 5});
 
+  /// 滑动时长。
+  static const slide = Duration(milliseconds: 420);
+
+  @override
+  State<DockBar> createState() => _DockBarState();
+}
+
+class _DockBarState extends State<DockBar> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: DockBar.slide, value: 1);
+  late double _from = widget.selected.toDouble();
+  late double _to = _from;
+  int? _pressed;
+
+  double get _pos => _from + (_to - _from) * Curves.easeOutCubic.transform(_c.value);
+
+  @override
+  void didUpdateWidget(DockBar old) {
+    super.didUpdateWidget(old);
+    if (old.selected != widget.selected) {
+      _from = _pos; // 半路又点了别的：从现在的位置接着滑
+      _to = widget.selected.toDouble();
+      _c.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final indicator = theme.navigationBarTheme.indicatorColor ?? cs.secondaryContainer;
-    final labelStyle = theme.navigationBarTheme.labelTextStyle?.resolve(const <WidgetState>{}) ?? const TextStyle(fontSize: 12);
+    final dark = theme.brightness == Brightness.dark;
+    final base = theme.navigationBarTheme.labelTextStyle?.resolve(const <WidgetState>{}) ?? const TextStyle();
+    final labelStyle = base.copyWith(fontSize: 11, height: 1.2);
+    final accent = cs.primary;
+    // 小胶囊：半透明白 + 一点强调色，亮边 + 很淡的影子——像压在大胶囊上的一片玻璃
+    final fill = dark ? Color.alphaBlend(accent.withValues(alpha: 0.16), Colors.white.withValues(alpha: 0.10)) : Color.alphaBlend(accent.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0.70));
+    final rim = dark ? Colors.white.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.95);
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.3, // 和 dockNavHeight 的估算一致：字再大胶囊也不会被撑破
       child: SizedBox(
-        height: height,
-        child: Padding(
-          padding: EdgeInsets.all(gap),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch, // 选中块要撑满高度（Row 默认只给内容那么高）
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(child: _cell(context, i, indicator, labelStyle, cs)),
-            ],
-          ),
-        ),
+        height: widget.height,
+        child: LayoutBuilder(builder: (context, box) {
+          final g = widget.gap;
+          final n = widget.items.length;
+          final cellW = (box.maxWidth - 2 * g) / n;
+          final pillH = widget.height - 2 * g;
+          return AnimatedBuilder(
+            animation: _c,
+            builder: (context, _) {
+              final moving = _from != _to;
+              final bump = moving ? math.sin(math.pi * _c.value) : 0.0; // 0 → 1 → 0
+              final stretch = cellW * 0.28 * bump * math.min(1.0, (_to - _from).abs()); // 路上拉长
+              final lift = pillH * 0.08 * bump; // 路上微微鼓起
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    key: const ValueKey('dock-pill'),
+                    left: g + _pos * cellW - stretch / 2,
+                    top: g - lift / 2,
+                    width: cellW + stretch,
+                    height: pillH + lift,
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        shape: StadiumBorder(side: BorderSide(color: rim, width: 1)),
+                        color: fill,
+                        shadows: [BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.25 : 0.07), blurRadius: 10, offset: const Offset(0, 2))],
+                      ),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: Padding(
+                      padding: EdgeInsets.all(g),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [for (var i = 0; i < n; i++) Expanded(child: _cell(i, accent, cs, labelStyle))],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        }),
       ),
     );
   }
 
-  Widget _cell(BuildContext context, int i, Color indicator, TextStyle labelStyle, ColorScheme cs) {
-    final it = items[i];
-    final on = i == selected;
-    final color = on ? cs.onSurface : cs.onSurfaceVariant;
-    Widget icon = Icon(on ? (it.selectedIcon ?? it.icon) : it.icon, size: 24, color: color);
+  Widget _cell(int i, Color accent, ColorScheme cs, TextStyle labelStyle) {
+    final it = widget.items[i];
+    final on = i == widget.selected;
+    final color = on ? accent : cs.onSurface.withValues(alpha: 0.78);
+    Widget icon = TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: color),
+      duration: const Duration(milliseconds: 200),
+      builder: (context, c, _) => Icon(on ? (it.selectedIcon ?? it.icon) : it.icon, size: 22, color: c),
+    );
     if (it.badge > 0) icon = Badge(label: Text('${it.badge}'), child: icon);
-    const shape = StadiumBorder();
     return Semantics(
       button: true,
       selected: on,
       label: it.badge > 0 ? '${it.label}，${it.badge} 条' : it.label,
       excludeSemantics: true,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        decoration: ShapeDecoration(shape: shape, color: on ? indicator : indicator.withValues(alpha: 0)),
-        child: Material(
-          type: MaterialType.transparency,
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            customBorder: shape,
-            onTap: () => onTap(i),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                icon,
-                const SizedBox(height: 3),
-                Text(it.label, maxLines: 1, overflow: TextOverflow.fade, softWrap: false, style: labelStyle.copyWith(color: color, fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
-              ],
-            ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = i),
+        onTapCancel: () => setState(() => _pressed = null),
+        onTapUp: (_) => setState(() => _pressed = null),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          widget.onTap(i);
+        },
+        child: AnimatedScale(
+          scale: _pressed == i ? 0.92 : 1,
+          duration: const Duration(milliseconds: 120),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              icon,
+              const SizedBox(height: 2),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: labelStyle.copyWith(color: color, fontWeight: on ? FontWeight.w600 : FontWeight.w400),
+                child: Text(it.label, maxLines: 1, overflow: TextOverflow.fade, softWrap: false),
+              ),
+            ],
           ),
         ),
       ),

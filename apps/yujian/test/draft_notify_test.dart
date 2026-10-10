@@ -107,14 +107,14 @@ void main() {
       expect(n.title, contains('¥19.90'));
       expect(n.text, contains('瑞幸咖啡'));
     });
-    test('疑似重复：不给「确认」', () async {
+    test('疑似重复：照样给「确认」（和收件箱一致），文字里提醒', () async {
       await on();
       st.ingestNotifications([wechat('已支付¥19.90，商户：瑞幸咖啡', key: 'a')]);
       st.ingestNotifications([wechat('已支付¥19.90，商户：瑞幸咖啡', key: 'b')]); // 不同通知、同额同商户：疑似重复
       await st.flushBackground();
       final dup = st.inbox.firstWhere((d) => d.possibleDuplicateOf != null);
       final n = fake.posted.firstWhere((x) => x.tag == dup.id);
-      expect(n.canConfirm, isFalse);
+      expect(n.canConfirm, isTrue);
       expect(n.text, contains('重复'));
     });
     test('静默模式：自动记下的弹「已记」，带撤销（tag = tx:交易 id）', () async {
