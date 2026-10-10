@@ -59,7 +59,9 @@ class YujianColors extends ThemeExtension<YujianColors> {
   List<BoxShadow> cardShadows(Color ink) => shadows ?? [BoxShadow(color: ink.computeLuminance() > 0.5 ? const Color(0x59000000) : ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 10))];
 
   /// 玻璃面的材质：着色取卡片底色的色相、强度按主题；折射 / 亮边各主题一致。
-  GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint));
+  /// 平玻璃（0.9.29，照 HyperOS 通知卡）：折射带只留很窄一条、位移很小、着色器亮边弱——以前 14 / 9 / 0.5，
+  /// 卡片边上一圈厚白边往里弯，像带弧度的玻璃。轮廓交给 GlassCard 外面那圈 1px 细亮边（_GlassRim）。
+  GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint), thickness: 4, refract: 1.2, light: 0.35);
 
   @override
   YujianColors lerp(YujianColors? other, double t) {
@@ -752,7 +754,7 @@ class Dock extends StatelessWidget {
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
         // 0.9.27：照 HyperOS 底栏 / 通知卡——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低；
-        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _DockSheen 一圈细亮边
+        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _GlassRim 一圈细亮边
         ? LiquidGlass(
             spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.62), saturation: 1.15, thickness: 5, refract: 1.5, light: 0.45),
             radius: 999,
@@ -776,7 +778,7 @@ class Dock extends StatelessWidget {
               shadows: shadows,
               child: ClipRRect(
                 borderRadius: r,
-                child: CustomPaint(foregroundPainter: _DockSheen(dark: dark), child: pill),
+                child: CustomPaint(foregroundPainter: _GlassRim(dark: dark, hairline: true), child: pill),
               ),
             )
           : DecoratedBox(decoration: BoxDecoration(borderRadius: r, boxShadow: shadows), child: ClipRRect(borderRadius: r, child: pill)),
@@ -784,28 +786,31 @@ class Dock extends StatelessWidget {
   }
 }
 
-/// 玻璃底栏的轮廓层，压在模糊上面。平的玻璃：不做内渐变（下缘一暗就显得鼓、显得脏），只有
-/// - 一圈细亮边，上缘略亮、下缘略淡（光从上面来），玻璃的边靠它；
-/// - 最外一圈几乎看不见的细线：亮色主题是极淡的灰，只为了白底上轮廓不丢。
-class _DockSheen extends CustomPainter {
+/// 平玻璃的轮廓层（底栏、玻璃卡片共用），压在模糊上面。不做内渐变（下缘一暗就显得鼓、显得脏），只有
+/// - 一圈 1px 细亮边，上缘略亮、下缘略淡（光从上面来），玻璃的边靠它；
+/// - [hairline]：最外一圈几乎看不见的细线（亮色主题极淡的灰），给底栏用——白底上轮廓不丢。
+class _GlassRim extends CustomPainter {
   final bool dark;
-  const _DockSheen({required this.dark});
+  final bool hairline;
+  final double? radius; // null = 胶囊（半高）
+  const _GlassRim({required this.dark, this.hairline = false, this.radius});
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    final rr = RRect.fromRectAndRadius(rect, Radius.circular(size.height / 2));
+    final rr = RRect.fromRectAndRadius(rect, Radius.circular(radius ?? size.height / 2));
     canvas.drawRRect(
-      rr.deflate(0.9),
+      rr.deflate(hairline ? 0.9 : 0.5),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: dark ? [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.10)] : [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: 0.70)],
+          colors: dark ? [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.08)] : [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: hairline ? 0.70 : 0.50)],
         ).createShader(rect),
     );
+    if (!hairline) return;
     canvas.drawRRect(
       rr.deflate(0.25),
       Paint()
@@ -816,7 +821,7 @@ class _DockSheen extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DockSheen old) => old.dark != dark;
+  bool shouldRepaint(_GlassRim old) => old.dark != dark || old.hairline != hairline || old.radius != radius;
 }
 
 /// 玻璃卡片（所有主题、所有页面统一用它，别再用 Card）。
@@ -854,8 +859,10 @@ class GlassCard extends StatelessWidget {
       fallback: color ?? y.cardFill,
       child: Material(type: MaterialType.transparency, child: child),
     );
-    // 卡通主题的粗描边是它的辨识度，留着；其他主题的边由着色器画亮边，不再叠一圈白线
-    if (side.width >= 1.5) body = DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body);
+    // 卡通主题的粗描边是它的辨识度，留着；其他主题是平玻璃：一圈 1px 细亮边（上亮下淡），不再靠着色器画厚亮边
+    body = side.width >= 1.5
+        ? DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body)
+        : CustomPaint(foregroundPainter: _GlassRim(dark: theme.brightness == Brightness.dark, radius: y.radius), child: body);
     // 投影只画在卡片外面：玻璃面（尤其着色器没加载 / 背景还没截好时退回的半透明填充）底下不能有一层灰
     return Padding(
       padding: margin ?? EdgeInsets.zero,
