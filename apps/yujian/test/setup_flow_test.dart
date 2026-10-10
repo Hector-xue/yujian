@@ -127,6 +127,9 @@ void main() {
       await send(tester, '现金有2000');
       expect(find.text('这些已经有了'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, '确认建立'), findsNothing);
+      // 快捷功能收进了输入框左边的「＋」面板
+      await tester.tap(find.byTooltip('更多功能'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('登记负债 / 资产'));
       await tester.pumpAndSettle();
       await send(tester, '随便说点什么');
