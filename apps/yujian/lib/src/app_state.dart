@@ -15,6 +15,8 @@ import 'package:sync_client/sync_client.dart';
 import 'companion/companion_memory.dart';
 import 'db/db_file.dart';
 import 'game/game_layer.dart';
+import 'errors_zh.dart';
+import 'notifications/draft_notifier.dart';
 import 'notifications/notification_source.dart';
 import 'notifications/screenshot_ocr.dart';
 import 'notifications/screenshot_source.dart';
@@ -69,11 +71,18 @@ class AppState extends ChangeNotifier {
   /// 桌面小部件出口；测试与非 Android 传 null，就没有那个定时器。
   final HomeWidgetBridge? homeWidget;
 
-  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications, ScreenshotSource? screenshots, this.homeWidget})
+  AppState(this.ledger, {SettingsStore? settingsStore, NotificationSource? notifications, ScreenshotSource? screenshots, this.homeWidget, DraftNotifier? drafts})
       : engine = QueryEngine(ledger),
         settingsStore = settingsStore ?? MemorySettingsStore(),
         notifications = notifications ?? FakeNotificationSource(),
-        screenshots = screenshots ?? FakeScreenshotSource();
+        screenshots = screenshots ?? FakeScreenshotSource(),
+        draftNotifier = drafts ?? const NoopDraftNotifier();
+
+  /// 记账后的系统通知（待确认 / 已自动记下）。
+  final DraftNotifier draftNotifier;
+
+  /// App 在前台（看得见）：这时候不弹记账通知，收件箱里一眼就看到了。后台跑的无头引擎里是 false。
+  bool inForeground = true;
 
   /// 读设置并按它装配解析器与人格。启动时和保存设置后各调一次。
   Future<void> loadSettings() async {
@@ -85,6 +94,7 @@ class AppState extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       autoHintDismissed = p.getBool('auto_hint_dismissed') ?? false;
+      notifyHintDismissed = p.getBool('notify_hint_dismissed') ?? false;
       recurringSkipped
         ..clear()
         ..addAll(p.getStringList('recurring_skipped') ?? const []);
@@ -96,6 +106,18 @@ class AppState extends ChangeNotifier {
   /// 首页「自动记账还没开」的提示卡：两条路都没开才显示；用户关掉后不再出现。
   bool autoHintDismissed = false;
   bool get showAutoHint => notifications.supported && !autoHintDismissed && !settings.notificationsWanted && !settings.screenWanted && !settings.screenshotWanted;
+
+  /// 收件箱顶上「打开记账后弹通知」的提示：开了自动记账、还没开通知时出现一次；关掉 / 打开后不再出现。
+  bool notifyHintDismissed = false;
+  bool get showNotifyHint => draftNotifier.supported && !notifyHintDismissed && !settings.draftNotify && (settings.notificationsWanted || settings.screenWanted || settings.screenshotWanted);
+
+  Future<void> dismissNotifyHint() async {
+    notifyHintDismissed = true;
+    notifyListeners();
+    try {
+      await (await SharedPreferences.getInstance()).setBool('notify_hint_dismissed', true);
+    } catch (_) {}
+  }
 
   Future<void> dismissAutoHint() async {
     autoHintDismissed = true;
@@ -109,6 +131,115 @@ class AppState extends ChangeNotifier {
     settings = s;
     await settingsStore.save(s);
     _apply();
+    unawaited(_syncBackgroundPayments());
+  }
+
+  // ------------------------------------------------------------ 记账后弹通知
+
+  /// App 没开着时付款通知要不要在后台处理：「记账后弹通知」开着，而且通知 / 支付页记账开着。
+  Future<void> _syncBackgroundPayments() => draftNotifier.setPaymentsWanted(settings.draftNotify && (settings.notificationsWanted || settings.screenWanted));
+
+  /// 打开 / 关闭「记账后弹通知」。打开时要通知权限（Android 13+ 弹系统框），拿不到就不开。返回最终状态。
+  Future<bool> setDraftNotify(bool v) async {
+    if (v && !await draftNotifier.requestPermission()) return false;
+    await saveSettings(settings.copyWith(draftNotify: v));
+    return v;
+  }
+
+  /// 前台启动：把通知栏上点过、还没处理的按钮处理掉（App 关着时点的），再订阅之后的。
+  StreamSubscription<void>? _draftActionSub;
+  Future<int> startDraftActions() async {
+    await _syncBackgroundPayments();
+    final n = await handleDraftActions();
+    _draftActionSub ??= draftNotifier.actions.listen((_) => handleDraftActions());
+    return n;
+  }
+
+  /// 通知栏上的 确认 / 忽略 / 撤销：和收件箱里点是同一套（commit / dismiss / voidTransaction）。
+  /// 已经处理过的（在 App 里确认了、另一台设备同步过来了）跳过；没记上的弹一条「没记上，去收件箱看看」。返回处理数。
+  Future<int> handleDraftActions() async {
+    final acts = await draftNotifier.drainActions();
+    if (acts.isEmpty) return 0;
+    var n = 0;
+    final failed = <DraftNotice>[];
+    for (final a in acts) {
+      try {
+        switch (a.op) {
+          case 'confirm':
+            final d = ledger.getDraft(a.target);
+            if (d.status != DraftStatus.pending) continue;
+            commit(d.id);
+          case 'dismiss':
+            final d = ledger.getDraft(a.target);
+            if (d.status != DraftStatus.pending) continue;
+            dismiss(d.id);
+          case 'undo':
+            final t = ledger.transaction(a.target);
+            if (t == null || t.status != TransactionStatus.confirmed) continue;
+            voidTransaction(t.id, '在通知栏点了撤销');
+          default:
+            continue;
+        }
+        n++;
+      } on LedgerException catch (e) {
+        failed.add(DraftNotice(tag: a.tag, kind: 'failed', title: a.op == 'undo' ? '没撤销成功' : '没记上', text: '${friendlyError(e)}。打开收件箱看看', target: a.target));
+      }
+    }
+    if (failed.isNotEmpty) await draftNotifier.post(failed);
+    return n;
+  }
+
+  /// 发通知排成一条链：后台引擎跑完要等它们都发出去再销毁（见 [flushBackground]）。
+  Future<void> _announcing = Future<void>.value();
+  Future<void> _savingNotices = Future<void>.value();
+
+  /// 后台引擎销毁前调：等通知发完、最近通知记录落盘（支付页去重靠它）。
+  Future<void> flushBackground() async {
+    await _announcing;
+    await _savingNotices;
+  }
+
+  /// 刚起草 / 刚自动记下的弹通知（App 在前台、或者没开「记账后弹通知」就不弹）。
+  void _announce(List<Draft> pending, List<Transaction> committed) {
+    _announcing = _announcing.then((_) => _postNotices(pending, committed)).catchError((Object _) {});
+  }
+
+  Future<void> _postNotices(List<Draft> pending, List<Transaction> committed) async {
+    if (!settings.draftNotify || inForeground) return;
+    if (pending.isEmpty && committed.isEmpty) return;
+    String line(Map<String, Object?> p) {
+      final type = (p['type'] as String?) ?? 'expense';
+      final where = [
+        if ((p['description'] as String?)?.isNotEmpty == true) p['description'] as String,
+        if (p['category_id'] is String) categoryName(p['category_id'] as String?),
+        if (p['account_id'] is String) accountName(p['account_id'] as String?),
+      ];
+      return '${typeLabel(type)} ${fmtMoney((p['amount_minor'] as num?)?.toInt() ?? 0, (p['currency'] as String?) ?? 'CNY')}${where.isEmpty ? '' : ' · ${where.join(' · ')}'}';
+    }
+
+    await draftNotifier.post([
+      for (final d in pending)
+        DraftNotice(
+          tag: d.id,
+          kind: 'pending',
+          title: '待确认 · ${line(d.payload).split(' · ').first}',
+          text: [
+            line(d.payload).split(' · ').skip(1).join(' · '),
+            if (d.missingFields.isNotEmpty) '还缺 ${d.missingFields.length} 项，点开补全',
+            if (d.possibleDuplicateOf != null) '像是重复的一笔，点开看看',
+          ].where((x) => x.isNotEmpty).join('\n'),
+          target: d.id,
+          canConfirm: d.missingFields.isEmpty && d.possibleDuplicateOf == null,
+        ),
+      for (final t in committed)
+        DraftNotice(
+          tag: 'tx:${t.id}',
+          kind: 'committed',
+          title: '已记 · ${line(t.toPayload()).split(' · ').first}',
+          text: '${line(t.toPayload()).split(' · ').skip(1).join(' · ')}\n自动记账，记错了点「撤销」',
+          target: t.id,
+        ),
+    ]);
   }
 
   // ------------------------------------------------------------ 人格 / 头像
@@ -541,6 +672,8 @@ class AppState extends ChangeNotifier {
     final ctx = context();
     final rule = interpreter.rule;
     var n = 0;
+    final pending = <Draft>[];
+    final committed = <Transaction>[];
     for (final e in events) {
       final x = matcher.extract(e);
       _maybeSupportPayment(e, x);
@@ -594,13 +727,18 @@ class AppState extends ChangeNotifier {
       };
       if (auto) {
         try {
-          unawaited(game.onIncomeCommitted(ledger.commit(d.id))); // 静默入账的工资也要触发发薪日仪式
+          final t = ledger.commit(d.id);
+          committed.add(t);
+          unawaited(game.onIncomeCommitted(t)); // 静默入账的工资也要触发发薪日仪式
+          continue;
         } on LedgerException {
           // 留在收件箱
         }
       }
+      pending.add(ledger.getDraft(d.id));
     }
-    unawaited(_saveRecentNotices()); // 一批只落一次盘（启动 drain 可能几百条）
+    _announce(pending, committed);
+    _savingNotices = _saveRecentNotices(); // 一批只落一次盘（启动 drain 可能几百条）
     if (n > 0) notifyListeners();
     return n;
   }
@@ -861,20 +999,28 @@ class AppState extends ChangeNotifier {
       return 0;
     }
     var committed = 0;
+    final pendingDrafts = <Draft>[];
+    final committedTx = <Transaction>[];
     for (final d in drafts) {
       final auto = switch (settings.automationMode) {
         AutomationMode.confirm => false,
         AutomationMode.smart => autoOk && d.missingFields.isEmpty && d.possibleDuplicateOf == null && (d.confidence ?? 0) >= 0.7,
         AutomationMode.silent => d.missingFields.isEmpty && d.possibleDuplicateOf == null,
       };
-      if (!auto) continue;
-      try {
-        unawaited(game.onIncomeCommitted(ledger.commit(d.id)));
-        committed++;
-      } on LedgerException {
-        // 留在收件箱
+      if (auto) {
+        try {
+          final t = ledger.commit(d.id);
+          committedTx.add(t);
+          unawaited(game.onIncomeCommitted(t));
+          committed++;
+          continue;
+        } on LedgerException {
+          // 留在收件箱
+        }
       }
+      pendingDrafts.add(ledger.getDraft(d.id));
     }
+    _announce(pendingDrafts, committedTx);
     final amounts = drafts.map((d) => fmtMoney((d.payload['amount_minor'] as num?)?.toInt() ?? 0, (d.payload['currency'] as String?) ?? 'CNY')).join(' / ');
     final how = interpreter == 'ocr:local' ? '本机识别 · ' : (interpreter == 'ocr:list' ? '本机识别账单列表 · ' : '');
     _noteScreenshot(e, committed == drafts.length ? 'recorded' : 'inbox', '$how${committed == drafts.length ? '已记 $amounts' : '${drafts.length} 笔进收件箱${committed > 0 ? '（$committed 笔已记）' : ''} $amounts'}', modelUsed: modelUsed);
@@ -894,6 +1040,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _liveSub?.cancel();
+    _draftActionSub?.cancel();
     _shotSub?.cancel();
     super.dispose();
   }
@@ -1151,13 +1298,16 @@ class AppState extends ChangeNotifier {
 
   Transaction commit(String draftId, {Map<String, Object?>? edits}) {
     final t = ledger.commit(draftId, edits: edits);
+    unawaited(draftNotifier.cancel([draftId])); // 通知栏上还挂着这一笔的话撤下来
     notifyListeners();
     unawaited(game.onIncomeCommitted(t)); // 工资到账 → 发薪日仪式
     return t;
   }
 
   List<Transaction> commitGroup(String groupId) {
+    final ids = [for (final d in ledger.listDrafts(groupId: groupId, status: DraftStatus.pending)) d.id];
     final ts = ledger.commitGroup(groupId);
+    unawaited(draftNotifier.cancel(ids));
     notifyListeners();
     for (final t in ts) {
       unawaited(game.onIncomeCommitted(t));
@@ -1167,13 +1317,17 @@ class AppState extends ChangeNotifier {
 
   void dismiss(String draftId) {
     ledger.dismiss(draftId);
+    unawaited(draftNotifier.cancel([draftId]));
     notifyListeners();
   }
 
   void dismissGroup(String groupId) {
+    final ids = <String>[];
     for (final d in ledger.listDrafts(groupId: groupId, status: DraftStatus.pending)) {
       ledger.dismiss(d.id);
+      ids.add(d.id);
     }
+    unawaited(draftNotifier.cancel(ids));
     notifyListeners();
   }
 
@@ -1184,6 +1338,7 @@ class AppState extends ChangeNotifier {
       final d = ledger.propose([DraftInput(kind: DraftKind.void_, targetTransactionId: id, payload: {'reason': reason})], source: Source.manual, actor: Actor.user).single;
       ledger.commit(d.id);
     });
+    unawaited(draftNotifier.cancel(['tx:$id'])); // 「已记」通知还挂着的话撤下来
     notifyListeners();
   }
 

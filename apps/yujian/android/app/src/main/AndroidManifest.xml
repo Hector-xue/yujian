@@ -2,6 +2,8 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- 模型 / 同步走网络；语音输入要麦克风（系统识别服务可能走云端） -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 记账后弹通知（待确认 / 已自动记下）：Android 13+ 要用户在 App 里点同意，默认不发 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <!-- 应用内更新：下载 apk 后拉起系统安装器 -->
@@ -83,6 +85,8 @@
         </service>
         <!-- 小部件「添加到桌面」的成功回调 -->
         <receiver android:name=".PinResultReceiver" android:exported="false"/>
+        <!-- 记账通知上的 确认 / 忽略 / 撤销 按钮 -->
+        <receiver android:name=".DraftActionReceiver" android:exported="false"/>
         <!-- 桌面小部件：本月支出 / 收入 / 余额 + 记一笔 -->
         <receiver android:name=".SummaryWidget" android:exported="true" android:label="余见 · 本月">
             <intent-filter>
