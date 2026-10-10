@@ -60,7 +60,7 @@ class YujianColors extends ThemeExtension<YujianColors> {
 
   /// 玻璃面的材质：着色取卡片底色的色相、强度按主题；折射 / 亮边各主题一致。
   /// 平玻璃（0.9.29，照 HyperOS 通知卡）：折射带只留很窄一条、位移很小、着色器亮边弱——以前 14 / 9 / 0.5，
-  /// 卡片边上一圈厚白边往里弯，像带弧度的玻璃。轮廓交给 GlassCard 外面那圈 1px 细亮边（_GlassRim）。
+  /// 卡片边上一圈厚白边往里弯，像带弧度的玻璃。边由着色器取边缘下面的背景提亮来画（随背景变色）。
   GlassSpec get glassSpec => GlassSpec(tint: cardFill.withValues(alpha: glassTint), thickness: 4, refract: 1.2, light: 0.35);
 
   @override
@@ -754,7 +754,7 @@ class Dock extends StatelessWidget {
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
         // 0.9.27：照 HyperOS 底栏 / 通知卡——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低；
-        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _GlassRim 一圈细亮边
+        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），边由外面一圈 _BackdropRim（读页面、提亮）来画
         ? LiquidGlass(
             // 0.9.30：白只叠 35%、模糊 10、饱和度略提——底下滚过的字和图标要看得出一团模糊的形状（0.62 / 24 时像一块白塑料；模糊 18 时字也全化开了）
             spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.42) : Colors.white.withValues(alpha: 0.35), saturation: 1.3, thickness: 5, refract: 1.5, light: 0.45),
@@ -779,7 +779,11 @@ class Dock extends StatelessWidget {
               shadows: shadows,
               child: ClipRRect(
                 borderRadius: r,
-                child: CustomPaint(foregroundPainter: _GlassRim(dark: dark, hairline: true), child: pill),
+                // 玻璃本体往里缩一点，外面一圈留给 _BackdropRim：它读的是页面本身（本体不盖住这一圈），边跟着滚过的内容变色
+                child: Stack(children: [
+                  Padding(padding: const EdgeInsets.all(_BackdropRim.width), child: ClipRRect(borderRadius: r, child: pill)),
+                  Positioned.fill(child: IgnorePointer(child: _BackdropRim(dark: dark))),
+                ]),
               ),
             )
           : DecoratedBox(decoration: BoxDecoration(borderRadius: r, boxShadow: shadows), child: ClipRRect(borderRadius: r, child: pill)),
@@ -787,42 +791,50 @@ class Dock extends StatelessWidget {
   }
 }
 
-/// 平玻璃的轮廓层（底栏、玻璃卡片共用），压在模糊上面。不做内渐变（下缘一暗就显得鼓、显得脏），只有
-/// - 一圈 1px 细亮边，上缘略亮、下缘略淡（光从上面来），玻璃的边靠它；
-/// - [hairline]：最外一圈几乎看不见的细线（亮色主题极淡的灰），给底栏用——白底上轮廓不丢。
-class _GlassRim extends CustomPainter {
+/// 底栏玻璃的边：一圈 1.5px 的 BackdropFilter，把它后面的页面轻轻模糊、提饱和、提亮——边的颜色跟着底下滚过的内容走
+/// （照 HyperOS 锁屏音乐卡片），不是一圈固定的白线 / 灰线。底栏本体往里缩了同样宽，所以这一圈读到的是页面而不是本体。
+class _BackdropRim extends StatelessWidget {
+  static const width = 1.5;
   final bool dark;
-  final bool hairline;
-  final double? radius; // null = 胶囊（半高）
-  const _GlassRim({required this.dark, this.hairline = false, this.radius});
+  const _BackdropRim({required this.dark});
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final rr = RRect.fromRectAndRadius(rect, Radius.circular(radius ?? size.height / 2));
-    canvas.drawRRect(
-      rr.deflate(hairline ? 0.9 : 0.5),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: dark ? [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.08)] : [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: hairline ? 0.70 : 0.50)],
-        ).createShader(rect),
-    );
-    if (!hairline) return;
-    canvas.drawRRect(
-      rr.deflate(0.25),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5
-        ..color = dark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.035),
-    );
+  static ColorFilter _brighten({required double sat, required double gain, required double lift}) {
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    final sr = (1 - sat) * lr, sg = (1 - sat) * lg, sb = (1 - sat) * lb;
+    return ColorFilter.matrix(<double>[
+      (sr + sat) * gain, sg * gain, sb * gain, 0, lift, //
+      sr * gain, (sg + sat) * gain, sb * gain, 0, lift,
+      sr * gain, sg * gain, (sb + sat) * gain, 0, lift,
+      0, 0, 0, 1, 0,
+    ]);
   }
 
   @override
-  bool shouldRepaint(_GlassRim old) => old.dark != dark || old.hairline != hairline || old.radius != radius;
+  Widget build(BuildContext context) {
+    final filter = ImageFilter.compose(
+      outer: _brighten(sat: 1.6, gain: dark ? 1.25 : 1.12, lift: dark ? 22 : 34),
+      inner: ImageFilter.blur(sigmaX: 1.2, sigmaY: 1.2, tileMode: TileMode.clamp),
+    );
+    return ClipPath(clipper: const _RingClipper(width), child: BackdropFilter(filter: filter, child: const SizedBox.expand()));
+  }
+}
+
+/// 胶囊外圈 [w] 宽的一圈。
+class _RingClipper extends CustomClipper<Path> {
+  final double w;
+  const _RingClipper(this.w);
+
+  @override
+  Path getClip(Size size) {
+    final outer = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(size.height / 2));
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRRect(outer)
+      ..addRRect(outer.deflate(w));
+  }
+
+  @override
+  bool shouldReclip(_RingClipper old) => old.w != w;
 }
 
 /// 玻璃卡片（所有主题、所有页面统一用它，别再用 Card）。
@@ -860,10 +872,8 @@ class GlassCard extends StatelessWidget {
       fallback: color ?? y.cardFill,
       child: Material(type: MaterialType.transparency, child: child),
     );
-    // 卡通主题的粗描边是它的辨识度，留着；其他主题是平玻璃：一圈 1px 细亮边（上亮下淡），不再靠着色器画厚亮边
-    body = side.width >= 1.5
-        ? DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body)
-        : CustomPaint(foregroundPainter: _GlassRim(dark: theme.brightness == Brightness.dark, radius: y.radius), child: body);
+    // 卡通主题的粗描边是它的辨识度，留着；其他主题是平玻璃，边由着色器取边缘下面的背景提亮画（随背景变色，不是一圈白线）
+    if (side.width >= 1.5) body = DecoratedBox(decoration: BoxDecoration(borderRadius: r, border: Border.fromBorderSide(side)), position: DecorationPosition.foreground, child: body);
     // 投影只画在卡片外面：玻璃面（尤其着色器没加载 / 背景还没截好时退回的半透明填充）底下不能有一层灰
     return Padding(
       padding: margin ?? EdgeInsets.zero,

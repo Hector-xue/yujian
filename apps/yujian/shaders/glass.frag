@@ -65,7 +65,8 @@ void main() {
   // 亮边 + 暗线 + 面光合起来就是一道斜面，看着像带弧度、有厚度的玻璃。轮廓交给 Dart 侧画的 1px 细亮边
   float flatGlass = 1.0 - smoothstep(6.0, 10.0, uThickness);
   sheen *= 1.0 - flatGlass;
-  float rimLight = rim * (0.25 + 0.75 * lit) * uLight * (1.0 - 0.7 * flatGlass);
+  // 平玻璃不画白亮边：卡片的边改成「边缘下面的背景提亮」（见 mode 1 末尾），底栏的边由 Dart 侧的环形 BackdropFilter 画
+  float rimLight = rim * (0.25 + 0.75 * lit) * uLight * (1.0 - flatGlass);
   float dark = (rim * shade * 0.10 + fresnel * 0.07) * uLight * (1.0 - flatGlass);
 
   if (uMode > 1.5) {
@@ -87,6 +88,13 @@ void main() {
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(vec3(luma), col, uSaturation);
   col = mix(col, uTint.rgb, uTint.a);
+  // 平玻璃的边：取边缘正下方的背景，提饱和、提亮——天空那边泛浅蓝、山那边泛浅绿，光打在玻璃边上带着后面的颜色（不是一圈死白线）
+  float edgeW = 1.6;
+  float edge = (1.0 - smoothstep(0.0, edgeW, -sd)) * flatGlass;
+  vec3 bgE = sampleBg(p - n * 0.5);
+  bgE = mix(vec3(dot(bgE, vec3(0.2126, 0.7152, 0.0722))), bgE, 1.6);
+  vec3 rimCol = clamp(bgE * 1.18 + 0.16, 0.0, 1.0);
+  col = mix(col, rimCol, edge * (0.55 + 0.45 * lit));
   col += rimLight;
   col -= dark;
   col += uLight * 0.07 * sheen;
