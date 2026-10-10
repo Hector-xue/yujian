@@ -18,6 +18,8 @@ class DisclosureTile extends StatelessWidget {
       data: theme.copyWith(splashFactory: NoSplash.splashFactory, splashColor: Colors.transparent, highlightColor: Colors.transparent, hoverColor: Colors.transparent),
       child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
+        // 展开区会被裁剪，而输入框的标签是骑在框线上的（一半在框外）：第一个是输入框时标签被裁掉半截。顶上留出标签那半截的高度
+        childrenPadding: const EdgeInsets.only(top: 12),
         initiallyExpanded: initiallyExpanded,
         title: title,
         subtitle: subtitle,

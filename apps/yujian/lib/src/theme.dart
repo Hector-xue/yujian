@@ -171,6 +171,9 @@ ThemeData _base({
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(buttonRadius), borderSide: BorderSide(color: y.cardBorder)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(buttonRadius), borderSide: BorderSide(color: accent, width: 1.4)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // 说明 / 报错默认只给一行、放不下就「…」：字号调大的手机上整句看不全。最多折三行
+      helperMaxLines: 3,
+      errorMaxLines: 3,
     ),
     filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12))),
     outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(buttonRadius)), side: BorderSide(color: y.cardBorder))),
@@ -699,7 +702,7 @@ class Frosted extends StatelessWidget {
 
 /// 底栏：悬浮胶囊，页面从它下面滑过——全 App 唯一一块真玻璃（BackdropFilter）：
 /// Impeller 上是模糊 + 着色器折射 / 亮边（滚过的内容在边缘弯一下，和 iOS 26 的 Dock 一个做法），Skia 退回模糊 + 半透明。
-/// 配合 Scaffold.extendBody 使用：系统底部安全区算在胶囊外面，内部 NavigationBar 不再自己垫一次。
+/// 配合 Scaffold.extendBody 使用：系统底部安全区算在胶囊外面，里面那排按钮（DockBar）不再自己垫一次。
 class Dock extends StatelessWidget {
   final Widget child;
   const Dock({super.key, required this.child});

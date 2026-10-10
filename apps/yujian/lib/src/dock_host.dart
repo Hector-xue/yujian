@@ -76,7 +76,7 @@ class DockObserver extends NavigatorObserver {
   }
 }
 
-/// 底栏胶囊里 NavigationBar 的高度：内容 = 指示胶囊 32 + 标签上距 4 + 标签一行（字号 12，封顶 1.3 倍），再留上下各 ~6。
+/// 底栏胶囊里那排按钮（DockBar）的高度：选中块里放 图标 24 + 3 + 标签一行（字号 12，封顶 1.3 倍），选中块四周再留 5 的缝，上下还有余量。
 /// 写死 60 在大字号手机上内容会顶出底栏。
 double dockNavHeight(BuildContext context) => 50 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18);
 
