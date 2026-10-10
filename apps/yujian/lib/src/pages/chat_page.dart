@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Intent;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:interpreter/interpreter.dart' show SetupAnswerKind, SetupChoice, SetupOutcome, SetupQuestion, answerSetupQuestion, answerSetupReady, applySetupChoice, nextSetupQuestion;
@@ -984,129 +985,193 @@ class _ChatPageState extends State<ChatPage> {
         ),
         actions: [if (_msgs.isNotEmpty) IconButton(tooltip: '清空对话', onPressed: _clearHistory, icon: const Icon(Icons.delete_sweep_outlined))],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(children: [
-              Positioned.fill(
-                  child: _msgs.isEmpty && _historyLoaded
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                PersonaAvatar(app.persona, size: 96),
-                                const SizedBox(height: 16),
-                                Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"\n"欠白条 5000，每月 15 号还 1000"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}',
-                                    textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
-                              ],
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                          itemCount: _msgs.length,
-                          itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
-                        )),
-            ]),
-          ),
-          // 快捷操作：手动记 / 本月 / 预算
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                // 识别截图放第一位：常用，且在末尾要横滑一下才看得见
-                _chip(Icons.image_outlined, '识别截图', _busy ? null : _pickImage),
-                _chip(Icons.edit_note, '手动记一笔', () => showManualEntrySheet(context)),
-                _chip(Icons.account_balance_outlined, _setupMode ? '登记中…（点一下取消）' : '登记负债 / 资产', _busy ? null : _toggleSetupMode),
-                _chip(Icons.bar_chart, '本月统计', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StatsPage()))),
-                _chip(Icons.calendar_month_outlined, '日历', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()))),
-                _chip(Icons.savings_outlined, '预算', () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()))),
-                _chip(_speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', _toggleSpeak),
-              ],
-            ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-              child: Row(
-                children: [
-                  if (VoiceInput.platformSupported)
-                    GestureDetector(
-                      onLongPress: _voiceDiagnostics,
-                      child: IconButton(
-                        onPressed: _busy || _phase != VoicePhase.idle ? null : _toggleVoiceMode,
-                        icon: Icon(_voiceMode ? Icons.keyboard_alt_outlined : Icons.mic_none),
-                        tooltip: _voiceMode ? '切到键盘' : '切到语音（长按看诊断）',
+      // 聊天列表铺满到底；输入框浮在上面，列表在输入框上方渐隐（不再被一排快捷按钮 + 输入框一刀切断）。
+      // 快捷功能收进输入框左边的「＋」面板：底部从三层（快捷按钮 / 输入框 / 底栏）变两层
+      body: LayoutBuilder(builder: (context, box) {
+        final bottomPad = MediaQuery.paddingOf(context).bottom; // 底栏 + 系统手势条（Shell 加进来的）
+        final inputTop = bottomPad + _inputH; // 输入框顶边离 body 底边多远
+        final h = box.maxHeight <= 0 ? 1.0 : box.maxHeight;
+        // 渐隐带：输入框顶边往上 32 开始变淡，到顶边往下 8 完全透明（输入框和底栏后面不留字）
+        final fadeEnd = ((h - inputTop + 8) / h).clamp(0.0, 1.0);
+        final fadeStart = ((h - inputTop - 32) / h).clamp(0.0, fadeEnd);
+        return Stack(children: [
+          Positioned.fill(
+            child: _msgs.isEmpty && _historyLoaded
+                ? Padding(
+                    padding: EdgeInsets.only(bottom: inputTop),
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            PersonaAvatar(app.persona, size: 96),
+                            const SizedBox(height: 16),
+                            Text('${app.replier.template(PersonaEvent.greeting)}\n\n"午饭花了 28"\n"昨天打车 36，微信付的"\n"这个月餐饮花了多少"\n"欠白条 5000，每月 15 号还 1000"${app.companion != null ? '\n也可以随便聊聊，它记得你说过的事' : '\n配上模型后还能陪你聊天'}\n\n识别截图、手动记一笔、登记负债都在输入框左边的「＋」里',
+                                textAlign: TextAlign.center, style: theme.textTheme.bodyMedium?.copyWith(color: theme.textTheme.bodySmall?.color, height: 1.8)),
+                          ],
+                        ),
                       ),
                     ),
-                  Expanded(
-                    child: _voiceMode
-                        ? _HoldToTalk(
-                            phase: _phase,
-                            holding: _holding,
-                            cancel: _cancelHint,
-                            partial: _input.text,
-                            onStart: _holdStart,
-                            onEnd: (cancel) => _holdEnd(cancel: cancel),
-                            onMove: (up) {
-                              if (up != _cancelHint) setState(() => _cancelHint = up);
-                            },
-                          )
-                        : TextField(
-                            controller: _input,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _send(),
-                            decoration: InputDecoration(
-                              hintText: switch (_phase) {
-                                VoicePhase.idle => _setupMode ? '说说欠款或存款…' : '记一笔，或问问账本',
-                                VoicePhase.listening => '在听…',
-                                VoicePhase.recording => '录音中…',
-                                VoicePhase.transcribing => '转写中…',
-                              },
-                            ),
-                          ),
+                  )
+                : ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (r) => LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+                      stops: [0, fadeStart, fadeEnd],
+                    ).createShader(r),
+                    child: ListView.builder(
+                      controller: _scroll,
+                      // 底下留出输入框 + 底栏的高度：滚到底时最后一条完整露在输入框上面
+                      padding: EdgeInsets.fromLTRB(16, 12, 16, inputTop + 12),
+                      itemCount: _msgs.length,
+                      itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
+                    ),
                   ),
-                  const SizedBox(width: 6),
-                  if (!_voiceMode)
-                    IconButton.filled(
-                        onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
-                ],
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: _MeasureHeight(
+                onHeight: (v) {
+                  if (mounted && (v - _inputH).abs() > 0.5) setState(() => _inputH = v);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                  child: Row(
+                    children: [
+                      if (VoiceInput.platformSupported)
+                        GestureDetector(
+                          onLongPress: _voiceDiagnostics,
+                          child: IconButton(
+                            onPressed: _busy || _phase != VoicePhase.idle ? null : _toggleVoiceMode,
+                            icon: Icon(_voiceMode ? Icons.keyboard_alt_outlined : Icons.mic_none),
+                            tooltip: _voiceMode ? '切到键盘' : '切到语音（长按看诊断）',
+                          ),
+                        ),
+                      IconButton(
+                        onPressed: _busy ? null : _openTools,
+                        tooltip: '更多功能',
+                        // 登记模式开着时「＋」用强调色，提醒下一句按登记理解
+                        icon: Icon(Icons.add_circle_outline, color: _setupMode ? theme.colorScheme.primary : null),
+                      ),
+                      Expanded(
+                        child: _voiceMode
+                            ? _HoldToTalk(
+                                phase: _phase,
+                                holding: _holding,
+                                cancel: _cancelHint,
+                                partial: _input.text,
+                                onStart: _holdStart,
+                                onEnd: (cancel) => _holdEnd(cancel: cancel),
+                                onMove: (up) {
+                                  if (up != _cancelHint) setState(() => _cancelHint = up);
+                                },
+                              )
+                            : TextField(
+                                controller: _input,
+                                textInputAction: TextInputAction.send,
+                                onSubmitted: (_) => _send(),
+                                decoration: InputDecoration(
+                                  hintText: switch (_phase) {
+                                    VoicePhase.idle => _setupMode ? '说说欠款或存款…' : '记一笔，或问问账本',
+                                    VoicePhase.listening => '在听…',
+                                    VoicePhase.recording => '录音中…',
+                                    VoicePhase.transcribing => '转写中…',
+                                  },
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (!_voiceMode)
+                        IconButton.filled(
+                            onPressed: _busy ? null : _send, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_upward)),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-        ],
-      ),
+        ]);
+      }),
     );
   }
 
-  Widget _chip(IconData icon, String label, VoidCallback? onTap) {
-    final theme = Theme.of(context);
-    final y = YujianColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Material(
-        color: y.solidFill,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: y.cardBorder, width: 0.6)),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, size: 16, color: onTap == null ? y.muted : theme.colorScheme.primary),
-              const SizedBox(width: 6),
-              Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13, color: onTap == null ? y.muted : null)),
-            ]),
+  /// 输入区的实际高度（字号、语音按钮都会影响）：列表底部留白和渐隐带按它算。
+  double _inputH = 64;
+
+  /// 「＋」面板：以前横排在输入框上面的快捷功能。点了先关面板再做。
+  Future<void> _openTools() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final y = YujianColors.of(ctx);
+        Widget tile(String id, IconData icon, String label, {bool enabled = true, bool on = false}) => InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: enabled ? () => Navigator.pop(ctx, id) : null,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: on ? theme.colorScheme.primary.withValues(alpha: 0.14) : y.solidFill,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: on ? theme.colorScheme.primary : y.cardBorder, width: on ? 1.2 : 0.6),
+                  ),
+                  child: Icon(icon, size: 24, color: enabled ? theme.colorScheme.primary : y.muted),
+                ),
+                const SizedBox(height: 6),
+                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: enabled ? theme.colorScheme.onSurface : y.muted)),
+              ]),
+            );
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 4,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 8,
+            childAspectRatio: 0.82,
+            children: [
+              tile('shot', Icons.image_outlined, '识别截图', enabled: !_busy),
+              tile('manual', Icons.edit_note, '手动记一笔'),
+              tile('setup', Icons.account_balance_outlined, _setupMode ? '取消登记' : '登记负债 / 资产', on: _setupMode),
+              tile('stats', Icons.bar_chart, '本月统计'),
+              tile('calendar', Icons.calendar_month_outlined, '日历'),
+              tile('budgets', Icons.savings_outlined, '预算'),
+              tile('speak', _speak ? Icons.volume_up : Icons.volume_off_outlined, _speak ? '朗读：开' : '朗读：关', on: _speak),
+            ],
           ),
-        ),
-      ),
+        );
+      },
     );
+    if (!mounted || picked == null) return;
+    final nav = Navigator.of(context);
+    switch (picked) {
+      case 'shot':
+        await _pickImage();
+      case 'manual':
+        await showManualEntrySheet(context);
+      case 'setup':
+        _toggleSetupMode();
+      case 'stats':
+        await nav.push(MaterialPageRoute<void>(builder: (_) => const StatsPage()));
+      case 'calendar':
+        await nav.push(MaterialPageRoute<void>(builder: (_) => const CalendarPage()));
+      case 'budgets':
+        await nav.push(MaterialPageRoute<void>(builder: (_) => const BudgetsPage()));
+      case 'speak':
+        await _toggleSpeak();
+    }
   }
 
   Widget _buildMsg(_Msg m, AppState app, ThemeData theme) {
@@ -1374,4 +1439,32 @@ class _QueryCard extends StatelessWidget {
 
 extension on String {
   String ifEmpty(String fallback) => isEmpty ? fallback : this;
+}
+
+/// 量子组件布局后的高度，变了就回调（帧后回调，别在布局里 setState）。
+class _MeasureHeight extends SingleChildRenderObjectWidget {
+  final ValueChanged<double> onHeight;
+  const _MeasureHeight({required this.onHeight, required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderMeasureHeight(onHeight);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderMeasureHeight renderObject) => renderObject.onHeight = onHeight;
+}
+
+class _RenderMeasureHeight extends RenderProxyBox {
+  ValueChanged<double> onHeight;
+  double? _last;
+  _RenderMeasureHeight(this.onHeight);
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final h = size.height;
+    if (h != _last) {
+      _last = h;
+      WidgetsBinding.instance.addPostFrameCallback((_) => onHeight(h));
+    }
+  }
 }
