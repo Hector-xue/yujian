@@ -64,7 +64,8 @@ class _DockBarState extends State<DockBar> with SingleTickerProviderStateMixin {
     final dark = theme.brightness == Brightness.dark;
     final base = theme.navigationBarTheme.labelTextStyle?.resolve(const <WidgetState>{}) ?? const TextStyle();
     final labelStyle = base.copyWith(fontSize: 11, height: 1.2);
-    final accent = cs.primary;
+    // 强调色太浅（便签黄这类）、放在底栏上看不清：选中的改用正文色（便签自己的底栏也是黑图标）
+    final accent = _contrast(cs.primary, cs.surface) >= 2 ? cs.primary : cs.onSurface;
     // 小胶囊：中性的浅灰玻璃（不带主题色，和白磨砂的大胶囊是一套），上缘一圈白亮边 + 很淡的影子
     final fill = dark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.065);
     final rim = dark ? Colors.white.withValues(alpha: 0.14) : Colors.white.withValues(alpha: 0.85);
@@ -162,4 +163,9 @@ class _DockBarState extends State<DockBar> with SingleTickerProviderStateMixin {
       ),
     );
   }
+}
+
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance(), lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
 }
