@@ -94,8 +94,8 @@ class _DataPageState extends State<DataPage> {
         children: [
           Padding(padding: const EdgeInsets.fromLTRB(2, 0, 2, 6), child: Text('导出与备份', style: theme.textTheme.bodySmall)),
           GlassCard(child: Column(children: [
-          item(Icons.table_chart_outlined, '导出 CSV', '所有已确认交易，Excel 可直接打开', () => _export('yujian-$stamp.csv', () => exportCsv(app.ledger))),
-          item(Icons.backup_outlined, '备份（JSON）', '账户、分类、交易、收件箱、记忆全量；恢复时整库替换', () => _export('yujian-backup-$stamp.json', () => exportJsonString(app.ledger), ext: 'json')),
+          // 换手机用的放最前面、写清楚带哪些；CSV 只有流水，放最后并写明不能拿来换手机（有人用它换手机，信用卡 / 负债 / 目标全丢了）
+          item(Icons.backup_outlined, '完整备份（换手机用）', '交易、账户、信用卡和花呗条款、负债、定期、目标、周期账单、预算、发薪日都在；新手机上点「恢复备份」', () => _export('yujian-backup-$stamp.json', () => exportJsonString(app.ledger), ext: 'json')),
           if (sqliteFileSupported)
             item(Icons.storage_outlined, '备份数据库文件（SQLite）', '账本原文件的一致快照，含草稿、审计、预算、周期账单；可直接用 SQLite 工具打开', () async {
               try {
@@ -104,7 +104,7 @@ class _DataPageState extends State<DataPage> {
                 setState(() => status = '快照失败：${friendlyError(e)}');
               }
             }),
-          item(Icons.restore_outlined, '恢复备份', '会清空当前账本再写入备份内容', () async {
+          item(Icons.restore_outlined, '恢复备份', '选「完整备份」导出的文件；会清空当前账本再写入', () async {
             final text = await _pickText();
             if (text == null) {
               setState(() => status = '没有读到文件');
@@ -142,14 +142,31 @@ class _DataPageState extends State<DataPage> {
                 setState(() => status = '恢复失败：${friendlyError(e)}');
               }
             }),
+          item(Icons.table_chart_outlined, '导出明细表（CSV）', '只有交易流水，给 Excel 看；换手机请用最上面的「完整备份」', () => _export('yujian-$stamp.csv', () => exportCsv(app.ledger))),
           ])),
           Padding(padding: const EdgeInsets.fromLTRB(2, 16, 2, 6), child: Text('导入', style: theme.textTheme.bodySmall)),
           GlassCard(child: Column(children: [
-          item(Icons.file_upload_outlined, '导入账单 CSV', '微信 / 支付宝账单导出，或余见导出的 CSV；进收件箱确认后才入账', () async {
+          item(Icons.file_upload_outlined, '导入账单 CSV', '微信 / 支付宝导出的账单；进收件箱确认后才入账', () async {
             final text = await _pickText();
             if (text == null) {
               setState(() => status = '没有读到文件，或不是 UTF-8 编码（微信账单请先在 Excel 里另存为 UTF-8 CSV）');
               return;
+            }
+            // 余见自己的明细表：只带得走交易。先说清楚，旧手机还在就该用完整备份；只剩这个文件的也能继续导
+            if (isYujianCsv(text)) {
+              if (!context.mounted) return;
+              final go = await showDialog<bool>(
+                context: context,
+                builder: (d) => AlertDialog(
+                  title: const Text('这是余见导出的明细表'),
+                  content: const Text('它只有交易流水，没有信用卡、负债、定期、目标、周期账单这些。\n\n换手机的话：旧手机「更多 → 导出 / 备份 / 导入 → 完整备份」，新手机这里点「恢复备份」，就全带过来了。\n\n旧手机已经用不了、只剩这个文件？也可以只把交易导进收件箱。'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('取消')),
+                    FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('只导入交易')),
+                  ],
+                ),
+              );
+              if (go != true) return;
             }
             final r = app.importBillCsv(text);
             setState(() => status = r.error != null ? '导入失败：${r.error}' : '已生成 ${r.drafts} 条草稿到收件箱${r.deduped > 0 ? '，跳过 ${r.deduped} 条已导入过的' : ''}${r.problems > 0 ? '，${r.problems} 条需要补字段' : ''}${r.refundsSkipped > 0 ? '，${r.refundsSkipped} 笔退款的原单没记过、不用记' : ''}');

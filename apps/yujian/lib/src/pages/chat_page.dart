@@ -971,7 +971,11 @@ class _ChatPageState extends State<ChatPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShare(app));
     }
     return Scaffold(
+      // 标题栏透明、列表伸到它下面：滚上去的消息在标题栏下沿慢慢淡出，不再被一刀切断（和底部输入框一样）
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: theme.colorScheme.surface.withValues(alpha: 0), // 别用 Colors.transparent（透明黑，切主题会闪灰）
+        surfaceTintColor: theme.colorScheme.surface.withValues(alpha: 0),
         title: InkWell(
           onTap: _renameAssistant,
           borderRadius: BorderRadius.circular(8),
@@ -989,16 +993,20 @@ class _ChatPageState extends State<ChatPage> {
       // 快捷功能收进输入框左边的「＋」面板：底部从三层（快捷按钮 / 输入框 / 底栏）变两层
       body: LayoutBuilder(builder: (context, box) {
         final bottomPad = MediaQuery.paddingOf(context).bottom; // 底栏 + 系统手势条（Shell 加进来的）
+        final topPad = MediaQuery.paddingOf(context).top; // 状态栏 + 标题栏（extendBodyBehindAppBar 时 Scaffold 加进来的）
         final inputTop = bottomPad + _inputH; // 输入框顶边离 body 底边多远
         final h = box.maxHeight <= 0 ? 1.0 : box.maxHeight;
-        // 渐隐带：输入框顶边往上 32 开始变淡，到顶边往下 8 完全透明（输入框和底栏后面不留字）
+        // 底部渐隐带：输入框顶边往上 32 开始变淡，到顶边往下 8 完全透明（输入框和底栏后面不留字）
         final fadeEnd = ((h - inputTop + 8) / h).clamp(0.0, 1.0);
         final fadeStart = ((h - inputTop - 32) / h).clamp(0.0, fadeEnd);
+        // 顶部渐隐带：标题栏下沿往上 6 完全透明，往下 28 才完全显出来（标题后面不留字）
+        final topClear = ((topPad - 6) / h).clamp(0.0, fadeStart);
+        final topSolid = ((topPad + 28) / h).clamp(topClear, fadeStart);
         return Stack(children: [
           Positioned.fill(
             child: _msgs.isEmpty && _historyLoaded
                 ? Padding(
-                    padding: EdgeInsets.only(bottom: inputTop),
+                    padding: EdgeInsets.only(top: topPad, bottom: inputTop),
                     child: Center(
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.all(32),
@@ -1019,13 +1027,13 @@ class _ChatPageState extends State<ChatPage> {
                     shaderCallback: (r) => LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
-                      stops: [0, fadeStart, fadeEnd],
+                      colors: const [Color(0x00FFFFFF), Color(0x00FFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+                      stops: [0, topClear, topSolid, fadeStart, fadeEnd],
                     ).createShader(r),
                     child: ListView.builder(
                       controller: _scroll,
                       // 底下留出输入框 + 底栏的高度：滚到底时最后一条完整露在输入框上面
-                      padding: EdgeInsets.fromLTRB(16, 12, 16, inputTop + 12),
+                      padding: EdgeInsets.fromLTRB(16, topPad + 12, 16, inputTop + 12),
                       itemCount: _msgs.length,
                       itemBuilder: (ctx, i) => Padding(padding: const EdgeInsets.only(bottom: 12), child: _buildMsg(_msgs[i], app, theme)),
                     ),
