@@ -17,6 +17,7 @@ import 'src/pages/transactions_page.dart';
 import 'src/platform/avatar_files_native.dart' if (dart.library.js_interop) 'src/platform/avatar_files_web.dart';
 import 'src/platform/home_widget_bridge.dart';
 import 'src/demo/demo_data.dart';
+import 'src/notifications/draft_notifier.dart';
 import 'src/notifications/notification_source.dart';
 import 'src/notifications/screenshot_source.dart';
 import 'src/settings_store.dart';
@@ -27,8 +28,12 @@ import 'src/widgets/dock_bar.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await openAppDatabase();
-  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported())..bootstrap();
+  final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: AndroidScreenshotSource(), homeWidget: HomeWidgetBridge.ifSupported(), drafts: const AndroidDraftNotifier())..bootstrap();
   await state.loadSettings();
+  // 在前台不弹记账通知（收件箱里看得见）；切到后台 / 锁屏后来的才弹
+  final life = WidgetsBinding.instance.lifecycleState;
+  state.inForeground = life == null || life == AppLifecycleState.resumed;
+  AppLifecycleListener(onStateChange: (s) => state.inForeground = s == AppLifecycleState.resumed); // 注册到 binding 上，一直活着
   // 只在 Web：网址带 ?demo=1 且账本是空的 → 写一套演示数据（门户截图 / 在线试玩）；?theme=night 这类参数直接切主题。手机上不走这段
   if (kIsWeb) {
     final q = Uri.base.queryParameters;
@@ -39,6 +44,7 @@ Future<void> main() async {
   await GlassShaders.load(); // 玻璃着色器：一次编译，全 App 共用
   state.generateRecurring();
   await state.startNotifications();
+  await state.startDraftActions(); // App 关着时在通知栏上点过的 确认 / 忽略 / 撤销
   await state.startShare();
   runApp(YujianApp(state: state));
   unawaited(state.syncNow()); // 启动后台同步，不挡首屏
@@ -48,29 +54,39 @@ Future<void> main() async {
   unawaited(state.startGame()); // 目标 / 任务 / 仪式，不挡首屏
 }
 
-/// 无头引擎入口：App 没开着、但进程被通知监听 / 无障碍留着时，原生 ScreenshotBridge 起这个入口把截图队列处理掉。
-/// 只做一件事——吃队列、按模式入账、刷小部件——然后告诉原生销毁引擎。不 runApp。
+/// 无头引擎入口：App 没开着、但进程被通知监听 / 无障碍留着时，原生 BackgroundRunner 起这个入口跑一轮：
+/// 付款通知 / 支付页（「记账后弹通知」开着时）→ 起草 / 按模式入账 → 弹通知；截图队列；通知栏上点的按钮。
+/// 跑完告诉原生销毁引擎。不 runApp。
 @pragma('vm:entry-point')
-Future<void> screenshotBackground() async {
+Future<void> backgroundWork() async {
   WidgetsFlutterBinding.ensureInitialized();
   final shots = AndroidScreenshotSource();
+  const drafts = AndroidDraftNotifier();
   try {
     final db = await openAppDatabase();
-    final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: shots, homeWidget: HomeWidgetBridge.ifSupported());
+    final state = AppState(Ledger(db), settingsStore: PlatformSettingsStore(), notifications: AndroidNotificationSource(), screenshots: shots, homeWidget: HomeWidgetBridge.ifSupported(), drafts: drafts)..inForeground = false;
     await state.loadSettings();
-    if (state.settings.screenshotWanted) {
-      await state.ingestScreenshots(await shots.drain());
-      await state.pushHomeWidget();
-      // 用量 / 出网记录平时攒 2 秒再写；这里引擎马上就销毁，得立刻落盘，否则后台那几次模型调用就没人知道
-      await state.usage.flush();
-      await state.netLog.flush();
+    // 先处理按钮：用户刚点的，最该快
+    await state.handleDraftActions();
+    if (state.settings.draftNotify && (state.settings.notificationsWanted || state.settings.screenWanted)) {
+      state.ingestNotifications(await state.notifications.drain());
     }
+    if (state.settings.screenshotWanted) await state.ingestScreenshots(await shots.drain());
+    await state.flushBackground(); // 通知发完、记录落盘，再让原生销毁引擎
+    await state.pushHomeWidget();
+    // 用量 / 出网记录平时攒 2 秒再写；这里引擎马上就销毁，得立刻落盘，否则后台那几次模型调用就没人知道
+    await state.usage.flush();
+    await state.netLog.flush();
   } catch (e) {
     await shots.log({'what': 'background_error', 'err': '$e'});
   } finally {
-    await shots.backgroundDone();
+    await drafts.backgroundDone();
   }
 }
+
+/// 老入口名（0.9.24 以前原生起的是它）：留着，转给 [backgroundWork]。
+@pragma('vm:entry-point')
+Future<void> screenshotBackground() => backgroundWork();
 
 /// 底栏状态（当前标签 + 盖在首页上的路由动画）：底栏挂在 Navigator 外面，Shell 和覆盖层都看它。
 final dockController = DockController();

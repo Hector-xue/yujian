@@ -14,6 +14,7 @@ class MainActivity : FlutterActivity() {
         UpdateBridge.register(applicationContext, flutterEngine)
         SupportBridge.register(applicationContext, flutterEngine)
         ScreenshotBridge.register(applicationContext, flutterEngine, this)
+        DraftNotifier.register(applicationContext, flutterEngine, this)
         ScreenshotWatcher.ensureStarted(applicationContext)
         ShareBridge.handle(this, intent, initial = true)
     }
@@ -23,6 +24,7 @@ class MainActivity : FlutterActivity() {
             ScreenshotWatcher.ensureStarted(applicationContext)
             return
         }
+        if (DraftNotifier.onRequestPermissionsResult(requestCode, grantResults)) return
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
@@ -30,6 +32,14 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (SpeechBridge.onActivityResult(requestCode, resultCode, data)) return
         super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    // 前台引擎跟着 Activity 一起没了：各条事件流断开，之后来的通知 / 截图 / 按钮动作改走后台（BackgroundRunner）
+    override fun onDestroy() {
+        NotificationBridge.detach()
+        ScreenshotBridge.detach()
+        DraftNotifier.detach()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -462,6 +462,39 @@ class _AutomationPageState extends State<AutomationPage> with WidgetsBindingObse
               ],
             ),
           ),
+          if (app.draftNotifier.supported) ...[
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('记账后弹通知'),
+              subtitle: Text('不用打开余见：待确认的在通知里直接「确认 / 忽略」，自动记下的告诉你一声、记错了点「撤销」。余见开着、在前台时不弹', style: theme.textTheme.bodySmall),
+              value: s.draftNotify,
+              onChanged: (v) async {
+                final messenger = ScaffoldMessenger.of(context);
+                final ok = await app.setDraftNotify(v);
+                if (!mounted) return;
+                setState(() {});
+                if (v && !ok) {
+                  messenger.showSnackBar(SnackBar(
+                    content: const Text('没拿到通知权限，没打开'),
+                    action: SnackBarAction(label: '去应用信息页', onPressed: () => app.notifications.openAppInfo()),
+                  ));
+                }
+              },
+            ),
+            if (s.draftNotify) ...[
+              FutureBuilder<bool>(
+                future: app.draftNotifier.canPost(),
+                builder: (ctx, snap) => snap.data == false
+                    ? Text('系统里余见的通知被关了，现在弹不出来：到应用信息页 → 通知 打开。', style: theme.textTheme.bodySmall?.copyWith(color: YujianColors.of(context).danger))
+                    : const SizedBox.shrink(),
+              ),
+              if (!s.notificationsWanted && !s.screenWanted && !s.screenshotWanted)
+                Text('上面三条自动记账都没开，暂时没有可弹的。', style: theme.textTheme.bodySmall)
+              else
+                Text('余见没开着时，付款后几秒在后台认出来再弹（和截图记账一样，要求余见进程还活着）。', style: theme.textTheme.bodySmall),
+            ],
+          ],
           const SizedBox(height: 16),
           Text('自动入账记录', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),

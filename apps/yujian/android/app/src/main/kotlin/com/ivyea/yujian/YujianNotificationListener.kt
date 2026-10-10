@@ -10,7 +10,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 只读系统通知，攒进本地队列（SharedPreferences），App 打开时 drain；App 在前台时同时通过 EventChannel 直推。
+ * 只读系统通知，攒进本地队列（SharedPreferences），App 打开时 drain；App 在前台时同时通过 EventChannel 直推；
+ * App 没开着时（「记账后弹通知」打开）交给 [BackgroundRunner] 在后台吃掉队列、弹通知。
  * 不读短信、不用无障碍。用户在系统设置里授权后才会被绑定。
  */
 class YujianNotificationListener : NotificationListenerService() {
@@ -35,7 +36,8 @@ class YujianNotificationListener : NotificationListenerService() {
             .put("posted_at_ms", sbn.postTime)
             .put("key", sbn.key)
         enqueue(applicationContext, json)
-        NotificationBridge.push(json.toString())
+        // App 开着就交给它；没开着、而且像一笔钱，起后台跑一轮（记账后弹通知打开时才会）
+        if (!NotificationBridge.push(json.toString())) BackgroundRunner.onPaymentQueued(applicationContext, "${title ?: ""} $text", fromScreen = false)
     }
 
     companion object {

@@ -17,6 +17,7 @@ class Settings {
   final bool notificationsWanted; // 用户在余见里打开了开关（系统授权另查）
   final bool screenWanted; // 支付页识别（无障碍）开关（系统授权另查）
   final bool screenshotWanted; // 截图自动记账开关（相册权限另查）
+  final bool draftNotify; // 记账后弹系统通知（待确认的带 确认 / 忽略，自动记下的带 撤销）；默认关，老用户升级不会突然收到通知
   final String screenshotMode; // 截图怎么认：local 仅本机 OCR + 规则 / text 本地认不出时只发脱敏后的文字 / image 原图发给视觉模型
   final String? visionModel; // 空 = 用 model
   final String? syncUrl;
@@ -50,7 +51,7 @@ class Settings {
   final String omniVoice; // 多模态模型自带语音的音色（Qwen-Omni：Cherry / Serena / Ethan / Chelsie）
   final String? backgroundImage; // 自定义全局背景图路径（本机）；空 = 用主题自己的背景
   final double backgroundOpacity; // 背景图可见度 0–1
-  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.syncPassphrase, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.darkThemeId = '', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
+  const Settings({this.baseUrl, this.model, this.apiKey, this.personaId = 'minimalist', this.automationMode = AutomationMode.confirm, this.notificationsWanted = false, this.screenWanted = false, this.screenshotWanted = false, this.draftNotify = false, this.screenshotMode = 'local', this.visionModel, this.syncUrl, this.syncToken, this.syncPassphrase, this.backupPassphrase, this.userTemplates = const [], this.customPersonas = const [], this.personaAvatars = const {}, this.providerType = 'openai', this.localOnly = false, this.offlineMode = false, this.redact = true, this.assistantName, this.themeId = 'glass', this.darkThemeId = '', this.transcribeModel, this.speechModel, this.speechVoice, this.speechStyle, this.speechEngine = 'system', this.backgroundImage, this.backgroundOpacity = 0.6, this.doubaoApiKey, this.doubaoAppId, this.doubaoAccessKey, this.doubaoVoice = 'zh_female_vv_uranus_bigtts', this.minimaxApiKey, this.minimaxGroupId, this.minimaxVoice = 'female-shaonv', this.minimaxModel = 'speech-02-hd', this.omniVoice = 'Cherry'});
 
   /// 找某个 id 的自定义人格包；没有返回 null。
   Map<String, Object?>? customPersonaById(String id) {
@@ -89,7 +90,7 @@ class Settings {
     return ProviderConfig(name: 'user', type: providerType == 'anthropic' ? ProviderType.anthropic : ProviderType.openaiCompat, baseUrl: baseUrl!, apiKey: apiKey, model: model!, extraBody: extra, visionModel: (visionModel ?? '').isEmpty ? null : visionModel);
   }
 
-  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? syncPassphrase, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? darkThemeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
+  Settings copyWith({String? baseUrl, String? model, String? apiKey, String? personaId, AutomationMode? automationMode, bool? notificationsWanted, bool? screenWanted, bool? screenshotWanted, bool? draftNotify, String? screenshotMode, String? visionModel, String? syncUrl, String? syncToken, String? syncPassphrase, String? backupPassphrase, List<Map<String, Object?>>? userTemplates, List<Map<String, Object?>>? customPersonas, Map<String, String>? personaAvatars, String? providerType, bool? localOnly, bool? offlineMode, bool? redact, String? assistantName, String? themeId, String? darkThemeId, String? transcribeModel, String? speechModel, String? speechVoice, String? speechStyle, String? speechEngine, String? backgroundImage, double? backgroundOpacity, String? doubaoApiKey, String? doubaoAppId, String? doubaoAccessKey, String? doubaoVoice, String? minimaxApiKey, String? minimaxGroupId, String? minimaxVoice, String? minimaxModel, String? omniVoice}) => Settings(
         baseUrl: baseUrl ?? this.baseUrl,
         model: model ?? this.model,
         apiKey: apiKey ?? this.apiKey,
@@ -98,6 +99,7 @@ class Settings {
         notificationsWanted: notificationsWanted ?? this.notificationsWanted,
         screenWanted: screenWanted ?? this.screenWanted,
         screenshotWanted: screenshotWanted ?? this.screenshotWanted,
+        draftNotify: draftNotify ?? this.draftNotify,
         screenshotMode: screenshotMode ?? this.screenshotMode,
         visionModel: visionModel ?? this.visionModel,
         syncUrl: syncUrl ?? this.syncUrl,
@@ -174,6 +176,7 @@ class PlatformSettingsStore implements SettingsStore {
       notificationsWanted: p.getBool('notifications_wanted') ?? false,
       screenWanted: p.getBool('screen_wanted') ?? false,
       screenshotWanted: p.getBool('screenshot_wanted') ?? false,
+      draftNotify: p.getBool('draft_notify') ?? false,
       screenshotMode: p.getString('screenshot_mode') ?? 'local',
       visionModel: p.getString('llm_vision_model'),
       syncUrl: p.getString('sync_url'),
@@ -220,6 +223,7 @@ class PlatformSettingsStore implements SettingsStore {
     await p.setBool('notifications_wanted', s.notificationsWanted);
     await p.setBool('screen_wanted', s.screenWanted);
     await p.setBool('screenshot_wanted', s.screenshotWanted);
+    await p.setBool('draft_notify', s.draftNotify);
     await p.setString('screenshot_mode', s.screenshotMode);
     await p.setString('llm_vision_model', s.visionModel ?? '');
     await p.setString('sync_url', s.syncUrl ?? '');

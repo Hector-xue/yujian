@@ -17,7 +17,8 @@ object NotificationBridge {
     private var sink: EventChannel.EventSink? = null
     private val main = Handler(Looper.getMainLooper())
 
-    fun register(ctx: Context, engine: FlutterEngine) {
+    /** [foreground] = false 是无头引擎：只给它方法通道（取队列），事件流只属于前台引擎。 */
+    fun register(ctx: Context, engine: FlutterEngine, foreground: Boolean = true) {
         MethodChannel(engine.dartExecutor.binaryMessenger, METHODS).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isEnabled" -> result.success(YujianNotificationListener.isEnabled(ctx))
@@ -52,14 +53,20 @@ object NotificationBridge {
                 else -> result.notImplemented()
             }
         }
+        if (!foreground) return
         EventChannel(engine.dartExecutor.binaryMessenger, EVENTS).setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(args: Any?, events: EventChannel.EventSink?) { sink = events }
             override fun onCancel(args: Any?) { sink = null }
         })
     }
 
-    fun push(json: String) {
-        val s = sink ?: return
+    /** 前台 Activity 销毁了：别再往它的引擎推。 */
+    fun detach() { sink = null }
+
+    /** 前台引擎在听就直推，返回 true；不在返回 false（事件已经在队列里，调用方决定要不要起后台）。 */
+    fun push(json: String): Boolean {
+        val s = sink ?: return false
         main.post { s.success(json) }
+        return true
     }
 }

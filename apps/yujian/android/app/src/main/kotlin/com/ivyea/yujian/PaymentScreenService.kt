@@ -232,7 +232,7 @@ class PaymentScreenService : AccessibilityService() {
             .put("key", "screen:$pkg:${found.amount}:${wall / 60000}")
             .put("source", "screen")
         YujianNotificationListener.enqueue(applicationContext, json)
-        NotificationBridge.push(json.toString())
+        if (!NotificationBridge.push(json.toString())) BackgroundRunner.onPaymentQueued(applicationContext, json.optString("text"), fromScreen = true)
         log(this, entry.put("what", "enqueued").put("amount", found.amount).put("merchant", found.merchant ?: ""))
     }
 
