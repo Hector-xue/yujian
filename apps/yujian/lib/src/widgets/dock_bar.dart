@@ -65,9 +65,9 @@ class _DockBarState extends State<DockBar> with SingleTickerProviderStateMixin {
     final base = theme.navigationBarTheme.labelTextStyle?.resolve(const <WidgetState>{}) ?? const TextStyle();
     final labelStyle = base.copyWith(fontSize: 11, height: 1.2);
     final accent = cs.primary;
-    // 小胶囊：半透明白 + 一点强调色，亮边 + 很淡的影子——像压在大胶囊上的一片玻璃
-    final fill = dark ? Color.alphaBlend(accent.withValues(alpha: 0.16), Colors.white.withValues(alpha: 0.10)) : Color.alphaBlend(accent.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0.70));
-    final rim = dark ? Colors.white.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.95);
+    // 小胶囊：中性的浅灰玻璃（不带主题色，和白磨砂的大胶囊是一套），上缘一圈白亮边 + 很淡的影子
+    final fill = dark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.065);
+    final rim = dark ? Colors.white.withValues(alpha: 0.14) : Colors.white.withValues(alpha: 0.85);
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.3, // 和 dockNavHeight 的估算一致：字再大胶囊也不会被撑破
       child: SizedBox(
@@ -97,7 +97,7 @@ class _DockBarState extends State<DockBar> with SingleTickerProviderStateMixin {
                       decoration: ShapeDecoration(
                         shape: StadiumBorder(side: BorderSide(color: rim, width: 1)),
                         color: fill,
-                        shadows: [BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.25 : 0.07), blurRadius: 10, offset: const Offset(0, 2))],
+                        shadows: [BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.20 : 0.05), blurRadius: 6, offset: const Offset(0, 1))],
                       ),
                     ),
                   ),
