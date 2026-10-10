@@ -1138,9 +1138,9 @@ class _ChatPageState extends State<ChatPage> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 4,
-            mainAxisSpacing: 14,
+            mainAxisSpacing: 4,
             crossAxisSpacing: 8,
-            childAspectRatio: 0.82,
+            childAspectRatio: 1.0,
             children: [
               tile('shot', Icons.image_outlined, '识别截图', enabled: !_busy),
               tile('manual', Icons.edit_note, '手动记一笔'),
