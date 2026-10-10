@@ -717,10 +717,10 @@ class Dock extends StatelessWidget {
     final inner = MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, removeLeft: true, removeRight: true, child: child);
     final Widget pill = y.glass
         // 底栏比卡片更"玻璃"：着色更淡、折射带更宽、模糊更重——它底下是真正滚动的内容，透镜感在这里才看得见
-        // 0.9.27：照 HyperOS 相册底栏——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低，
-        // 立体感交给外面的 _DockSheen（上亮下淡的亮边 + 很淡的内渐变 + 一圈细外线）
+        // 0.9.27：照 HyperOS 底栏 / 通知卡——中性的白磨砂（不再用卡片色着色，粉主题下胶囊就不发粉）、饱和度压低；
+        // 是一块平的玻璃：折射带只留很窄一条、位移很小（以前 22 / 14 边上像透镜一样鼓），轮廓交给外面的 _DockSheen 一圈细亮边
         ? LiquidGlass(
-            spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.62), saturation: 1.15, thickness: 22, refract: 14, light: 0.9),
+            spec: y.glassSpec.copyWith(tint: theme.brightness == Brightness.dark ? const Color(0xFF1C1C1E).withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.62), saturation: 1.15, thickness: 5, refract: 1.5, light: 0.45),
             radius: 999,
             blur: 24,
             fallback: y.cardFill,
@@ -750,10 +750,9 @@ class Dock extends StatelessWidget {
   }
 }
 
-/// 玻璃底栏的「质感层」，压在模糊上面：
-/// - 很淡的内渐变：上缘一点白、下缘一点暗，胶囊看着微微鼓起，而不是一块平板；
-/// - 亮边：上亮下淡的渐变描边（光从上面来），玻璃的厚度靠它；
-/// - 最外一圈细线：亮色主题是极淡的灰，白底上也看得清轮廓（纯白边在白底上会消失）。
+/// 玻璃底栏的轮廓层，压在模糊上面。平的玻璃：不做内渐变（下缘一暗就显得鼓、显得脏），只有
+/// - 一圈细亮边，上缘略亮、下缘略淡（光从上面来），玻璃的边靠它；
+/// - 最外一圈几乎看不见的细线：亮色主题是极淡的灰，只为了白底上轮廓不丢。
 class _DockSheen extends CustomPainter {
   final bool dark;
   const _DockSheen({required this.dark});
@@ -763,34 +762,22 @@ class _DockSheen extends CustomPainter {
     final rect = Offset.zero & size;
     final rr = RRect.fromRectAndRadius(rect, Radius.circular(size.height / 2));
     canvas.drawRRect(
-      rr,
+      rr.deflate(0.9),
       Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: dark
-              ? [Colors.white.withValues(alpha: 0.07), Colors.white.withValues(alpha: 0), Colors.black.withValues(alpha: 0.12)]
-              : [Colors.white.withValues(alpha: 0.30), Colors.white.withValues(alpha: 0), Colors.black.withValues(alpha: 0.025)],
-          stops: const [0, 0.55, 1],
+          colors: dark ? [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.10)] : [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: 0.70)],
         ).createShader(rect),
     );
     canvas.drawRRect(
-      rr.deflate(1.1),
+      rr.deflate(0.25),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: dark ? [Colors.white.withValues(alpha: 0.30), Colors.white.withValues(alpha: 0.06)] : [Colors.white, Colors.white.withValues(alpha: 0.45)],
-        ).createShader(rect),
-    );
-    canvas.drawRRect(
-      rr.deflate(0.3),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.6
-        ..color = dark ? Colors.white.withValues(alpha: 0.10) : Colors.black.withValues(alpha: 0.08),
+        ..strokeWidth = 0.5
+        ..color = dark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.035),
     );
   }
 
