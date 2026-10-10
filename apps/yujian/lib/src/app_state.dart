@@ -229,7 +229,8 @@ class AppState extends ChangeNotifier {
             if (d.possibleDuplicateOf != null) '像是重复的一笔，点开看看',
           ].where((x) => x.isNotEmpty).join('\n'),
           target: d.id,
-          canConfirm: d.missingFields.isEmpty && d.possibleDuplicateOf == null,
+          // 疑似重复也能直接确认（和收件箱一样，只在文字里提醒）；只有缺字段的确认不了，要点开补全
+          canConfirm: d.missingFields.isEmpty,
         ),
       for (final t in committed)
         DraftNotice(

@@ -76,9 +76,10 @@ class DockObserver extends NavigatorObserver {
   }
 }
 
-/// 底栏胶囊里那排按钮（DockBar）的高度：选中块里放 图标 24 + 3 + 标签一行（字号 12，封顶 1.3 倍），选中块四周再留 5 的缝，上下还有余量。
+/// 底栏胶囊里那排按钮（DockBar）的高度：选中块里放 图标 22 + 2 + 标签一行（字号 11，封顶 1.3 倍），四周 5 的缝。
+/// 不做高：选中块要比高宽一截（约 1.6–1.8 : 1）才是胶囊，高了就成椭圆。
 /// 写死 60 在大字号手机上内容会顶出底栏。
-double dockNavHeight(BuildContext context) => 50 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(18);
+double dockNavHeight(BuildContext context) => 38 + MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3).scale(14);
 
 /// 底栏胶囊的下边距：系统底部安全区（手势条）之上再贴一点。
 /// 用 viewPadding 不用 padding：键盘弹出时 padding.bottom 会变 0，胶囊的边距要是跟着变，键盘收起时就会跳一下。
